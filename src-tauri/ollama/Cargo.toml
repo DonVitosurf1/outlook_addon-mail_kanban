@@ -1,0 +1,15 @@
+[package]
+name = "mailboard-ollama"
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+[dependencies]
+sha2 = "0.10"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

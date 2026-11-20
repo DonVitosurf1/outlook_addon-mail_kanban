@@ -1,6 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
 fn main() {
+    println!("cargo:rerun-if-changed=../dist");
     tauri_build::build();
     let helper = "../outlook-test/Outlook-Test.exe";
     println!("cargo:rerun-if-changed={helper}");

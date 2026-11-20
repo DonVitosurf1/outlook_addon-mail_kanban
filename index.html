@@ -1,8 +1,106 @@
 <!doctype html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mail-Board · Demo</title><link rel="stylesheet" href="board.css"></head><body>
-<aside><div class="brand"><span class="mark" aria-hidden="true">▥</span> Mail-Board</div><div class="section">Postfach</div><nav id="folders" aria-label="Ordner"></nav><div class="foot">Lokales Demo-Postfach</div></aside>
-<main><header><span>Arbeitsbereich &nbsp;/&nbsp; Mail-Board</span><button hidden id="loadInbox">Outlook-Mails laden</button><button hidden id="backDemo">Zur Demo</button><button hidden id="openOutlookTest">Outlook-Verbindung testen</button><button id="undo" disabled title="Strg+Z">↶ Rückgängig</button></header>
-<div class="bar"><div><h1 id="title">Alle Mails</h1><p id="summary" aria-live="polite"></p></div><input id="search" type="search" placeholder="Mails durchsuchen …" aria-label="Mails durchsuchen"></div>
-<div class="board" id="board"></div><p id="message" role="status"></p></main>
-<dialog id="detail" aria-labelledby="subject"><form method="dialog"><button class="close" aria-label="Schließen">×</button></form><small>Mailvorschau</small><h2 id="subject"></h2><p id="from"></p><article id="body"></article><p id="attachments"></p><button hidden id="openOriginal">In Outlook öffnen</button><p id="openError" role="status"></p><div class="fields"><label>Status<select id="status"></select></label><label>Ordner<select id="folder"></select></label></div></dialog>
-<script src="board.js" defer></script></body></html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mail-Kanban</title>
+  <link rel="stylesheet" href="board.css">
+</head>
+<body>
+  <a href="#board" class="skip-link">Zum Board</a>
+  <aside aria-label="Postfachnavigation" class="sidebar">
+    <div class="brand"><span aria-hidden="true" class="board-mark"><i></i><i></i><i></i><i></i></span>Mail-Kanban</div>
+    <div class="side-scroll">
+      <section class="focus-section"><h2>Fokus</h2><nav id="focusViews" aria-label="Fokus"></nav></section>
+      <section><h2>Ordner</h2><nav id="folders" aria-label="Ordner"></nav></section>
+      <div id="sideActions"></div>
+    </div>
+    <button id="cockpit-start" class="side-action">Start und Übersicht</button>
+    <div class="foot">Lokales Demo-Postfach</div>
+  </aside>
+
+  <main>
+    <header class="toolbar">
+      <label class="search-box">
+        <span class="search-icon" aria-hidden="true"></span>
+        <input id="search" type="search" placeholder="Mails durchsuchen …" aria-label="Mails durchsuchen (Strg+F)">
+        <kbd aria-hidden="true">Strg F</kbd>
+      </label>
+      <div class="work-actions" id="workActions">
+        <button hidden class="primary" id="loadInbox">Outlook-Mails laden</button>
+        <button hidden id="connectOutlook">Outlook starten …</button>
+        <button hidden id="backDemo">Zur Demo</button>
+        <button id="undo" disabled title="Letzte Änderung zurücknehmen (Strg+Z)">Rückgängig</button>
+        <details class="tools" id="moreTools">
+          <summary>Werkzeuge</summary>
+          <div class="tools-panel">
+            <button id="paletteTrigger" aria-keyshortcuts="Control+K">Befehl suchen (Strg+K)</button>
+            <button id="openSettings">Outlook und lokale KI</button>
+            <button id="cockpit-help">Hilfe und Tastenkürzel</button>
+            <button id="dataSettings">Lokale Daten und Textbausteine</button>
+            <button hidden id="projectTools">Projektordner verwalten</button>
+            <button hidden id="openOutlookTest">Outlook-Verbindung testen</button>
+          </div>
+        </details>
+      </div>
+    </header>
+
+    <div class="board-heading">
+      <div class="board-title"><h1 id="title">Alle Mails</h1><p id="summary" aria-live="polite"></p></div>
+      <div id="viewControls" role="group" aria-label="Ansicht und Filter"></div>
+    </div>
+    <div id="board" class="board" role="region" tabindex="-1" aria-label="Kanban-Board"></div>
+    <p id="message" role="status"></p>
+  </main>
+
+  <dialog id="detail" aria-labelledby="subject">
+    <form method="dialog" class="dialog-tools"><button class="close" aria-label="Maildetails schließen">×</button></form>
+    <small class="dialog-label">Maildetails</small>
+    <h2 id="subject"></h2><p id="from"></p>
+    <article id="body"></article><p id="attachments"></p>
+    <button hidden id="openOriginal">In Outlook öffnen</button><p id="openError" role="status"></p>
+    <div class="fields">
+      <label>Status<select id="status"></select></label>
+      <label>Ordner<select id="folder"></select></label>
+    </div>
+    <div id="replyActions" hidden>
+      <div class="reply-buttons">
+        <button data-draft="reply">Antworten</button>
+        <button data-draft="reply-all">Allen antworten</button>
+        <button data-draft="forward">Weiterleiten</button>
+      </div>
+      <div class="followup-row">
+        <label>Textbaustein<select id="draftSnippet"></select></label>
+        <button data-draft="follow-up">Nachfassentwurf öffnen</button>
+      </div>
+    </div>
+    <div id="detailActions"></div>
+    <section class="ai-section" aria-label="Ablagevorschlag">
+      <button id="suggestFolder">Ablagevorschlag ermitteln</button>
+      <p id="suggestionResult" role="status"></p>
+      <button id="applySuggestion" hidden>Vorschlag übernehmen …</button>
+    </section>
+    <section id="analysis" aria-label="Lokale KI-Analyse"></section>
+  </dialog>
+
+  <dialog id="settingsDialog" aria-labelledby="settingsTitle">
+    <form method="dialog" class="dialog-tools"><button class="close" aria-label="Einstellungen schließen">×</button></form>
+    <h2 id="settingsTitle">Outlook und lokale KI</h2><div id="aiSettings"></div>
+  </dialog>
+  <dialog id="palette" aria-labelledby="paletteTitle">
+    <form method="dialog" class="dialog-tools"><button class="close" aria-label="Befehlspalette schließen">×</button></form>
+    <h2 id="paletteTitle">Befehl suchen</h2>
+    <input id="paletteFilter" type="search" aria-label="Befehl filtern" placeholder="Befehl eingeben …" role="combobox"
+           aria-controls="paletteList" aria-autocomplete="list" aria-expanded="true" autocomplete="off" autofocus>
+    <div id="paletteList" role="listbox" aria-label="Verfügbare Befehle"></div>
+    <p id="paletteEmpty" role="status" hidden>Kein passender Befehl gefunden.</p>
+  </dialog>
+  <dialog id="moveConfirm" aria-labelledby="moveHeading">
+    <h2 id="moveHeading">Verschieben bestätigen</h2><p id="moveQuestion"></p>
+    <form method="dialog" class="dialog-actions">
+      <button value="cancel" autofocus>Abbrechen</button><button value="confirm" class="primary">Verschieben</button>
+    </form>
+  </dialog>
+  <script src="board.js" defer></script>
+</body>
+</html>

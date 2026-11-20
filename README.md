@@ -1,26 +1,49 @@
-# Outlook-Kanban mit Tauri
+# Mail-Board für klassisches Outlook
 
-Eigenständiges Windows-Projekt auf Basis des getesteten Mail-Boards (Ausgangsstand e5a6e28 im Repository DonVitosurf1/outlook-addin_mail-kanban-board). TypeScript zeichnet das Board, Rust verbindet die Oberfläche mit dem lokalen C#-Helfer für klassisches Outlook.
+Mail-Board ist eine eigenständige Windows-App für das tägliche Sichten, Nachverfolgen und Ablegen von E-Mails. Links stehen Postfach und Fokusansichten, in der Mitte die vier Statusspalten. Lesen, Antworten und Senden erfolgen in Outlook. Das Board kann Entwürfe in Outlook öffnen.
 
-## Ausprobieren
+![Das Mail-Board mit 14 Beispielmails in vier Statusspalten](docs/mail-board.png)
 
-Das Windows-x64-ZIP vollständig entpacken und Outlook-Kanban-Demo.exe starten. Die Dateien Outlook-Test.exe und WebView2Loader.dll gehören neben das Programm. Voraussetzungen sind WebView2 und für die Postfachfunktionen klassisches Outlook mit eingerichtetem Profil sowie .NET Framework 4.8.
+## Unter Windows ausprobieren
 
-- Im Demomodus lassen sich 14 Beispielmails suchen, verschieben und mit Strg+Z zurückholen.
-- **Outlook-Mails laden** zeigt bis zu 20 echte Mails des Standardposteingangs. Das Board liest die Outlook-Statuskategorien und kann eine ausgewählte Nachricht in Outlook öffnen. Die echten Karten sind schreibgeschützt und bleiben im Arbeitsspeicher.
-- **Outlook-Verbindung testen** öffnet ein separates Fenster zum bestätigten Verschieben einer Testmail innerhalb desselben Postfachs und zum Rückgängigmachen.
+1. [Windows-x64-ZIP herunterladen](downloads/Mail-Board-Windows-x64.zip?raw=true) und den **gesamten Inhalt** in einen beschreibbaren Ordner entpacken.
+2. **Mail-Board.exe** starten. Der erste Start zeigt ein Demo-Postfach. **Outlook-Mails laden** öffnet das Board für das vorhandene Outlook-Profil. Der mitgelieferte Helfer muss neben der EXE liegen.
+3. Unter **Werkzeuge → Projektordner verwalten** einen vorhandenen Testordner als Board- und Lernziel wählen. Unter **Werkzeuge → Outlook und lokale KI** „Echte Mails verschieben erlauben“ einschalten.
+4. Eine entbehrliche Testmail mit einem zum Ordner passenden Betreff anklicken, **Ablagevorschlag ermitteln**, das Ziel prüfen und die Verschiebung bestätigen. In Outlook den Zielordner prüfen. Im Board **Aktualisieren**, dann **Strg+Z** drücken und in Outlook den Ursprungsordner prüfen.
 
-Lokale KI mit Ollama, automatische Ablagevorschläge und der weitere Funktionsumfang der Python-App sind noch nicht portiert.
+Der normale Start aus dem entpackten Ordner benötigt keine Administratorrechte, keinen Rust- oder Node-Dienst und keine Installation der App. Er setzt eine nutzbare **Microsoft Edge WebView2 Runtime** voraus. Für echte Mails benötigt der Helfer **klassisches Outlook für Windows** mit eingerichtetem Standardprofil und **.NET Framework 4.8**. Auf verwalteten Geräten gelten die lokalen Ausführungsrichtlinien für heruntergeladene Programme. Das neue Outlook für Windows stellt die verwendete COM-Schnittstelle nicht bereit.
 
-## Entwickeln unter Windows
+## Bedienung und lokale Daten
 
-Node.js mit npm, Rust stable (MSVC), Visual Studio Build Tools mit C++ und Windows SDK installieren. Im Projektverzeichnis:
+- **F1** öffnet die Hilfe, **Strg+K** die Befehlspalette, **Strg+F** die Suche. Über **Start** sind unter anderem Morgen-Triage, Wochenblick und Posteingang aufräumen erreichbar. **1–4** ändert den Status ausgewählter Karten.
+- Ohne KI lassen sich Mails verarbeiten und Ablageziele anhand von Regeln, Steckbriefen und gelernten Beispielen vorschlagen. Wer die Modellfunktionen nutzen möchte, startet lokal Ollama, installiert ein passendes Modell und wählt es unter **Outlook und lokale KI** aus. Modellzugriffe laufen über Rust und sind auf Loopback beschränkt.
+- **Werkzeuge → Lokale Daten und Textbausteine** exportiert und importiert Sicherungen. Die App speichert lokale Einstellungen im Benutzerprofil. Das bloße Kopieren der EXE auf einen anderen PC überträgt diese Daten nicht.
+
+[Funktionsmatrix und Unterschiede zur Python-Version](docs/FUNKTIONSMATRIX.md) · [Datenübernahme](docs/DATEN.md) · [Windows-Abnahme](docs/WINDOWS-ABNAHME.md) · [Designentscheidungen](DESIGN.md)
+
+## Unter Windows selbst bauen
+
+Voraussetzungen für den Build sind Node.js mit npm, Rust stable mit dem MSVC-Toolchain für x64, Visual Studio Build Tools mit C++ und Windows SDK sowie die WebView2 Runtime. Der C#-Helfer und seine Quellen liegen in outlook-test/. Für einen vollständigen Neubau vom Repository-Stamm aus in der Windows-Eingabeaufforderung ausführen:
 
 ```cmd
 npm ci
-npm run dev
+outlook-test\build.cmd
+npm test
+npm run portable
 ```
 
-Für eine Release-Version `npm run desktop` ausführen. Die ausführbaren Dateien liegen in `src-tauri/target/release/`. Der kompilierte Outlook-Helfer liegt zusammen mit seiner Quelle in `outlook-test/`. Nach Änderungen an der C#-Quelle zuerst `outlook-test\\build.cmd` ausführen und dann den Desktop-Build wiederholen.
+Das Paket liegt anschließend unter `downloads/Mail-Board-Windows-x64.zip`. Für die Entwicklung startet `npm run dev` das Desktopfenster. `npm run build` prüft TypeScript und erzeugt die Weboberfläche in dist/.
 
-`npm run build` prüft die TypeScript-Typen und erzeugt die Browservorschau in `dist/`.
+### Automatisierte Prüfung
+
+| Befehl | Prüft |
+|---|---|
+| `npm test` | Portierte Fachlogik, Ablage, Rücknahme, Ansichten und Datenübernahme |
+| `cargo test --manifest-path src-tauri/Cargo.toml -p mailboard-ollama` | Lokales Modellprotokoll und Datenschutzgrenzen |
+| `dotnet run --project outlook-test/tests/OutlookContracts.csproj` | C#-Helfer mit simuliertem Outlook, erfordert .NET SDK 8 für den Test |
+| `python tests/live-board-smoke.py` | Regulärer Boardablauf mit simuliertem Desktop-Adapter, Bestätigung, Auffrischen und Undo |
+| `python tests/board-keyboard-smoke.py` | Tastaturbedienung und Layout bis zur Mindestfenstergröße |
+
+Weitere Browsertests prüfen Morgen-Triage und Aufräumen, die Ordnerunterteilung, Projektabschluss und Rücknahme sowie Kartenaktionen und Antwortverfolgung. Unter Windows prüft [window-reopen.ps1](tests/window-reopen.ps1) das Wiederöffnen des Programmfensters.
+
+Die Browsertests verwenden den vorausgegangenen Frontend-Build, Python mit Playwright und Chromium. Den Pfad zum installierten Browser kann man mit der Umgebungsvariable CHROMIUM setzen.

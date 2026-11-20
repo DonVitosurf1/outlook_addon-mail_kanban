@@ -1,0 +1,113 @@
+use mailboard_ollama::cache::{Evaluation, EvaluationFolder, SampleIndex};
+use mailboard_ollama::{Analysis, Folder, Mail, Ollama, Sample, Score};
+use tauri::Manager;
+
+#[tauri::command]
+pub async fn ai_models(url: String) -> Result<Vec<String>, String> {
+    Ollama::new(&url)?.models().await
+}
+
+#[tauri::command]
+pub async fn ai_analyze(
+    url: String,
+    model: String,
+    mail: Mail,
+    folders: Vec<Folder>,
+) -> Result<Analysis, String> {
+    Ollama::new(&url)?.analyze(&model, &mail, &folders).await
+}
+
+#[tauri::command]
+pub async fn ai_suggest(
+    app: tauri::AppHandle,
+    url: String,
+    model: String,
+    text: String,
+    folders: Vec<Folder>,
+    centroids: std::collections::HashMap<String, Vec<f64>>,
+) -> Result<Vec<Score>, String> {
+    Ollama::new(&url)?
+        .with_cache(vector_path(&app)?)
+        .scores(&model, &text, &folders, &centroids)
+        .await
+}
+
+#[tauri::command]
+pub async fn ai_centroid(
+    app: tauri::AppHandle,
+    url: String,
+    model: String,
+    samples: Vec<Sample>,
+    description: String,
+    description_weight: f64,
+) -> Result<TrainingResult, String> {
+    let client = Ollama::new(&url)?.with_cache(vector_path(&app)?);
+    let vector = client
+        .centroid(&model, &samples, &description, description_weight)
+        .await?;
+    Ok(TrainingResult {
+        vector,
+        index: client.sample_index(&model, &samples, &description),
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct TrainingResult {
+    vector: Vec<f64>,
+    index: SampleIndex,
+}
+fn vector_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(app
+        .path()
+        .app_local_data_dir()
+        .map_err(|_| "Lokaler Cachepfad nicht verfügbar.")?
+        .join("embeddings-v1"))
+}
+#[tauri::command]
+pub async fn ai_holdout(
+    app: tauri::AppHandle,
+    folders: Vec<EvaluationFolder>,
+    weight: f64,
+    threshold: f64,
+    margin: f64,
+) -> Result<Evaluation, String> {
+    let root = vector_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        mailboard_ollama::cache::holdout(&root, &folders, weight, threshold, margin)
+    })
+    .await
+    .map_err(|_| "Semantik-Testlauf abgebrochen.".into())
+}
+
+#[tauri::command]
+pub async fn ai_profile(
+    url: String,
+    model: String,
+    key: String,
+    samples: Vec<Mail>,
+) -> Result<String, String> {
+    Ollama::new(&url)?.profile(&model, &key, &samples).await
+}
+
+#[tauri::command]
+pub async fn ai_reply(
+    url: String,
+    model: String,
+    mail: Mail,
+    profile: String,
+) -> Result<String, String> {
+    Ollama::new(&url)?.reply(&model, &mail, &profile).await
+}
+
+#[tauri::command]
+pub async fn ai_subfolders(
+    url: String,
+    model: String,
+    area: String,
+    examples: Vec<mailboard_ollama::StructureExample>,
+    existing: Vec<String>,
+) -> Result<Vec<mailboard_ollama::Subfolder>, String> {
+    Ollama::new(&url)?
+        .subfolders(&model, &area, &examples, &existing)
+        .await
+}
