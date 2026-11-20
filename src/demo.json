@@ -1,0 +1,154 @@
+[
+  {
+    "id": "DEMO0000",
+    "sender": "Dr. Anna Weber",
+    "subject": "Angebot Pipettenspitzen 200 µl",
+    "body": "Hallo,\n\nanbei das Angebot für die gefilterten Spitzen, Lieferzeit ca. drei Wochen.\n\nViele Grüße\nDr. Anna Weber",
+    "folder": "Pipettenspitzen",
+    "status": "Offen",
+    "tags": [
+      "Wichtig"
+    ],
+    "attachments": [
+      "Angebot_200ul.pdf"
+    ]
+  },
+  {
+    "id": "DEMO0001",
+    "sender": "Thomas Krüger",
+    "subject": "Raumplanung Q1",
+    "body": "Hallo,\n\nkönnen wir nächste Woche die Belegung der Labore besprechen?\n\nViele Grüße\nThomas Krüger",
+    "folder": "Posteingang",
+    "status": "Offen",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0002",
+    "sender": "Lisa Hoffmann",
+    "subject": "Re: Messdaten Charge 4711",
+    "body": "Hallo,\n\ndie Werte aus der letzten Messreihe liegen jetzt vor, siehe Anhang.\n\nViele Grüße\nLisa Hoffmann",
+    "folder": "Posteingang",
+    "status": "Offen",
+    "tags": [],
+    "attachments": [
+      "Messreihe_4711.xlsx"
+    ]
+  },
+  {
+    "id": "DEMO0003",
+    "sender": "IT-Service",
+    "subject": "Wartungsfenster am Samstag",
+    "body": "Hallo,\n\nam Samstag zwischen 8 und 12 Uhr sind die Server nicht erreichbar.\n\nViele Grüße\nIT-Service",
+    "folder": "Posteingang",
+    "status": "Offen",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0004",
+    "sender": "Michael Braun",
+    "subject": "Rückfrage Bestellung 2026-118",
+    "body": "Hallo,\n\ndie Bestellung ist eingegangen, uns fehlt noch die Kostenstelle.\n\nViele Grüße\nMichael Braun",
+    "folder": "Pipettenspitzen",
+    "status": "Offen",
+    "tags": [
+      "Wichtig"
+    ],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0005",
+    "sender": "Sabine Wolf",
+    "subject": "Teammeeting Protokoll",
+    "body": "Hallo,\n\nhier das Protokoll vom Dienstag, bitte bis Freitag Rückmeldung.\n\nViele Grüße\nSabine Wolf",
+    "folder": "Posteingang",
+    "status": "In Bearbeitung",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0006",
+    "sender": "Lieferant GmbH",
+    "subject": "Lieferavis",
+    "body": "Hallo,\n\nIhre Lieferung wird morgen zwischen 10 und 14 Uhr zugestellt.\n\nViele Grüße\nLieferant GmbH",
+    "folder": "Posteingang",
+    "status": "In Bearbeitung",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0007",
+    "sender": "Jonas Schmitt",
+    "subject": "Urlaubsvertretung",
+    "body": "Hallo,\n\nich bin ab Montag zwei Wochen weg, Vertretung übernimmt Frau Wolf.\n\nViele Grüße\nJonas Schmitt",
+    "folder": "Posteingang",
+    "status": "In Bearbeitung",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0008",
+    "sender": "Dr. Anna Weber",
+    "subject": "Re: Muster erhalten?",
+    "body": "Hallo,\n\nhaben Sie die Muster erhalten? Wir freuen uns auf Ihr Feedback.\n\nViele Grüße\nDr. Anna Weber",
+    "folder": "Pipettenspitzen",
+    "status": "Warten",
+    "tags": [
+      "Wichtig"
+    ],
+    "attachments": [
+      "Muster_Feedback.docx"
+    ]
+  },
+  {
+    "id": "DEMO0009",
+    "sender": "Personalabteilung",
+    "subject": "Schulung Arbeitssicherheit",
+    "body": "Hallo,\n\nbitte melden Sie sich bis Ende des Monats für die Pflichtschulung an.\n\nViele Grüße\nPersonalabteilung",
+    "folder": "Posteingang",
+    "status": "Warten",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0010",
+    "sender": "Kerstin Lange",
+    "subject": "Gerätewartung Zentrifuge",
+    "body": "Hallo,\n\nder Techniker kommt am Donnerstag, bitte Gerät vorher reinigen.\n\nViele Grüße\nKerstin Lange",
+    "folder": "Posteingang",
+    "status": "Erledigt",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMO0011",
+    "sender": "Newsletter",
+    "subject": "Neuigkeiten aus dem Labor",
+    "body": "Hallo,\n\ndie wichtigsten Themen des Monats im Überblick.\n\nViele Grüße\nNewsletter",
+    "folder": "Posteingang",
+    "status": "Erledigt",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMOREPLY",
+    "sender": "Dr. Anna Weber",
+    "subject": "AW: Muster erhalten?",
+    "body": "Hallo,\n\nja, die Muster sind angekommen – unser Feedback folgt bis Freitag.\n\nViele Grüße\nAnna Weber",
+    "folder": "Posteingang",
+    "status": "Offen",
+    "tags": [],
+    "attachments": []
+  },
+  {
+    "id": "DEMOSENT1",
+    "sender": "Ich",
+    "subject": "Rückfrage: Liefertermin Filterspitzen",
+    "body": "Hallo,\n\nkönnen Sie mir bitte den Liefertermin für die Filterspitzen (Bestellung 2026-118) bestätigen?\n\nDanke und viele Grüße",
+    "folder": "Gesendet",
+    "status": "Warten",
+    "tags": [],
+    "attachments": []
+  }
+]

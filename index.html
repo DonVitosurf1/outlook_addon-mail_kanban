@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mail-Board · Demo</title><link rel="stylesheet" href="board.css"></head><body>
+<aside><div class="brand"><span class="mark" aria-hidden="true">▥</span> Mail-Board</div><div class="section">Postfach</div><nav id="folders" aria-label="Ordner"></nav><div class="foot">Lokales Demo-Postfach</div></aside>
+<main><header><span>Arbeitsbereich &nbsp;/&nbsp; Mail-Board</span><button hidden id="loadInbox">Outlook-Mails laden</button><button hidden id="backDemo">Zur Demo</button><button hidden id="openOutlookTest">Outlook-Verbindung testen</button><button id="undo" disabled title="Strg+Z">↶ Rückgängig</button></header>
+<div class="bar"><div><h1 id="title">Alle Mails</h1><p id="summary" aria-live="polite"></p></div><input id="search" type="search" placeholder="Mails durchsuchen …" aria-label="Mails durchsuchen"></div>
+<div class="board" id="board"></div><p id="message" role="status"></p></main>
+<dialog id="detail" aria-labelledby="subject"><form method="dialog"><button class="close" aria-label="Schließen">×</button></form><small>Mailvorschau</small><h2 id="subject"></h2><p id="from"></p><article id="body"></article><p id="attachments"></p><button hidden id="openOriginal">In Outlook öffnen</button><p id="openError" role="status"></p><div class="fields"><label>Status<select id="status"></select></label><label>Ordner<select id="folder"></select></label></div></dialog>
+<script src="board.js" defer></script></body></html>

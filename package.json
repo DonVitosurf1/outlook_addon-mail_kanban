@@ -1,0 +1,1 @@
+{"name":"outlook-kanban-tauri","version":"0.1.0","private":true,"type":"module","scripts":{"build":"tsc --noEmit && node build.mjs","tauri":"tauri","dev":"npm run build && tauri dev","desktop":"npm run build && tauri build --no-bundle"},"devDependencies":{"typescript":"~5.9.3","esbuild":"^0.27.0","@tauri-apps/cli":"^2.9.0"}}
