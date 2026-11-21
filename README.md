@@ -15,11 +15,12 @@ Der normale Start aus dem entpackten Ordner benötigt keine Administratorrechte,
 
 ## Bedienung und lokale Daten
 
-- **F1** öffnet die Hilfe, **Strg+K** die Befehlspalette, **Strg+F** die Suche. Über **Start** sind unter anderem Morgen-Triage, Wochenblick und Posteingang aufräumen erreichbar. **1–4** ändert den Status ausgewählter Karten.
+- **F1** öffnet die Hilfe, **Strg+K** die Befehlspalette, **Strg+F** die Suche. Über **Start** sind unter anderem Wochenblick und Posteingang aufräumen erreichbar. **1–4** ändert den Status ausgewählter Karten.
+- **Strg+T** startet die Morgen-Triage direkt auf dem Board: Ein Banner mit Briefing führt durch „Heute dran“, „Offen durchgehen“ und „Rest parken“. **F** nimmt markierte Karten in den Fokus (Outlook-Kategorie „Fokus“). Unter **Werkzeuge** liegen Wochenkalender, Vorgänge mit Checklisten und Routinen. Details stehen in den [Erweiterungen 0.16–0.20](docs/ERWEITERUNGEN.md).
 - Ohne KI lassen sich Mails verarbeiten und Ablageziele anhand von Regeln, Steckbriefen und gelernten Beispielen vorschlagen. Wer die Modellfunktionen nutzen möchte, startet lokal Ollama, installiert ein passendes Modell und wählt es unter **Outlook und lokale KI** aus. Modellzugriffe laufen über Rust und sind auf Loopback beschränkt.
 - **Werkzeuge → Lokale Daten und Textbausteine** exportiert und importiert Sicherungen. Die App speichert lokale Einstellungen im Benutzerprofil. Das bloße Kopieren der EXE auf einen anderen PC überträgt diese Daten nicht.
 
-[Funktionsmatrix und Unterschiede zur Python-Version](docs/FUNKTIONSMATRIX.md) · [Datenübernahme](docs/DATEN.md) · [Windows-Abnahme](docs/WINDOWS-ABNAHME.md) · [Designentscheidungen](DESIGN.md)
+[Funktionsmatrix und Unterschiede zur Python-Version](docs/FUNKTIONSMATRIX.md) · [Erweiterungen 0.16–0.20](docs/ERWEITERUNGEN.md) · [Datenübernahme](docs/DATEN.md) · [Windows-Abnahme](docs/WINDOWS-ABNAHME.md) · [Designentscheidungen](DESIGN.md)
 
 ## Unter Windows selbst bauen
 
@@ -43,6 +44,7 @@ Das Paket liegt anschließend unter `downloads/Mail-Board-Windows-x64.zip`. Für
 | `dotnet run --project outlook-test/tests/OutlookContracts.csproj` | C#-Helfer mit simuliertem Outlook, erfordert .NET SDK 8 für den Test |
 | `python tests/live-board-smoke.py` | Regulärer Boardablauf mit simuliertem Desktop-Adapter, Bestätigung, Auffrischen und Undo |
 | `python tests/board-keyboard-smoke.py` | Tastaturbedienung und Layout bis zur Mindestfenstergröße |
+| `python tests/planning-smoke.py` | Morgen-Triage auf dem Board, Fokus, Routinen, Wochenkalender und Vorgänge, auch mit simuliertem Outlook |
 
 Weitere Browsertests prüfen Morgen-Triage und Aufräumen, die Ordnerunterteilung, Projektabschluss und Rücknahme sowie Kartenaktionen und Antwortverfolgung. Unter Windows prüft [window-reopen.ps1](tests/window-reopen.ps1) das Wiederöffnen des Programmfensters.
 

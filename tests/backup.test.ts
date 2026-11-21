@@ -32,3 +32,8 @@ test('Eine erschöpfte Speicherquote lässt den Ausgangszustand intakt',()=>{
 test('Unlesbare native Optionen werden vor dem Wiederherstellen abgewiesen',()=>{
   assert.throws(()=>parseBackup(archive({'kanban-board-options-v1':'['})))
 })
+test('Routinen und Vorgänge reisen in der nativen Sicherung mit und werden als Liste geprüft',()=>{
+  const values={'mailboard-routines-v1':'[{"id":"r","title":"Ablage","rhythm":"daily","created":"2026-11-20"}]','mailboard-cases-v1':'[]'}
+  assert.deepEqual(parseBackup(archive(values)).values,values)
+  assert.throws(()=>parseBackup(archive({'mailboard-cases-v1':'{"name":"kein Array"}'})),/Einstellungsliste/)
+})

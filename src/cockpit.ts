@@ -1,7 +1,9 @@
 import metadata from '../package.json'
 import { getLegacyConfig } from './data-settings'
 import { initCleanup, type CleanupOptions } from './cleanup'
-import { dueReasons, isSnoozed, localDay, type ViewMail } from './views-logic'
+import { dueRoutines, isFocusCard, snapshot, type Routine } from './planning-logic'
+import { dueReasons, localDay, type ViewMail } from './views-logic'
+export { snapshot }
 
 type Action = 'filed' | 'followed_up' | 'snoozed'
 type Options = CleanupOptions & {
@@ -9,16 +11,26 @@ type Options = CleanupOptions & {
   isLive: () => boolean
   onPick: (id: string) => void
   openUnanswered?: () => Promise<void>|void
+  startTriage: () => void
+  triageActive: () => boolean
+  routines: () => Routine[]
+  openRoutines: () => void
+  openCalendar: () => void
+  openCases: () => void
 }
-type Page = 'start' | 'week' | 'today' | 'hygiene' | 'ritual' | 'help'
+export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help'
 
 const states = ['Offen', 'In Bearbeitung', 'Warten', 'Erledigt']
-const steps = ['Heute dran', 'Offen durchgehen', 'Rest parken']
 const help = [
   ['Wo finde ich meine echten Mails?', 'Mit „Outlook-Mails laden“ liest das Board Mails des klassischen Outlook-Profils. Die Demodaten lassen sich unabhängig vom Postfach ausprobieren.'],
   ['Wie finde ich eine Mail?', 'Strg+F setzt den Fokus in die Suche. Mit dem Ordnerfilter schränkst du die Anzeige ein. Öffne die gewünschte Karte für die Maildetails.'],
   ['Was zeigt „Heute dran“?', 'Hier stehen fällige Wiedervorlagen, wartende Mails mit Antwort, heutige oder überfällige Nachfassfristen und fällige KI-Fristen. Eine Mail kann aus mehreren Gründen fällig sein.'],
-  ['Wie funktioniert die Morgen-Triage?', 'Prüfe zuerst „Heute dran“, sichte dann die offenen Mails und entscheide zum Schluss, was noch warten darf. Jede Änderung löst du selbst aus.'],
+  ['Wie funktioniert die Morgen-Triage?', 'Strg+T oder Start → „Morgen-Triage starten“ blendet über dem Board ein Banner mit Briefing ein. Das Board zeigt nacheinander „Heute dran“, „Offen durchgehen“ und „Rest parken“. Du arbeitest mit den gewohnten Kartenaktionen. Eine Karte verlässt den Schritt, sobald sich ihr Status, ihre Wiedervorlage oder ihr Ordner ändert. Beenden oder Abbrechen stellt deine vorherige Ansicht wieder her.'],
+  ['Was zeigt das Briefing?', 'Zahlen zu fälligen, wartenden und zu beantwortenden Mails, die seit der letzten beendeten Triage eingegangenen Mails sowie fällige Routinen und Checklistenpunkte. Beim ersten Mal gelten die letzten 24 Stunden als neu.'],
+  ['Was bewirkt die Taste F?', 'F nimmt die markierten Karten in den Fokus oder wieder heraus. Dafür setzt das Board die Outlook-Kategorie „Fokus“. Sie bleibt beim Verschieben erhalten und ist mit Strg+Z rücknehmbar. Die Seitenleiste zeigt unter „Fokus“ alle nicht erledigten Fokuskarten.'],
+  ['Wie funktionieren Routinen?', 'Unter Werkzeuge → Routinen legst du wiederkehrende Aufgaben an: täglich, werktags, wöchentlich oder monatlich. Eine Routine kann eine Ansicht wie die Warten-Hygiene öffnen. Eine verpasste Routine bleibt fällig, bis du sie abhakst.'],
+  ['Was zeigt der Wochenkalender?', 'Nachfasstermine, Wiedervorlagen, KI-Fristen, Routinen und Checklistenpunkte einer Woche, Überfälliges gesammelt vorn. Ziehst du eine Mail auf einen Tag, erhält eine wartende Mail dort ihren Nachfasstermin und jede andere eine Wiedervorlage.'],
+  ['Was ist ein Vorgang?', 'Ein Vorgang bündelt zusammengehörige Mails über die Outlook-Kategorie „Vorgang: Name“ und führt eine lokale Checkliste mit optionalen Terminen. Zuordnen lässt sich über das Kontextmenü einer Karte, Strg+K oder den Vorgangsdialog.'],
   ['Wie lese ich eine Nachricht?', 'Öffne eine Karte und wähle „In Outlook öffnen“. Outlook zeigt dir das Original und die Anhänge. Die Anwendung sendet keine Mails.'],
   ['Wie lege ich eine Mail ab?', 'Prüfe den vorgeschlagenen Zielordner und bestätige die Ablage. Mit Strg+Z kannst du die letzte erfolgreiche Aktion in dieser Sitzung zurücknehmen.'],
   ['Was passiert bei fehlender KI?', 'Die lokale KI ist optional. Du kannst dein Board auch bei ausgeschaltetem oder langsamem Modell weiter bedienen.'],
@@ -61,20 +73,8 @@ function weeklyCounts(live: boolean) {
   return {key, counts}
 }
 
-export function snapshot(mails: readonly ViewMail[], today = localDay(), overdueDays = 5) {
-  const active = mails.filter(m => !isSnoozed(m,today))
-  const due = active.filter(m => dueReasons(m,today,overdueDays).length > 0)
-  const waiting = active.filter(m => m.status === 'Warten' && !m.hasReply)
-  const late = waiting.filter(m => dueReasons(m,today,overdueDays).some(r => r === 'Nachfassen' || r === 'Überfällig'))
-  const overdueIds = new Set(late.map(m => m.id))
-  const undated = waiting.filter(m => !m.followUp && !overdueIds.has(m.id))
-  return {active, due, late, undated, snoozed: mails.length-active.length}
-}
-
 export function initCockpit(options: Options) {
   let page: Page = 'start'
-  let step = 0
-  let ritual = false
   let helpTerm = ''
   const openCleanup = initCleanup(options)
   const versionKey = 'mailboard-intro-'+metadata.version
@@ -97,11 +97,8 @@ export function initCockpit(options: Options) {
     if (!dialog.open) dialog.showModal()
   }
   const go = (label:string, next:Page) => button(label, () => open(next))
-  const startRitual = () => {
-    if (!ritual) step = 0
-    ritual = true
-    open('ritual')
-  }
+  const startTriage = () => { dialog.close(); options.startTriage() }
+  const link = (label:string, run:()=>void) => button(label, () => { dialog.close(); run() })
   function mailList(rows: readonly ViewMail[], describe?: (mail:ViewMail) => string) {
     const list = element('div')
     list.className = 'cockpit-list'
@@ -160,28 +157,20 @@ export function initCockpit(options: Options) {
       for (const name of states) list.append(element('li',name+' · '+s.active.filter(m=>m.status===name).length))
       body.append(element('h3','Aktuell geladene Karten'),list,element('p','Auf Wiedervorlage: '+s.snoozed))
       const waiting=s.active.filter(m=>m.status==='Warten'&&!m.hasReply)
-      body.append(element('p','Heute dran: '+s.due.length+' · Warten ohne Frist: '+waiting.filter(m=>!m.followUp).length+' · Nachfassen fällig: '+s.late.length+' · Antwort nötig: '+s.active.filter(m=>m.needsReply).length))
+      body.append(element('p','Heute dran: '+s.due.length+' · Warten ohne Frist: '+waiting.filter(m=>!m.followUp).length+' · Nachfassen fällig: '+s.late.length+' · Antwort nötig: '+s.active.filter(m=>m.needsReply).length+' · Im Fokus: '+options.getMails().filter(m=>isFocusCard(m,day)).length))
       const {counts} = weeklyCounts(options.isLive())
       body.append(element('h3','Diese Woche'),element('p',
         'Abgelegt: '+counts.filed+' · Nachgefasst: '+counts.followed_up+' · Wiedervorlage gesetzt: '+counts.snoozed))
-      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene')))
-    } else if (page === 'ritual') {
-      title.textContent = steps[step]
-      const rows = step === 0 ? s.due : s.active.filter(m => m.status==='Offen')
-      body.append(element('p',`Morgen-Triage · Schritt ${step+1} von ${steps.length}`),
-        element('p',['Prüfe Termine, Antworten und Nachfassfristen.','Wähle offene Mails zum Bearbeiten oder Ablegen.','Öffne verbleibende Karten, um bei Bedarf eine Wiedervorlage oder einen Wartestatus zu setzen.'][step]),
-        mailList(rows,step === 0 ? m=>reasons(m).join(', ') : undefined))
-      const advance = button(step === 2 ? 'Triage beenden' : 'Nächster Schritt', () => {
-        if(step===2){ ritual=false; dialog.close() } else {step++;render()}
-      })
-      body.append(actions(advance,button('Triage abbrechen',()=>{ritual=false;dialog.close()})))
-      return
+      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene'),link('Wochenkalender',options.openCalendar)))
     } else {
       title.textContent = 'Start'
       body.append(element('h3','Heute'),element('p',s.due.length+' fällig · '+s.late.length+' wartend und fällig · '+s.snoozed+' auf Wiedervorlage'),
-        actions(go('Heute dran','today'),button(ritual?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startRitual)),
+        actions(go('Heute dran','today'),button(options.triageActive()?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startTriage)),
         actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}),go('Hilfe','help')))
       if(options.openUnanswered)body.append(button('Gesendet ohne Antwort',()=>{dialog.close();void options.openUnanswered!()}))
+      const due=dueRoutines(options.routines(),day)
+      body.append(element('h3','Planung'),element('p',due.length?'Fällige Routinen: '+due.map(r=>r.routine.title).join(', '):'Keine Routine fällig.'),
+        actions(link('Wochenkalender',options.openCalendar),link('Routinen',options.openRoutines),link('Vorgänge',options.openCases)))
       const startup=element('input');startup.type='checkbox';startup.checked=preference(launchKey)
       startup.onchange=()=>remember(launchKey,startup.checked)
       const label=element('label');label.append(startup,' Diese Übersicht beim Start öffnen')
@@ -194,6 +183,8 @@ export function initCockpit(options: Options) {
       }
       const tips = [
         ['Strg+R führt durch den Rückstand im Posteingang.', 'Rückstände'],
+        ['Strg+T startet die Morgen-Triage direkt auf dem Board.', 'Morgen-Triage'],
+        ['F nimmt markierte Karten in deinen Fokus.', 'Taste F'],
         ['Mit W parkst du eine Karte bis zu deinem gewählten Datum.', 'Termin'],
         ['Strg+K findet Boardbefehle per Tastatur.', 'Befehlspalette'],
         ['Fällige Nachfassfristen und Antworten findest du unter „Heute dran“.', 'Heute dran'],
@@ -208,7 +199,7 @@ export function initCockpit(options: Options) {
   }
   document.addEventListener('board-commands', event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
-    entries.push({label:'Morgen-Triage',run:startRitual},{label:'Wochenblick',run:()=>open('week')},
+    entries.push({label:'Wochenblick',run:()=>open('week')},
       {label:'Warten-Hygiene',run:()=>open('hygiene')},{label:'Posteingang aufräumen',run:()=>void openCleanup()})
   })
   document.getElementById('cockpit-start')?.addEventListener('click',()=>open('start'))
@@ -229,6 +220,8 @@ export function initCockpit(options: Options) {
     refresh(){if(dialog.open && page!=='help')render()},
     openStart:()=>open('start'),
     openHelp:()=>open('help'),
+    openPage:(next:Page)=>open(next),
+    openCleanup:()=>void openCleanup(),
     record(action:Action,delta=1) {
       const {key,counts} = weeklyCounts(options.isLive())
       counts[action]=Math.max(0,counts[action]+delta)

@@ -237,3 +237,71 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .structure-dialog fieldset p { color:var(--muted); font-size:.85rem; margin-top:.25rem; }
 .structure-dialog button { margin:.4rem .35rem 0 0; }
 .arrival-mark { display:inline-block; padding:.07rem .35rem; margin-bottom:.2rem; color:#20594b; background:#e1f2eb; border-radius:.25rem; font-size:.74rem; }
+
+/* Morgen-Triage auf dem Board */
+.triage-banner { margin: 0 1.25rem .7rem; padding: .7rem .9rem; border: 1px solid #b9d3e6; border-left: 4px solid var(--action); border-radius: 7px; background: #f1f7fb; font-size: .86rem; }
+.triage-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: .1rem .8rem; }
+.triage-head p { color: var(--muted); }
+.triage-head h2 { font-size: 1.1rem; font-weight: 650; }
+.triage-head h2:focus { outline: none; }
+.triage-head h2:focus-visible { outline: 2px solid var(--focus); }
+.triage-banner > p { margin-block: .35rem; max-width: 70rem; }
+.triage-briefing { margin-block: .35rem; }
+.triage-briefing summary { cursor: pointer; font-weight: 600; }
+.triage-briefing-body { display: grid; grid-template-columns: repeat(auto-fit,minmax(16rem,1fr)); gap: .2rem 1rem; }
+.triage-briefing-body > p { grid-column: 1 / -1; margin-block: .35rem; color: var(--muted); }
+.triage-column h3 { font-size: .84rem; margin-block: .3rem .2rem; }
+.triage-column ul { list-style: none; display: grid; gap: .2rem; max-height: 12rem; overflow: auto; }
+.triage-column li { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.triage-column li > span { flex: 1 1 10rem; overflow-wrap: anywhere; }
+.triage-column li > button:only-child { text-align: left; width: 100%; overflow-wrap: anywhere; }
+.triage-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .45rem; }
+@media(max-width: 60rem) { .triage-banner { margin-inline: .75rem; } }
+
+/* Routinen, Wochenkalender und Vorgänge */
+.planning-dialog { width: min(64rem,96vw); max-height: 92vh; overflow: auto; }
+.planning-dialog h3 { font-size: 1rem; margin-block: .9rem .3rem; }
+.planning-dialog h4 { font-size: .9rem; margin-block: .8rem .25rem; }
+.planning-list { list-style: none; display: grid; gap: .35rem; }
+.planning-list li { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; padding: .35rem 0; border-bottom: 1px solid var(--line); }
+.planning-list li > div:first-child { flex: 1 1 14rem; min-width: 0; }
+.planning-list li > button:first-child { flex: 1 1 14rem; text-align: left; overflow-wrap: anywhere; }
+.planning-list strong, .planning-list small { display: block; overflow-wrap: anywhere; }
+.planning-list small { color: var(--muted); font-size: .8rem; }
+.planning-tools { display: flex; flex-wrap: wrap; gap: .3rem; }
+.calendar-hint { color: var(--muted); font-size: .85rem; }
+.planning-dialog > .close { float: right; margin-left: .5rem; }
+.planning-dialog ul, .triage-column ul { padding: 0; margin: 0; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: .45rem; margin-top: .6rem; }
+.calendar-overdue { margin-top: .6rem; border-color: #c98a4a; background: #fdf3e8; }
+.calendar-overdue ul { grid-template-columns: repeat(auto-fill,minmax(14rem,1fr)); }
+@media(max-width: 60rem) { .calendar-grid { grid-template-columns: repeat(auto-fit,minmax(8.5rem,1fr)); } }
+.calendar-day { min-width: 0; padding: .45rem; border: 1px solid var(--edge); border-radius: 6px; background: var(--canvas); }
+.calendar-day.today { border-color: var(--action); background: #eef6fb; }
+.calendar-day.past { opacity: .8; }
+.calendar-day h3 { font-size: .82rem; margin: 0 0 .35rem; }
+.calendar-day ul { list-style: none; display: grid; gap: .25rem; }
+.calendar-entry button { width: 100%; text-align: left; font-size: .78rem; overflow-wrap: anywhere; min-height: 0; padding: .3rem .4rem; }
+.calendar-entry button[draggable=true] { cursor: grab; }
+.calendar-entry label { display: block; font-size: .78rem; overflow-wrap: anywhere; }
+.calendar-entry.done label { color: var(--muted); text-decoration: line-through; }
+.calendar-entry.kind-followUp button { border-left: 3px solid #785a14; }
+.calendar-entry.kind-snoozeUntil button { border-left: 3px solid #2569ad; }
+.calendar-entry.kind-deadline button { border-left: 3px solid #965518; }
+.calendar-entry.kind-checklist button { margin-top: .15rem; font-size: .72rem; }
+.case-layout { display: grid; grid-template-columns: minmax(12rem,18rem) minmax(0,1fr); gap: 1.2rem; align-items: start; }
+.case-list { display: grid; gap: .25rem; }
+.case-list button { text-align: left; overflow-wrap: anywhere; }
+.case-list button[aria-pressed=true] { background: var(--active); color: #16436c; font-weight: 600; }
+.case-detail > p { color: var(--muted); font-size: .85rem; }
+.checklist { list-style: none; display: grid; gap: .3rem; }
+.checklist li { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; }
+.checklist li label { flex: 1 1 12rem; overflow-wrap: anywhere; margin: 0; display: block; }
+.view-dialog .checklist input[type=date] { width: auto; }
+.checklist-add { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+.checklist-add input:not([type=date]) { flex: 1 1 12rem; }
+.view-dialog .checklist-add :is(input,select) { width: auto; }
+.planning-dialog input[type=checkbox] { width: auto; }
+.cases-dialog .case-new label:has(input[type=checkbox]) { display: block; }
+.cases-dialog .case-new label input[type=checkbox] { width: auto; }
+@media(max-width: 44rem) { .case-layout { grid-template-columns: 1fr; } }

@@ -5,7 +5,9 @@ export type ViewMail = {
   conversationId?: string; received?: string; statusSince?: string; followUp?: string; snoozeUntil?: string
   deadline?: string; needsReply?: boolean; hasReply?: boolean; replyEvidence?:{id:string;sender:string;received?:string}; recipients?: string; isSent?:boolean
 }
-export type Focus = 'all' | 'today' | 'snoozed'
+export type Focus = 'all' | 'today' | 'focus' | 'snoozed'
+/** Outlook-Kategorie, mit der F eine Karte in den Tagesfokus nimmt. */
+export const FOCUS_TAG = 'Fokus'
 export type Split = '' | 'reply' | 'overdue' | 'vip' | 'undated'
 export type Group = '' | 'folder' | 'tag'
 export type Sort = 'recent' | 'oldest' | 'sender' | 'subject'
@@ -43,6 +45,7 @@ export function isSnoozed(mail:ViewMail,today=localDay()) {return !mail.hasReply
 export function matchesFocus(mail:ViewMail,focus:Focus,today=localDay(),overdueDays=5) {
   if (focus==='snoozed') return isSnoozed(mail,today)
   if (focus==='today') return dueReasons(mail,today,overdueDays).length>0
+  if (focus==='focus') return !isSnoozed(mail,today) && mail.status!=='Erledigt' && mail.tags.some(t=>t.localeCompare(FOCUS_TAG,'de',{sensitivity:'base'})===0)
   return !isSnoozed(mail,today)
 }
 export function matchesSplit(mail:ViewMail,split:Split,vips:string[],today=localDay(),overdueDays=5) {

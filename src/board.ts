@@ -10,6 +10,12 @@ import { suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreA
 import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
 import { initCockpit } from './cockpit'
+import { initTriage } from './triage'
+import { initRoutines, markRoutine } from './routines'
+import { initCalendar } from './calendar'
+import { allCases, initCases, toggleCaseItem } from './cases'
+import { caseTag, focusTarget, FOCUS_TAG, withTag, type RoutineAction } from './planning-logic'
+import { loadRoutines } from './planning-store'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -39,6 +45,8 @@ let syncColors:ReturnType<typeof colorSettings>
 let correspondence:ReturnType<typeof initCorrespondence>
 let cockpit:ReturnType<typeof initCockpit>
 let views:BoardViews
+let triage:ReturnType<typeof initTriage>|undefined
+let cases:ReturnType<typeof initCases>|undefined
 let suggestionVersion=0
 let currentSuggestion:((apply:boolean)=>Promise<void>)|undefined
 let reloadPending=false
@@ -178,14 +186,16 @@ function archiveCandidates(){
   const cutoff=Date.now()-days*86400000
   return mails.filter(m=>isInInbox(m)&&m.status==='Erledigt'&& Date.parse(m.statusSince||m.received||'')<=cutoff)
 }
-type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string}
+/** `tagsFor` berechnet die Kategorien je Mail, etwa beim Umschalten des Fokus für eine gemischte Auswahl. */
+type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[]}
 async function change(ids:string[],action:Mutation) {
   await exclusive(async()=>{
     const rows=mails.filter(m=>ids.includes(m.id))
     const field=action.kind
     const value=action.value as string
+    const wanted=(m:Mail)=>action.tagsFor?action.tagsFor(m):action.value as string[]
     const todo=rows.filter(m=>field==='move'?((m.folderId||m.folder)!==value || (!!action.status && m.status!==action.status)):
-      field==='tags'?JSON.stringify(m.tags)!==JSON.stringify(action.value):m[field]!==value || (field==='status' && m.hasStatus===false))
+      field==='tags'?JSON.stringify(m.tags)!==JSON.stringify(wanted(m)):m[field]!==value || (field==='status' && m.hasStatus===false))
     if(!todo.length) return
     const dest=folders.find(f=>f.id===value)
     if(field==='move'&&!dest)throw new Error('Zielordner nicht verfügbar.')
@@ -209,7 +219,7 @@ async function change(ids:string[],action:Mutation) {
         field==='followUp'&&value?todo.map(()=>'followed_up'):field==='snoozeUntil'&&value?todo.map(()=>'snoozed'):[]
       changeDemo(()=>{for(const m of todo) {
         if(field==='move'){m.folder=value;if(action.status)m.status=action.status}
-        else if(field==='tags')m.tags=[...action.value as string[]]
+        else if(field==='tags')m.tags=[...wanted(m)]
         else m[field]=value
       }},events)
       if(selected)fillDetail(selected)
@@ -247,7 +257,7 @@ async function change(ids:string[],action:Mutation) {
               catch(e){throw new Error('Status geändert. Archivieren fehlgeschlagen: '+errorText(e))}
             }
           } else if(field==='tags') {
-            m.tags=await service!.tags(batch,m.id,m.folderId,m.tags,action.value as string[])
+            m.tags=await service!.tags(batch,m.id,m.folderId,m.tags,wanted(m))
           } else {
             await service!.field(batch,m.id,m.folderId,field,value)
             m[field]=value
@@ -375,6 +385,8 @@ function render() {
     nav.append(btn)
   }
   cockpit?.refresh()
+  triage?.refresh()
+  cases?.refresh()
   views.sync(mails)
   const visible=views.filter(mails.filter(m=>(live||!scope||m.folder===scope)&&matchesQuery(m,search.value)))
   el('title').textContent=live?'Outlook · '+(scope==='__backlog'?'Aufräumen':folders.find(f=>f.id===scope)?.name||'Alle Mails'):scope||'Alle Mails'
@@ -421,9 +433,45 @@ async function start() {
     openOriginal:async id=>{if(!live){pick(id);return}const mail=mails.find(m=>m.id===id);if(mail)await openOriginal(mail)},
     acceptSuggestion:async id=>{pick(id);await currentSuggestion?.(true)},
     reply:async(id,all)=>{const mail=mails.find(m=>m.id===id);if(mail)await draft(mail,all?'reply-all':'reply','')},
-    setField:(id,field,value)=>change([id],{kind:field,value}),setTags:(id,_previous,value)=>change([id],{kind:'tags',value})})
+    setField:(id,field,value)=>change([id],{kind:field,value}),setTags:(id,_previous,value)=>change([id],{kind:'tags',value}),
+    toggleFocus:ids=>{
+      const rows=mails.filter(m=>ids.includes(m.id)),on=focusTarget(rows)
+      return change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,FOCUS_TAG,on)})
+    },
+    assignCase:ids=>cases?.openAssign(ids)})
   let previousScope=''
+  const overdueDays=()=>Number(getLegacyConfig().overdue_days??5)
+  const assign=(ids:string[],name:string,on:boolean)=>change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,caseTag(name),on)})
+  // Lokale Planungsdaten (Routinen, Vorgänge) ändern Banner, Seitenleiste und offene Dialoge.
+  document.addEventListener('mailboard:planning',()=>render())
+  const toggleItem=toggleCaseItem
+  const calendar=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:()=>true,
+    plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
+    openCase:name=>cases?.open(name)})
+  cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:()=>true,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
+  const runRoutine=(action:RoutineAction)=>{
+    switch(action){
+      case 'triage':triage?.start();break
+      case 'hygiene':cockpit.openPage('hygiene');break
+      case 'week':cockpit.openPage('week');break
+      case 'cleanup':cockpit.openCleanup();break
+      case 'unanswered':void correspondence.show();break
+      case 'calendar':calendar.open();break
+      case 'cases':cases?.open();break
+    }
+  }
+  const routines=initRoutines({run:runRoutine})
+  triage=initTriage({getMails:()=>mails,isLive:()=>live,overdueDays,views,render,onPick:pick,
+    enter:()=>{
+      const wasLive=live,previous=scope
+      if(!live)scope=''
+      return ()=>{if(!wasLive&&!live)scope=previous}
+    },
+    routines:loadRoutines,markRoutine:id=>markRoutine(id),runRoutine:r=>runRoutine(r.action||''),
+    cases:()=>allCases(mails),toggleItem})
   cockpit=initCockpit({getMails:()=>mails,isLive:()=>live,onPick:pick,openUnanswered:()=>correspondence.show(),
+    startTriage:()=>triage?.start(),triageActive:()=>!!triage?.active,routines:loadRoutines,
+    openRoutines:routines.open,openCalendar:()=>calendar.open(),openCases:()=>cases?.open(),
     onStatus:(ids:string[],status:string)=>change(ids,{kind:'status',value:status}),
     onFolder:(ids:string[],target:string)=>change(ids,{kind:'move',value:target}),
     getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:undo,

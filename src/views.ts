@@ -22,7 +22,11 @@ type BoardActions={
   openOriginal?(id:string):AsyncAction
   acceptSuggestion?(id:string):AsyncAction
   reply?(id:string,all:boolean):AsyncAction
+  toggleFocus?(ids:string[]):AsyncAction
+  assignCase?(ids:string[]):void
 }
+/** Filter und Suche, die die Morgen-Triage beim Start merkt und beim Ende wiederherstellt. */
+export type ViewState={search:string;focus:Focus;split:string;tag:string}
 const statuses=['Offen','In Bearbeitung','Warten','Erledigt']
 const fields:Record<Field,string>={followUp:'Nachfassen',snoozeUntil:'Wiedervorlage',note:'Notiz'}
 function element<K extends keyof HTMLElementTagNameMap>(key:K,text=''){
@@ -78,6 +82,7 @@ export class BoardViews {
   private overdueDays=5
   private resetButton=button('Zurücksetzen',()=>this.clearFilters())
   private zoom=Number(remembered('zoom'))||100
+  private extra:((mail:ViewMail)=>boolean)|undefined
 
   constructor(private api:BoardActions) {
     this.layout.redraw=()=>{this.resetSelection();this.api.render()}
@@ -109,7 +114,7 @@ export class BoardViews {
     threads.setAttribute('aria-pressed',String(this.threads))
     tools?.append(button('VIP-Liste',()=>this.editVip()),threads)
     window.addEventListener('kanban-analysis',()=>this.api.render())
-    for(const [key,label] of [['all','Alle aktiven'],['today','Heute dran'],['snoozed','Wiedervorlage']] as const){
+    for(const [key,label] of [['all','Alle aktiven'],['today','Heute dran'],['focus','Fokus'],['snoozed','Wiedervorlage']] as const){
       const b=button(label,()=>{this.focus=key;this.api.clearScope?.();refresh()});b.dataset.label=label
       this.focusButtons.set(key,b)
       document.getElementById('focusViews')?.append(b)
@@ -124,6 +129,8 @@ export class BoardViews {
       const ids=[...this.selected],first=this.byId.get(ids[0])
       if(!first)return
       for(const state of statuses)entries.push({label:'Status für Auswahl: '+state,run:()=>void this.perform(()=>this.api.changeStatus(ids,state))})
+      if(this.api.toggleFocus)entries.push({label:'Fokus für Auswahl umschalten (F)',run:()=>void this.perform(()=>this.api.toggleFocus!(ids))})
+      if(this.api.assignCase)entries.push({label:'Auswahl einem Vorgang zuordnen',run:()=>this.api.assignCase!(ids)})
       if(ids.length!==1)return
       if(this.api.acceptSuggestion)entries.push({label:'Ablagevorschlag prüfen',run:()=>void this.perform(()=>this.api.acceptSuggestion!(first.id))})
       if(this.api.reply)entries.push({label:'Antwortentwurf öffnen',run:()=>void this.perform(()=>this.api.reply!(first.id,false))})
@@ -161,7 +168,7 @@ export class BoardViews {
     const today=localDay()
     const source=this.threads?collapseThreads(mails,today):{rows:mails,hidden:new Map<string,number>()}
     this.hiddenThreads=source.hidden
-    const result=orderCards(source.rows.filter(m=> matchesFocus(m,this.focus,today,this.overdueDays) &&
+    const result=orderCards(source.rows.filter(m=> (!this.extra || this.extra(m)) && matchesFocus(m,this.focus,today,this.overdueDays) &&
       matchesSplit(m,this.split.value as Split,this.vipTokens,today,this.overdueDays) &&
       (!this.tag.value || m.tags.includes(this.tag.value))),this.sort.value as Sort,this.overdueDays)
     result.sort((a,b)=>Number(this.marks.returned.has(b.id))-Number(this.marks.returned.has(a.id)))
@@ -242,6 +249,29 @@ export class BoardViews {
     card.addEventListener('dragstart',()=>{if(!this.selected.has(id))this.pick(id,false,false)},true)
   }
   selectedIds(fallbackId:string) {return this.selected.has(fallbackId)?[...this.selected]:[fallbackId]}
+  /** Aktuell markierte Karten, etwa für die Zuordnung zu einem Vorgang. */
+  selection(){return [...this.selected]}
+  /** Zusätzlicher Filter, etwa für den aktuellen Triage-Schritt. */
+  setExtraFilter(filter:((mail:ViewMail)=>boolean)|undefined){this.extra=filter;this.resetSelection()}
+  captureView():ViewState{
+    const search=document.getElementById('search') as HTMLInputElement|null
+    return {search:search?.value||'',focus:this.focus,split:this.split.value,tag:this.tag.value}
+  }
+  restoreView(state:ViewState){
+    const search=document.getElementById('search') as HTMLInputElement|null
+    if(search)search.value=state.search
+    this.focus=state.focus;this.split.value=state.split
+    if(state.tag && !Array.from(this.tag.options).some(o=>o.value===state.tag))this.tag.add(new Option(state.tag,state.tag))
+    this.tag.value=state.tag;this.resetSelection()
+  }
+  /** Zeigt nur Karten mit dieser Kategorie, etwa alle Mails eines Vorgangs. */
+  showTag(tag:string){
+    const search=document.getElementById('search') as HTMLInputElement|null
+    if(search)search.value=''
+    this.focus='all';this.split.value=''
+    if(!Array.from(this.tag.options).some(o=>o.value===tag))this.tag.add(new Option(tag,tag))
+    this.tag.value=tag;this.changed()
+  }
   resetSelection(){this.layout.hide();this.selected.clear();this.anchor='';this.paint()}
   reset(){this.focus='all';this.split.value='';this.tag.value='';this.resetSelection()}
   private clearFilters(){
@@ -302,6 +332,8 @@ export class BoardViews {
       }
       if(this.api.setTags)run('Kategorien bearbeiten',()=>this.editField(first,'tags'))
     }
+    if(this.api.toggleFocus)run('Fokus umschalten (F)',()=>this.api.toggleFocus!(ids))
+    if(this.api.assignCase)run('Vorgang zuordnen …',()=>this.api.assignCase!(ids))
     form.append(actions);dialog.showModal()
   }
   private fieldsEnabled(){return !!this.api.setField && (!this.api.canSetFields || this.api.canSetFields())}
@@ -427,6 +459,8 @@ export class BoardViews {
       this.pick(id,false,false);this.api.open(id)
     }else if(!modifier && e.key.toLowerCase()==='r' && this.api.reply){
       void this.perform(()=>this.api.reply!(id,e.shiftKey))
+    }else if(!modifier && e.key.toLowerCase()==='f' && this.api.toggleFocus){
+      void this.perform(()=>this.api.toggleFocus!(ids))
     }else if(!modifier && ['n','w','k'].includes(e.key.toLowerCase())&&this.fieldsEnabled()){
       const mail=this.byId.get(id)
       const field=({n:'followUp',w:'snoozeUntil',k:'note'} as const)[e.key.toLowerCase() as 'n'|'w'|'k']
