@@ -109,20 +109,30 @@ pub struct SampleIndex {
 pub struct EvaluationFolder {
     pub key: String,
     pub index: SampleIndex,
+    // Folder-local indices explicitly matched to the canonical Bayes holdout by Outlook ID.
+    pub held: std::collections::HashMap<usize, String>,
 }
 #[derive(Serialize, Default)]
 pub struct ResultCount {
     pub shown: usize,
     pub correct: usize,
 }
+#[derive(Serialize)]
+pub struct Prediction {
+    pub truth: String,
+    pub id: String,
+    pub folder: String,
+    pub gap: f64,
+}
 #[derive(Serialize, Default)]
 pub struct Evaluation {
+    pub predictions: Vec<Prediction>,
     pub tested: usize,
     pub missing: usize,
     pub plain: ResultCount,
     pub profiled: ResultCount,
 }
-fn mean(cache: &VectorCache, members: &[Member]) -> Option<Vec<f64>> {
+fn mean(cache: &VectorCache, members: &[&Member]) -> Option<Vec<f64>> {
     let mut sum = Vec::new();
     for row in members {
         let v = cache.load(&row.token)?;
@@ -150,10 +160,19 @@ pub fn holdout(
     let mut queries = Vec::new();
     let mut result = Evaluation::default();
     for f in folders.iter().filter(|f| eligible(&f.key)) {
-        let n = if f.index.members.len() >= 13 { 10 } else { 0 };
-        let train = &f.index.members[n..];
-        let Some(base) = mean(&cache, train) else {
-            result.missing += n;
+        let mut train = Vec::new();
+        for (i, member) in f.index.members.iter().enumerate() {
+            if let Some(id) = f.held.get(&i) {
+                if let Some(vector) = cache.load(&member.token) {
+                    queries.push((&f.key, id, vector));
+                } else {
+                    result.missing += 1;
+                }
+            } else {
+                train.push(member);
+            }
+        }
+        let Some(base) = mean(&cache, &train) else {
             continue;
         };
         let mut profiled = base.clone();
@@ -168,15 +187,8 @@ pub fn holdout(
             }
         }
         centers.push((&f.key, base, profiled));
-        for m in &f.index.members[..n] {
-            if let Some(v) = cache.load(&m.token) {
-                queries.push((&f.key, v));
-            } else {
-                result.missing += 1;
-            }
-        }
     }
-    for (truth, v) in queries {
+    for (truth, id, v) in queries {
         result.tested += 1;
         for plain in [true, false] {
             let mut rank = centers
@@ -187,6 +199,14 @@ pub fn holdout(
             if let Some((winner, score)) = rank.first() {
                 let gap = rank.get(1).map_or(f64::INFINITY, |r| score - r.1);
                 if *score > threshold && gap > 0.0 && gap >= margin {
+                    if !plain {
+                        result.predictions.push(Prediction {
+                            truth: truth.clone(),
+                            id: id.clone(),
+                            folder: (**winner).clone(),
+                            gap: if gap.is_infinite() { 1.0 } else { gap },
+                        });
+                    }
                     let bucket = if plain {
                         &mut result.plain
                     } else {

@@ -1,4 +1,5 @@
 import metadata from '../package.json'
+import {renderLearningDashboard} from './ai'
 import { getLegacyConfig } from './data-settings'
 import { initCleanup, type CleanupOptions } from './cleanup'
 import { dueReasons, isSnoozed, localDay, type ViewMail } from './views-logic'
@@ -10,7 +11,7 @@ type Options = CleanupOptions & {
   onPick: (id: string) => void
   openUnanswered?: () => Promise<void>|void
 }
-type Page = 'start' | 'week' | 'today' | 'hygiene' | 'ritual' | 'help'
+type Page = 'start' | 'week' | 'today' | 'hygiene' | 'ritual' | 'help' | 'learning'
 
 const states = ['Offen', 'In Bearbeitung', 'Warten', 'Erledigt']
 const steps = ['Heute dran', 'Offen durchgehen', 'Rest parken']
@@ -154,6 +155,9 @@ export function initCockpit(options: Options) {
       title.textContent = 'Warten-Hygiene'
       body.append(element('h3','Fällig · '+s.late.length),mailList(s.late),
         element('h3','Ohne Nachfassfrist · '+s.undated.length),mailList(s.undated))
+    } else if (page === 'learning') {
+      title.textContent='Ablage-Auswertung'
+      renderLearningDashboard(body)
     } else if (page === 'week') {
       title.textContent = 'Wochenblick'
       const list = element('ul')
@@ -180,7 +184,7 @@ export function initCockpit(options: Options) {
       title.textContent = 'Start'
       body.append(element('h3','Heute'),element('p',s.due.length+' fällig · '+s.late.length+' wartend und fällig · '+s.snoozed+' auf Wiedervorlage'),
         actions(go('Heute dran','today'),button(ritual?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startRitual)),
-        actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}),go('Hilfe','help')))
+        actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}),go('Hilfe','help')))
       if(options.openUnanswered)body.append(button('Gesendet ohne Antwort',()=>{dialog.close();void options.openUnanswered!()}))
       const startup=element('input');startup.type='checkbox';startup.checked=preference(launchKey)
       startup.onchange=()=>remember(launchKey,startup.checked)
@@ -208,7 +212,7 @@ export function initCockpit(options: Options) {
   }
   document.addEventListener('board-commands', event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
-    entries.push({label:'Morgen-Triage',run:startRitual},{label:'Wochenblick',run:()=>open('week')},
+    entries.push({label:'Morgen-Triage',run:startRitual},{label:'Wochenblick',run:()=>open('week')},{label:'Ablage-Auswertung',run:()=>open('learning')},
       {label:'Warten-Hygiene',run:()=>open('hygiene')},{label:'Posteingang aufräumen',run:()=>void openCleanup()})
   })
   document.getElementById('cockpit-start')?.addEventListener('click',()=>open('start'))

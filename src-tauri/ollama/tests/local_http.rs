@@ -293,6 +293,7 @@ fn semantic_holdout_excludes_all_held_out_examples_before_ranking() {
             });
         }
         folders.push(EvaluationFolder {
+            held: (0..10).map(|i| (i, format!("{name}-{i}"))).collect(),
             key: name.into(),
             index: SampleIndex {
                 members,
@@ -302,6 +303,11 @@ fn semantic_holdout_excludes_all_held_out_examples_before_ranking() {
     }
     let result = holdout(&root, &folders, 0.15, 0.78, 0.03);
     assert_eq!(result.tested, 20);
+    assert_eq!(result.predictions.len(), 20);
+    assert!(result
+        .predictions
+        .iter()
+        .all(|p| p.folder != p.truth && p.id.starts_with(&p.truth)));
     assert_eq!(result.missing, 0);
     assert_eq!(result.plain.shown, 20);
     assert_eq!(result.plain.correct, 0);

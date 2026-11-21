@@ -12,6 +12,8 @@ In der Python-App eine ZIP-Sicherung erstellen. Eine Kopie dieser ZIP-Datei in M
 
 Eine native Sicherung enthält das Manifest `tauri-board-v1.json` mit den lokalen Boarddaten einschließlich übernommener Python-Dateien. Beim Einspielen einer nativen ZIP ersetzt dieser Stand die Boarddaten. Das ZIP kann u. a. Steckbriefe, Adressen, Lernbeispiele und KI-Ergebnisse enthalten. Es gehört daher an denselben geschützten Speicherort wie die bisherigen Sicherungen. Archive dürfen komprimiert und entpackt je höchstens 16 MiB groß sein. Zusätzlich gilt der Speicherplatz des WebView-Profils. Bei Schreibfehlern versucht der Import, den vorherigen Zustand vollständig wiederherzustellen.
 
+**Lernmodell und Fenster.** Der lokale Rust-Dienst speichert berechnete Embedding-Vektoren im Unterordner `embeddings-v1` des lokalen App-Datenverzeichnisses. Ein importiertes ZIP kann Lernbeispiele und Ordnerzentren enthalten. Für einen vollständigen semantischen Testlauf auf einem neuen PC die Lernordner erneut einlesen. Die externe Vektordatei der Python-Version gehört auch dort nicht zum Standard-Sicherungs-ZIP. Fensterposition und Größe speichert Tauri pro Windows-Benutzer.
+
 **Was im Postfach bleibt.** Nachrichten, Anhänge, Outlook-Statuskategorien, Notizen und Fristen liegen im Outlook-Profil. Die Board-Sicherung ersetzt keine Postfachsicherung. Die Rücknahme von Postfachaktionen gilt innerhalb der laufenden Sitzung, auch nach einem Board-Refresh.
 
 **Neuer Rechner.** Auf dem bisherigen Gerät eine native Sicherung exportieren, auf dem neuen Gerät das Windows-Paket vollständig entpacken und die Sicherung dort importieren. Für Postfachoperationen muss das betreffende Profil in klassischem Outlook eingerichtet sein. Pfade und Vorschlagsziele im Ordnerdialog prüfen.

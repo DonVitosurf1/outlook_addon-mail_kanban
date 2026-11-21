@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis } from '../src/ai'
+import { suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis } from '../src/ai'
 import { LEGACY } from '../src/backup'
 
 function storage(files:Record<string,string>={}){
@@ -99,4 +99,34 @@ test('Nahe semantische Treffer veranlassen nur eine Stichwahl zwischen den beide
   const hint=await suggestFolder(mail,['Labor','Einkauf','Personal'])
   assert.equal(hint.folder,'Einkauf');assert.ok(hint.reason.startsWith('KI-Stichwahl'))
   assert.deepEqual(calls,['ai_suggest','ai_analyze'])
+})
+
+test('Steckbrief-Ausschlüsse erhöhen die lokale Zuordnung nicht',async()=>{
+  storage({'knowledge/labor.md':'---\nfolder: /LAB\n---\n## Zweck\nReinigung\n## Passt nicht hierher\nPipettenspitzen'})
+  assert.equal((await suggestFolder(mail,['LAB'])).folder,'')
+})
+
+test('Gesamttestlauf zählt die tatsächlich ausgewählte Quelle und berücksichtigt ausgeblendete Quellen',()=>{
+  const rows=Array.from({length:26},(_,i)=>{
+    const truth=i%2?'Labor':'IT',j=Math.floor(i/2)
+    return {folder:truth,id:truth+j,received:'2026-11-'+String(20-j).padStart(2,'0'),
+      features:['e:'+(i===0?'fest@labor.de':'team@'+truth+'.de'),'n:'+truth,'w:'+truth]}
+  })
+  const guesses=[
+    {truth:'IT',id:'IT0',folder:'IT',gap:0.2},  // specific sender rule overrides both models
+    {truth:'Labor',id:'Labor0',folder:'Labor',gap:0.1}, // agreement
+    {truth:'IT',id:'IT1',folder:'Labor',gap:0.2},  // clearly stronger semantic score
+    {truth:'Labor',id:'Labor1',folder:'IT',gap:0.04}, // narrow disagreement falls back to Bayes
+  ]
+  const semantic={tested:4,missing:0,profiled:{correct:2,shown:4},plain:{correct:1,shown:4},predictions:guesses}
+  const fixed=[{match:'sender:fest@labor.de',folder:'Labor'}]
+  const result=evaluateHoldout(rows,['IT','Labor'],fixed,[],semantic)
+  assert.equal(result.tested,20);assert.equal(result.folders,2)
+  assert.deepEqual(result.rule,{correct:0,shown:1})
+  assert.deepEqual(result.bayes,{correct:20,shown:20})
+  assert.deepEqual(result.combined,{correct:18,shown:20})
+  assert.deepEqual(result.sources,{Regel:{correct:0,shown:1},Hybrid:{correct:1,shown:1},Embedding:{correct:0,shown:1},Bayes:{correct:17,shown:17}})
+  const filtered=evaluateHoldout(rows,['IT','Labor'],fixed,['Regel','Hybrid'],semantic)
+  assert.deepEqual(filtered.combined,{correct:17,shown:18})
+  assert.equal(filtered.sources.Hybrid,undefined);assert.equal(filtered.sources.Regel,undefined)
 })
