@@ -11,6 +11,8 @@ from playwright.sync_api import expect, sync_playwright
 
 def check_board(page, base_url, font_size):
     page.goto(base_url)
+    page.locator('#moreTools summary').click()
+    page.locator('#backDemo').click()
     search = page.locator("#search")
     cards = page.locator(".card")
     expect(cards.first).to_be_visible()
@@ -44,14 +46,16 @@ def check_board(page, base_url, font_size):
     page.keyboard.press("Escape")
     expect(page.locator("#palette")).to_be_hidden()
 
+    page.reload()
+    page.evaluate("(size) => document.documentElement.style.fontSize = size", f"{font_size}px")
     trigger = page.locator("#moreTools summary")
     trigger.click()
     page.locator("#openSettings").click()
     settings = page.locator("#settingsDialog")
     expect(settings).to_be_visible()
     assert settings.evaluate("(dialog) => dialog.scrollWidth <= dialog.clientWidth + 1")
-    settings.get_by_role("button", name="KI-Einstellungen speichern").focus()
-    expect(settings.get_by_role("button", name="KI-Einstellungen speichern")).to_be_in_viewport()
+    settings.get_by_label("Echte Mails verschieben erlauben").focus()
+    expect(settings.get_by_label("Echte Mails verschieben erlauben")).to_be_in_viewport()
     page.keyboard.press("Escape")
     expect(trigger).to_be_focused()
 

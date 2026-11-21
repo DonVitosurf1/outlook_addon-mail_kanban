@@ -11,6 +11,8 @@ from playwright.sync_api import expect, sync_playwright
 
 def check_cockpit(page, base_url):
     page.goto(base_url)
+    page.locator('#moreTools summary').click()
+    page.locator('#backDemo').click()
     page.locator('#cockpit-start').click()
     page.get_by_role('button', name='Morgen-Triage starten').click()
     for title in ['Heute dran', 'Offen durchgehen']:
@@ -41,16 +43,13 @@ def check_cockpit(page, base_url):
     d.get_by_role('button', name='Letzte Board-Aktion zurücknehmen').click()
     expect(heading).to_have_text(current)
 
-    # Nur ein hochkonfident gelernter Kandidat. Vorschau darf keine Karte verändern.
+    # Ein gelerntes Ziel aus Outlook darf das Beispielpostfach nicht beeinflussen.
     page.evaluate("""() => localStorage.setItem('outlook-kanban-ai-training-v1',
       JSON.stringify({rows:Array.from({length:3},()=>({folder:'Organisation',features:['n:thomas krüger']}))}))""")
     d.get_by_role('button', name='Sichere Sammelvorschläge prüfen').click()
-    d.get_by_text('1 nach „Organisation“', exact=True).click()
+    expect(d).to_contain_text('Keine sicheren Sammelvorschläge gefunden.')
     expect(heading).to_have_text(current)
-    d.get_by_role('button', name='Diese Mail nach „Organisation“ ablegen').click()
-    expect(heading).not_to_have_text(current)
-    d.get_by_role('button', name='Letzte Board-Aktion zurücknehmen').click()
-    expect(heading).to_have_text(current)
+
 
 
 if __name__ == '__main__':
@@ -66,6 +65,6 @@ if __name__ == '__main__':
                 check_cockpit(page, f'http://127.0.0.1:{server.server_port}')
                 assert not errors, errors
                 browser.close()
-                print('OK – Morgen-Triage, Hilfesuche, Aufräumen, Sammelvorschlag und Undo')
+                print('OK – Morgen-Triage, Hilfesuche, Aufräumen, isolierte Vorschläge und Undo')
         finally:
             server.shutdown()

@@ -93,10 +93,13 @@ internal sealed class BoardCommands
             if (args.Length == 4) return Move(args[1], args[2], args[3]);
             break;
         case "--status":
-            if (args.Length == 4 || args.Length == 5) return SetStatus(args[1],args[2],args[3],args.Length==5?args[4]:null);
+            if (args.Length >= 4 && args.Length <= 7)
+                return SetStatus(args[1],args[2],args[3],args.Length>4?args[4]:null,
+                    args.Length>5?args[5]:null,args.Length>6?args[6]:null);
             break;
         case "--field":
-            if (args.Length == 5) return SetField(args[1], args[2], args[3], args[4]);
+            if (args.Length == 5 || args.Length == 6)
+                return SetField(args[1], args[2], args[3], args[4], args.Length==6?args[5]:null);
             break;
         case "--tags":
             if (args.Length == 5) return SetTags(args[1], args[2], decodeTags(args[3]), decodeTags(args[4]));
@@ -284,7 +287,7 @@ internal sealed class BoardCommands
         return "";
     }
 
-    private object SetStatus(string id, string folderId, string status,string restoreSince)
+    private object SetStatus(string id, string folderId, string status,string restoreSince,string expected,string expectedSince)
     {
         if (status!="" && !States.Contains(status)) throw new ArgumentException("Unbekannter Status.");
         dynamic item = Mail(id,folderId);
@@ -292,10 +295,16 @@ internal sealed class BoardCommands
         string previous = StatusOf(all);
         object oldTime=ReadProperty(item,"KanbanStatusSeit");
         string previousSince=oldTime is DateTime ? Iso((DateTime)oldTime) : "";
+        if(expected!=null && (expected!=previous || (expectedSince!=null && !SameTimestamp(previousSince,expectedSince))))
+            return new { conflict=true };
+        string statusSince=previousSince;
         object newTime=null;
         if(status!="" && restoreSince!="") {
             DateTime when;
-            if(restoreSince==null) when=DateTime.Now;
+            if(restoreSince==null) {
+                DateTime now=DateTime.Now;
+                when=now.AddTicks(-(now.Ticks%TimeSpan.TicksPerSecond));
+            }
             else if(!DateTime.TryParse(restoreSince,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out when))
                 throw new ArgumentException("Ungültiges Statusdatum.");
             newTime=when;
@@ -306,9 +315,19 @@ internal sealed class BoardCommands
             item.Categories = string.Join(separator+" ",keep);
             WriteProperty(item,"KanbanStatusSeit",5,newTime);
             item.Save();
+            object savedTime=ReadProperty(item,"KanbanStatusSeit");
+            statusSince=savedTime is DateTime ? Iso((DateTime)savedTime) : "";
             if(status!="") AddMissingCategory(prefix+status,new[]{8,2,4,5}[Array.IndexOf(States,status)]);
         }
-        return new { id, status, previous, previousSince };
+        return new { id, status, previous, previousSince, statusSince };
+    }
+
+    private static bool SameTimestamp(string left,string right)
+    {
+        if(left==right) return true;
+        DateTimeOffset a,b;
+        return DateTimeOffset.TryParse(left,CultureInfo.InvariantCulture,DateTimeStyles.None,out a) &&
+            DateTimeOffset.TryParse(right,CultureInfo.InvariantCulture,DateTimeStyles.None,out b) && a==b;
     }
 
     private object MasterCategories()
@@ -374,7 +393,7 @@ internal sealed class BoardCommands
         return when is DateTime ? ((DateTime)when).ToString("yyyy-MM-dd",CultureInfo.InvariantCulture) : "";
     }
 
-    private object SetField(string id,string folderId,string field,string value)
+    private object SetField(string id,string folderId,string field,string value,string expected)
     {
         string name;
         switch(field) {
@@ -389,6 +408,7 @@ internal sealed class BoardCommands
         dynamic mail=Mail(id,folderId);
         object before=ReadProperty(mail,name);
         string previous=field=="note" ? Convert.ToString(before) : DateText(before);
+        if(expected!=null && expected!=previous) return new { conflict=true };
         if (value!=previous) {
             WriteProperty(mail,name,field=="note"?1:5,write);
             mail.Save();

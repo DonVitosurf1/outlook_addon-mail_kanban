@@ -16,7 +16,7 @@
       <div id="sideActions"></div>
     </div>
     <button id="cockpit-start" class="side-action">Start und Übersicht</button>
-    <div class="foot">Lokales Demo-Postfach</div>
+    <div class="foot">Kein Postfach verbunden</div>
   </aside>
 
   <main>
@@ -29,7 +29,6 @@
       <div class="work-actions" id="workActions">
         <button hidden class="primary" id="loadInbox">Outlook-Mails laden</button>
         <button hidden id="connectOutlook">Outlook starten …</button>
-        <button hidden id="backDemo">Zur Demo</button>
         <button id="undo" disabled title="Letzte Änderung zurücknehmen (Strg+Z)">Rückgängig</button>
         <details class="tools" id="moreTools">
           <summary>Werkzeuge</summary>
@@ -39,14 +38,14 @@
             <button id="cockpit-help">Hilfe und Tastenkürzel</button>
             <button id="dataSettings">Lokale Daten und Textbausteine</button>
             <button hidden id="projectTools">Projektordner verwalten</button>
-            <button hidden id="openOutlookTest">Outlook-Verbindung testen</button>
+            <button id="backDemo">Beispielpostfach öffnen</button>
           </div>
         </details>
       </div>
     </header>
 
     <div class="board-heading">
-      <div class="board-title"><h1 id="title">Alle Mails</h1><p id="summary" aria-live="polite"></p></div>
+      <div class="board-title"><h1 id="title">Outlook-Postfach</h1><p id="summary" aria-live="polite"></p></div>
       <div id="viewControls" role="group" aria-label="Ansicht und Filter"></div>
     </div>
     <div id="board" class="board" role="region" tabindex="-1" aria-label="Kanban-Board"></div>

@@ -134,11 +134,38 @@ export class BoardViews {
       }
     })
   }
+  /** Board and folder buttons are recreated on refresh. Read focus immediately before replacement. */
+  rememberPlace(){
+    const board=document.getElementById('board')!
+    const left=board.scrollLeft,top=board.scrollTop
+    const sidebar=document.querySelector<HTMLElement>('.side-scroll'),sidebarTop=sidebar?.scrollTop||0
+    const active=document.activeElement instanceof HTMLElement?document.activeElement:undefined
+    const lane=active?.closest<HTMLElement>('.lane')?.dataset.status
+    const group=active?.closest('.group-cell')?.querySelector<HTMLElement>('[data-group-key]')?.dataset.groupKey
+    const mail=active?.dataset.viewId,groupButton=active?.dataset.groupKey
+    const folder=active?.closest('#folders button') as HTMLButtonElement|null
+    return ()=>{
+      if(active && !active.isConnected && document.activeElement===document.body){
+        let target:HTMLElement|undefined
+        const column=Array.from(board.querySelectorAll<HTMLElement>('.lane')).find(node=>node.dataset.status===lane)
+        if(mail){
+          const cards=this.cardNodes().filter(node=>node.dataset.viewId===mail)
+          target=cards.find(node=>node.closest('.group-cell')?.querySelector<HTMLElement>('[data-group-key]')?.dataset.groupKey===group)||cards[0]
+        }
+        if(groupButton)target=Array.from(column?.querySelectorAll<HTMLElement>('[data-group-key]')||[]).find(node=>node.dataset.groupKey===groupButton)
+        if(!target && column)target=column.querySelector<HTMLElement>('.column-toggle')||undefined
+        if(folder)target=Array.from(document.querySelectorAll<HTMLButtonElement>('#folders button')).find(node=>node.title===folder.title)
+        target?.focus({preventScroll:true})
+      }
+      board.scrollLeft=left;board.scrollTop=top
+      if(sidebar)sidebar.scrollTop=sidebarTop
+    }
+  }
   sync(mails:ViewMail[]) {
     this.marks.sync(this.api.scopeIdentity?.()||'board',mails,this.api.inboxId?.()||'Posteingang')
     const config=getLegacyConfig()
     this.overdueDays=Number(config.overdue_days??5)
-    if(Array.isArray(config.vip_senders))this.vipTokens=config.vip_senders.filter((s):s is string=>typeof s==='string')
+    this.vipTokens=Array.isArray(config.vip_senders)?config.vip_senders.filter((s):s is string=>typeof s==='string'):remembered('vip').split('\n').filter(Boolean)
     this.layout.sync(mails);this.all=mails
     this.byId=new Map(mails.map(m=>[m.id,m]))
     for(const id of this.selected)if(!this.byId.has(id))this.selected.delete(id)

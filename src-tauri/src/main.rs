@@ -1,10 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-#[tauri::command]
-fn demo_board() -> &'static str {
-    include_str!("../../src/demo.json")
-}
-
 static STATUS_PREFIX: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 #[tauri::command]
@@ -25,7 +20,7 @@ async fn run_helper(args: Vec<String>) -> Result<String, String> {
             let _write_guard = desktop::WriteGuard::for_command(args.first())?;
             let helper = std::env::current_exe()
                 .map_err(|e| e.to_string())?
-                .with_file_name("Outlook-Test.exe");
+                .with_file_name("Mail-Board-Outlook.exe");
             let mut command = std::process::Command::new(helper);
             if let Some(prefix) = STATUS_PREFIX.lock().map_err(|e| e.to_string())?.as_ref() {
                 command.env("KANBAN_STATUS_PREFIX", prefix);
@@ -49,12 +44,7 @@ async fn run_helper(args: Vec<String>) -> Result<String, String> {
         .map_err(|e| e.to_string())?
     }
     #[cfg(not(windows))]
-    Err("Der Outlook-Test benötigt Windows.".into())
-}
-
-#[tauri::command]
-async fn outlook_test() -> Result<String, String> {
-    run_helper(vec![]).await
+    Err("Die Verbindung zu Outlook benötigt Windows.".into())
 }
 
 #[tauri::command]
@@ -130,6 +120,8 @@ async fn outlook_status(
     folder: String,
     status: String,
     since: Option<String>,
+    expected: Option<String>,
+    expected_since: Option<String>,
 ) -> Result<String, String> {
     validate_id(&id)?;
     validate_id(&folder)?;
@@ -140,7 +132,13 @@ async fn outlook_status(
         return Err("Ungültiger Status.".into());
     }
     let mut args = vec!["--status".into(), id, folder, status];
-    if let Some(stamp) = since {
+    if let Some(value) = expected {
+        args.push(since.unwrap_or_default());
+        args.push(value);
+        if let Some(stamp) = expected_since {
+            args.push(stamp);
+        }
+    } else if let Some(stamp) = since {
         args.push(stamp);
     }
     run_helper(args).await
@@ -152,13 +150,18 @@ async fn outlook_field(
     folder: String,
     field: String,
     value: String,
+    expected: Option<String>,
 ) -> Result<String, String> {
     validate_id(&id)?;
     validate_id(&folder)?;
     if !matches!(field.as_str(), "note" | "followUp" | "snoozeUntil") {
         return Err("Unbekanntes Mailfeld.".into());
     }
-    run_helper(vec!["--field".into(), id, folder, field, value]).await
+    let mut args = vec!["--field".into(), id, folder, field, value];
+    if let Some(value) = expected {
+        args.push(value);
+    }
+    run_helper(args).await
 }
 
 #[tauri::command]
@@ -282,11 +285,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             desktop::outlook_batch,
-            demo_board,
             outlook_categories,
             outlook_sync_colors,
             outlook_prefix,
-            outlook_test,
             outlook_inbox,
             outlook_open,
             outlook_folders,

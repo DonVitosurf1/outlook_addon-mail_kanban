@@ -46,7 +46,7 @@ function button(text:string,run:()=>void) {
   return node
 }
 
-export function openStructure(service:LiveBoard, source:Folder, finish:(created:Folder[])=>void|Promise<void>) {
+export function openStructure(service:Pick<LiveBoard,'json'|'invoke'|'writeBatch'>, source:Folder, finish:(created:Folder[])=>void|Promise<void>) {
   const dialog=document.createElement('dialog')
   dialog.className='structure-dialog'
   const title=document.createElement('h2')

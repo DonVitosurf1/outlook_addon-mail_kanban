@@ -2,14 +2,14 @@ import {undoLimit} from './undo-limit'
 import './shell'
 import {renderCardContent} from './card-content'
 import {colorSettings,applyLaneColor} from './category-colors'
-import { readLimits, textSnippets, getLegacyConfig, updateConfig } from './data-settings'
+import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, updateConfig } from './data-settings'
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
 import demo from './demo.json'
-import { LiveBoard, type Folder, type Invoke } from './live'
-import { suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
+import { countsAsFiling, LiveBoard, UndoConflict, type Folder, type Invoke } from './live'
+import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
 import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
-import { initCockpit } from './cockpit'
+import { initCockpit, recordWeekly } from './cockpit'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -24,15 +24,19 @@ const undoButton = el<HTMLButtonElement>('undo')
 const inboxButton=el<HTMLButtonElement>('loadInbox')
 const back=el<HTMLButtonElement>('backDemo')
 const core=window.__TAURI__?.core
-const service=core && new LiveBoard((command,args)=>core.invoke(command,args))
+const service=core && new LiveBoard((command,args)=>core.invoke(command,args),(delta,occurredAt)=>recordWeekly(true,'filed',delta,occurredAt))
 function mayMove(){return getLegacyConfig().allow_move===true}
 const storageKey='outlook-kanban-demo-positions-v1'
 const demoUndo:{mails:Mail[],events:Counter[]}[]=[]
 let demoMails:Mail[]=[]
 let mails:Mail[]=[]
-let folders=demoFolders
-let live=false
+let folders:Folder[]=[]
+type Mailbox='outlook'|'demo'|'offline'
+let mailbox:Mailbox='offline'
+const isLive=()=>mailbox==='outlook'
+const hasMailbox=()=>mailbox!=='offline'
 let busy=false
+let connection:object|undefined
 let scope=''
 let selected:Mail|undefined
 let syncColors:ReturnType<typeof colorSettings>
@@ -65,8 +69,9 @@ async function exclusive(action:()=>Promise<void>) {
   }
 }
 function controls() {
-  inboxButton.disabled=back.disabled=busy
-  undoButton.disabled=busy||!(live?(service?.canUndo||projectUndoLatest()):demoUndo.length)
+  inboxButton.disabled=el<HTMLButtonElement>('connectOutlook').disabled=busy||!!connection
+  back.disabled=busy
+  undoButton.disabled=busy||!(isLive()?(service?.canUndo||projectUndoLatest()):demoUndo.length)
   for(const id of ['folder','status','suggestFolder','applySuggestion','openOriginal'])
     el<HTMLButtonElement>(id).disabled=busy
 }
@@ -93,6 +98,7 @@ function loadDemo() {
   } catch {notify('Das Demo-Postfach startet mit den Beispieldaten.')}
 }
 function changeDemo(action:()=>void,events:Counter[]=[]) {
+  if(mailbox!=='demo')return
   const before=structuredClone(demoMails)
   action()
   demoUndo.push({mails:before,events})
@@ -108,14 +114,22 @@ function hydrate(rows:Mail[],items:Folder[]){
   const paths=new Map(items.map(f=>[f.id,f.path||f.name]))
   for(const mail of rows){mail.folderPath=paths.get(mail.folderId||'')||mail.folder;restoreAnalysis(mail)}
 }
-function sourceUpdated(rows:Mail[],outlook:boolean,items:Folder[],key:string) {
+function sourceUpdated(rows:Mail[],source:Mailbox,items:Folder[],key:string) {
+  const outlook=source==='outlook'
+  if(source!==mailbox)search.value=''
   if(dialog.open)dialog.close()
+  suggestionVersion++
+  mailbox=source;mails=rows;folders=items;scope=key;selected=undefined
+  useSampleSettings(source==='demo')
+  setAiLive(outlook,source)
+  bindProjectBoard(outlook?service:undefined)
   if(outlook)hydrate(rows,items)
-  mails=rows;live=outlook;folders=items;scope=key
-  selected=undefined;views.resetSelection()
-  back.hidden=!outlook
-  inboxButton.textContent=outlook?'Aktualisieren':'Outlook-Mails laden'
-  document.querySelector<HTMLElement>('.foot')!.textContent=outlook?'Klassisches Outlook':'Lokales Demo-Postfach'
+  views.resetSelection()
+  back.hidden=source==='demo'
+  inboxButton.textContent=outlook?'Aktualisieren':(source==='demo'?'Zu Outlook wechseln':'Erneut verbinden')
+  el('connectOutlook').hidden=source!=='offline'||!service
+  el('openSettings').hidden=el('dataSettings').hidden=source==='demo'
+  document.querySelector<HTMLElement>('.foot')!.textContent=outlook?'Klassisches Outlook':source==='demo'?'Beispielpostfach':'Kein Postfach verbunden'
   fillOptions(el('folder'),folders.map(f=>({id:f.id,label:f.path||f.name})))
   render()
   if(outlook)void queueAnalyses()
@@ -127,7 +141,7 @@ function boardFolders(list:Folder[], paths:string[]) {
   return list.filter(f=>targets.has(f.path.toLocaleLowerCase('de')))
 }
 function learnerFolders() {
-  if(!live)return demoFolders
+  if(!isLive())return mailbox==='demo'?demoFolders:[]
   return boardFolders(folders,getLearningScope()??getBoardScope())
 }
 function readRows(key:string,list:Folder[]) {
@@ -139,23 +153,39 @@ async function refresh(key=scope) {
   if(!service)return
   const rows=await readRows(key,folders)
   if(!Array.isArray(rows))throw new Error('Outlook lieferte keine Mailliste.')
-  sourceUpdated(rows,true,folders,key)
+  sourceUpdated(rows,'outlook',folders,key)
 }
-async function connect() {
-  if(!service)return
-  await exclusive(async()=>{
-    notify('Outlook wird gelesen …')
-    el('connectOutlook').hidden=false
-    if(live) await refresh()
-    else {
+async function connect(startOutlook=false) {
+  if(!service||busy||connection)return
+  const request={}
+  const wasLive=isLive()
+  const previousScope=wasLive?scope:''
+  const load=async()=>{
+    connection=request
+    if(!wasLive)sourceUpdated([],'offline',[],'')
+    controls()
+    notify(startOutlook?'Outlook wird gestartet …':'Outlook-Postfach wird geladen …')
+    try{
+      if(startOutlook)await service.invoke('outlook_connect')
+      if(connection!==request)return
       const list=await service.json<Folder[]>('outlook_folders')
-      const rows=await readRows('',list)
-      search.value=''
-      sourceUpdated(rows,true,list,'')
+      if(connection!==request)return
+      const key=list.some(f=>f.id===previousScope)?previousScope:''
+      const rows=await readRows(key,list)
+      if(connection!==request)return
+      sourceUpdated(rows,'outlook',list,key)
+      notify(mails.length+' Mails geladen.')
+    }catch(error){
+      if(connection!==request)return
+      sourceUpdated([],'offline',[],'')
+      notify('Outlook konnte nicht geladen werden. '+errorText(error))
+    }finally{
+      if(connection===request)connection=undefined
+      controls()
     }
-    el('connectOutlook').hidden=true
-    notify(mails.length+' Mails geladen.')
-  })
+  }
+  if(wasLive)await exclusive(load)
+  else await load()
 }
 function confirmMove(question:string) {
   const prompt=el<HTMLDialogElement>('moveConfirm')
@@ -169,7 +199,7 @@ function confirmMove(question:string) {
 
 function archiveFolder(){
   const path=getArchiveScope()
-  return live && mayMove() && path?folders.find(f=>f.path===path):undefined
+  return isLive() && mayMove() && path?folders.find(f=>f.path===path):undefined
 }
 function isInInbox(mail:Mail) {return folders.some(f=>f.isInbox && f.id===mail.folderId)}
 function archiveCandidates(){
@@ -178,21 +208,29 @@ function archiveCandidates(){
   const cutoff=Date.now()-days*86400000
   return mails.filter(m=>isInInbox(m)&&m.status==='Erledigt'&& Date.parse(m.statusSince||m.received||'')<=cutoff)
 }
+let mutationVersion=0
+function needsStatus(mail:Mail,value:string){
+  return mail.status!==value || mail.hasStatus===false
+}
 type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string}
 async function change(ids:string[],action:Mutation) {
   await exclusive(async()=>{
     const rows=mails.filter(m=>ids.includes(m.id))
     const field=action.kind
     const value=action.value as string
-    const todo=rows.filter(m=>field==='move'?((m.folderId||m.folder)!==value || (!!action.status && m.status!==action.status)):
-      field==='tags'?JSON.stringify(m.tags)!==JSON.stringify(action.value):m[field]!==value || (field==='status' && m.hasStatus===false))
+    const todo=rows.filter(m=>{
+      if(field==='move')return (m.folderId||m.folder)!==value || (!!action.status && needsStatus(m,action.status))
+      if(field==='status')return needsStatus(m,value)
+      if(field==='tags')return JSON.stringify(m.tags)!==JSON.stringify(action.value)
+      return m[field]!==value
+    })
     if(!todo.length) return
     const dest=folders.find(f=>f.id===value)
     if(field==='move'&&!dest)throw new Error('Zielordner nicht verfügbar.')
     const moving=field==='move'?todo.filter(m=>(m.folderId||m.folder)!==value):[]
     const archive=field==='status' && value==='Erledigt'?archiveFolder():undefined
     const archiving=archive?todo.filter(isInInbox):[]
-    if(live && moving.length && !mayMove()){
+    if(isLive() && moving.length && !mayMove()){
       if(selected)fillDetail(selected)
       throw new Error('Verschieben ist gesperrt. In den Einstellungen „Echte Mails verschieben erlauben“ aktivieren.')
     }
@@ -200,11 +238,11 @@ async function change(ids:string[],action:Mutation) {
     let question=''
     if(moving.length)question=label+' nach „'+(dest!.path||dest!.name)+'“ verschieben'+(action.status?' und auf „'+action.status+'“ setzen':'')+'?'
     if(archiving.length)question=label+' als erledigt markieren und '+archiving.length+' aus dem Posteingang nach „'+archive!.path+'“ archivieren?'
-    if(live && question && !await confirmMove(question)) {
+    if(isLive() && question && !await confirmMove(question)) {
       if(selected)fillDetail(selected)
       return
     }
-    if(!live) {
+    if(!isLive()) {
       const events:Counter[]=field==='move'?moving.filter(()=>dest?.name!=='Posteingang').map(()=>'filed'):
         field==='followUp'&&value?todo.map(()=>'followed_up'):field==='snoozeUntil'&&value?todo.map(()=>'snoozed'):[]
       changeDemo(()=>{for(const m of todo) {
@@ -215,6 +253,7 @@ async function change(ids:string[],action:Mutation) {
       if(selected)fillDetail(selected)
       return
     }
+    mutationVersion++
     await service!.writeBatch(async()=>{
       const batch=service!.begin()
       const errors:string[]=[]
@@ -225,23 +264,22 @@ async function change(ids:string[],action:Mutation) {
           if(field==='move') {
             let id=m.id
             if(m.folderId!==value){
-              const countAsFiled=dest!.path!==getArchiveScope() && !dest!.isInbox
+              const countAsFiled=countsAsFiling(dest!,getArchiveScope())
               id=await service!.move(batch,m.id,m.folderId,value,countAsFiled)
               mails=mails.filter(x=>x!==m)
               if(countAsFiled){
-                cockpit.record('filed')
                 if(learnerFolders().some(f=>f.id===value)){
                   try {recordFiling(m,dest!.path||dest!.name)} catch { /* Outlook already saved the move. */ }
                 }
               }
             }
-            if(action.status && action.status!==m.status){
-              try {await service!.status(batch,id,value,action.status);m.status=action.status}
+            if(action.status && needsStatus(m,action.status)){
+              try {await service!.status(batch,id,value,action.status);m.status=action.status;m.hasStatus=true}
               catch(e){throw new Error((id===m.id?'':'Verschoben. ')+'Statusänderung fehlgeschlagen: '+errorText(e))}
             }
           } else if(field==='status') {
             await service!.status(batch,m.id,m.folderId,value)
-            m.status=value
+            m.status=value;m.hasStatus=true
             if(archive && isInInbox(m)){
               try {await service!.move(batch,m.id,m.folderId,archive.id,false);mails=mails.filter(x=>x!==m)}
               catch(e){throw new Error('Status geändert. Archivieren fehlgeschlagen: '+errorText(e))}
@@ -265,21 +303,28 @@ async function change(ids:string[],action:Mutation) {
   })
 }
 async function undo() {
+  if(!hasMailbox())return
   await exclusive(async()=>{
-    if(live) {
+    if(isLive()) {
       await service!.writeBatch(async()=>{
         if(await undoProjectIfLatest(service?.latest||0))return
         if(!service?.canUndo)return
-        try {await service.undo(step=>{if(step.kind==='move'&&step.filed)cockpit.record('filed',-1)
+        try {await service.undo(step=>{
           if(step.kind==='field'&&step.value&&step.field==='followUp')cockpit.record('followed_up',-1)
-          if(step.kind==='field'&&step.value&&step.field==='snoozeUntil')cockpit.record('snoozed',-1)})} finally {await refresh()}
+          if(step.kind==='field'&&step.value&&step.field==='snoozeUntil')cockpit.record('snoozed',-1)})} catch(error){
+          if(!(error instanceof UndoConflict))throw error
+          const skip=await ask(document.body,error.message+' Diesen Rückgängig-Schritt überspringen und den aktuellen Outlook-Wert behalten?', 'Schritt überspringen')
+          if(skip)error.skip()
+          notify(skip?'Rückgängig-Schritt übersprungen.':'Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
+          return
+        } finally {await refresh()}
         notify('Änderung rückgängig gemacht.')
       })
     } else {
       const old=demoUndo.pop()
       if(!old)return
       for(const event of old.events)cockpit.record(event,-1)
-      demoMails=old.mails;sourceUpdated(demoMails,false,demoFolders,scope);saveDemo()
+      demoMails=old.mails;sourceUpdated(demoMails,'demo',demoFolders,scope);saveDemo()
       notify('Änderung rückgängig gemacht.')
     }
   })
@@ -297,7 +342,7 @@ function dropZone(node:HTMLElement,action:(ids:string[])=>void) {
 function fillDetail(mail:Mail) {
   const version=++suggestionVersion
   correspondence?.detail(mail.id,el('detailActions'))
-  el('openOriginal').hidden=!live
+  el('openOriginal').hidden=!isLive()
   el('openError').textContent=''
   el('subject').textContent=mail.subject
   el('from').textContent=mail.sender
@@ -305,13 +350,13 @@ function fillDetail(mail:Mail) {
   el('attachments').textContent=mail.attachments.length?'Anhänge · '+mail.attachments.join(', '):''
   el<HTMLSelectElement>('status').value=mail.status
   el<HTMLSelectElement>('folder').value=mail.folderId||mail.folder
-  el('replyActions').hidden=!live
+  el('replyActions').hidden=!isLive()
   fillOptions(el('draftSnippet'),[{id:'',label:'Ohne Textbaustein'},...textSnippets('follow_up').map(s=>({id:s.body,label:s.label}))])
   el('rejectSuggestion')?.remove()
   const result=el('suggestionResult'), accept=el<HTMLButtonElement>('applySuggestion')
   result.textContent='';accept.hidden=true
   const choices=learnerFolders().filter(f=>f.id!==(mail.folderId||mail.folder)).map(f=>f.path)
-  renderAnalysis(el('analysis'),mail,choices,live?async(text:string)=>{await draft(mail,'reply',text)}:undefined,
+  renderAnalysis(el('analysis'),mail,choices,isLive()?async(text:string)=>{await draft(mail,'reply',text)}:undefined,
     async(tags:string[])=>{await change([mail.id],{kind:'tags',value:tags})})
   const suggest=el<HTMLButtonElement>('suggestFolder')
   suggest.disabled=false
@@ -352,6 +397,7 @@ function makeCard(mail:Mail,config:Record<string,unknown>,hint?:string) {
   return card
 }
 function render() {
+  const restorePlace=views.rememberPlace()
   const archiveButton=el<HTMLButtonElement>('archiveDone')
   if(archiveButton){
     const candidates=archiveCandidates()
@@ -361,14 +407,14 @@ function render() {
   }
   const nav=el('folders')
   nav.replaceChildren()
-  const choices=[{id:'',path:'Alle Mails',name:'Alle Mails'},...folders]
+  const choices=hasMailbox()?[{id:'',path:'Alle Mails',name:'Alle Mails'},...folders]:[]
   for(const f of choices) {
     const btn=tag('button',f.path||('name' in f?String(f.name):''))
     btn.title=btn.textContent||f.path
-    if(!live || !scope || scope===f.id)btn.append(tag('b',String(mails.filter(m=>!f.id||(live?m.folderId:m.folder)===f.id).length)))
+    if(!isLive() || !scope || scope===f.id)btn.append(tag('b',String(mails.filter(m=>!f.id||(isLive()?m.folderId:m.folder)===f.id).length)))
     btn.setAttribute('aria-pressed',String(scope===f.id))
     btn.onclick=()=>{
-      if(live)void exclusive(()=>refresh(f.id))
+      if(isLive())void exclusive(()=>refresh(f.id))
       else {scope=f.id;views.resetSelection();render();nav.querySelector<HTMLElement>('[aria-pressed=true]')?.focus()}
     }
     if(f.id)dropZone(btn,ids=>void change(ids,{kind:'move',value:f.id}))
@@ -376,13 +422,15 @@ function render() {
   }
   cockpit?.refresh()
   views.sync(mails)
-  const visible=views.filter(mails.filter(m=>(live||!scope||m.folder===scope)&&matchesQuery(m,search.value)))
-  el('title').textContent=live?'Outlook · '+(scope==='__backlog'?'Aufräumen':folders.find(f=>f.id===scope)?.name||'Alle Mails'):scope||'Alle Mails'
-  el('summary').textContent=visible.length+' von '+mails.length+' Mails'
+  const visible=views.filter(mails.filter(m=>(isLive()||!scope||m.folder===scope)&&matchesQuery(m,search.value)))
+  el('title').textContent=!hasMailbox()?'Outlook-Postfach':isLive()?'Outlook · '+(scope==='__backlog'?'Aufräumen':folders.find(f=>f.id===scope)?.name||'Alle Mails'):scope||'Alle Mails'
+  el('summary').textContent=!hasMailbox()?'':visible.length+' von '+mails.length+' Mails'
   const board=el('board');board.replaceChildren()
+  board.hidden=el('viewControls').hidden=!hasMailbox()
+  if(!hasMailbox()){controls();return}
   const config=getLegacyConfig()
   const suggest=config.suggestions===false?undefined:trustedFolderBatch(learnerFolders().map(f=>f.path))
-  const card=(m:Mail)=>makeCard(m,config,(live?isInInbox(m):m.folder==='Posteingang')?suggest?.(m)?.folder:undefined)
+  const card=(m:Mail)=>makeCard(m,config,(isLive()?isInInbox(m):m.folder==='Posteingang')?suggest?.(m)?.folder:undefined)
   for(const status of states) {
     const lane=tag('section','');lane.className='lane';applyLaneColor(lane,status)
     const matches=visible.filter(m=>m.status===status)
@@ -394,17 +442,19 @@ function render() {
     board.append(lane)
   }
   controls()
+  restorePlace()
 }
 async function openOriginal(mail:Mail) {
+  if(!isLive())return
   await exclusive(async()=>{await service!.invoke('outlook_open',{id:mail.id,folder:mail.folderId})})
 }
 async function draft(mail:Mail,mode:string,text:string) {
-  if(!live){notify('Für einen Outlook-Entwurf zuerst Outlook-Mails laden.');return}
+  if(!isLive()){notify('Für einen Outlook-Entwurf zuerst Outlook-Mails laden.');return}
   await exclusive(async()=>{await service!.invoke('outlook_draft',{id:mail.id,folder:mail.folderId,mode,text});notify('Entwurf in Outlook geöffnet.')})
 }
 async function reloadFolders() {
   reloadPending=false
-  if(!live||!service)return
+  if(!isLive()||!service)return
   if(busy){reloadPending=true;return}
   await exclusive(async()=>{
     const list=await service.json<Folder[]>('outlook_folders')
@@ -413,35 +463,35 @@ async function reloadFolders() {
   })
 }
 async function start() {
-  demoMails=structuredClone(demo);mails=demoMails;loadDemo()
-  views=new BoardViews({render,open:pick,scopeIdentity:()=>(live?'live:':'demo:')+scope,inboxId:()=>folders.find(f=>f.isInbox)?.id||'Posteingang',changeStatus:(ids,value)=>change(ids,{kind:'status',value}),
+  demoMails=structuredClone(demo);loadDemo()
+  views=new BoardViews({render,open:pick,scopeIdentity:()=>mailbox+':'+scope,inboxId:()=>folders.find(f=>f.isInbox)?.id||'Posteingang',changeStatus:(ids,value)=>change(ids,{kind:'status',value}),
     moveToFolder:(ids,index)=>{const f=folders[index];return f?change(ids,{kind:'move',value:f.id}):Promise.resolve()},
     dropInFolder:(ids,folder,status)=>change(ids,{kind:'move',value:folder,status}),
-    clearScope:()=>{if(!live)scope=''},hasScope:()=>!live && !!scope,
-    openOriginal:async id=>{if(!live){pick(id);return}const mail=mails.find(m=>m.id===id);if(mail)await openOriginal(mail)},
+    clearScope:()=>{if(!isLive())scope=''},hasScope:()=>!isLive() && !!scope,
+    openOriginal:async id=>{if(!isLive()){pick(id);return}const mail=mails.find(m=>m.id===id);if(mail)await openOriginal(mail)},
     acceptSuggestion:async id=>{pick(id);await currentSuggestion?.(true)},
     reply:async(id,all)=>{const mail=mails.find(m=>m.id===id);if(mail)await draft(mail,all?'reply-all':'reply','')},
     setField:(id,field,value)=>change([id],{kind:field,value}),setTags:(id,_previous,value)=>change([id],{kind:'tags',value})})
   let previousScope=''
-  cockpit=initCockpit({getMails:()=>mails,isLive:()=>live,onPick:pick,openUnanswered:()=>correspondence.show(),
+  cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,openUnanswered:()=>correspondence.show(),
     onStatus:(ids:string[],status:string)=>change(ids,{kind:'status',value:status}),
     onFolder:(ids:string[],target:string)=>change(ids,{kind:'move',value:target}),
     getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:undo,
     closeBacklog:async()=>{
-      if(!live){scope=previousScope;render();return}
+      if(!isLive()){scope=previousScope;render();return}
       if(scope==='__backlog')await exclusive(()=>refresh(previousScope))
     },
     loadBacklog:async()=>{
+      if(!hasMailbox())return false
       if(scope!=='__backlog')previousScope=scope
-      if(!live){scope='';views.reset();render();return true}
+      if(!isLive()){scope='';views.reset();render();return true}
       let loaded=false
       await exclusive(async()=>{await refresh('__backlog');loaded=true})
       return loaded
     }})
-  if(service)bindProjectBoard(service)
-  correspondence=initCorrespondence({isLive:()=>live,rows:()=>mails,folders:()=>boardFolders(folders,getBoardScope()).map(f=>f.id),
+  correspondence=initCorrespondence({isLive,hasMailbox,rows:()=>mails,folders:()=>boardFolders(folders,getBoardScope()).map(f=>f.id),
     service,render,resolveReplies:(ids,value)=>change(ids,{kind:'status',value}),busy:()=>busy,
-    writeBatch:async action=>{if(busy)throw new Error('Eine Outlook-Aktion läuft.');await exclusive(()=>service!.writeBatch(action))},refreshAfterWrite:async()=>{if(live)await refresh();else render()},demoOpen:pick,
+    writeBatch:async action=>{if(busy)throw new Error('Eine Outlook-Aktion läuft.');await exclusive(()=>service!.writeBatch(action))},refreshAfterWrite:async()=>{if(isLive())await refresh();else render()},demoOpen:pick,
     trackDemo:rows=>{changeDemo(()=>{for(const row of rows) {
       const existing=demoMails.find(m=>m.id===row.id)
       if(existing)existing.status='Warten'
@@ -453,9 +503,9 @@ async function start() {
     element.onchange=()=>{if(selected)void change([selected.id],{kind:key==='folder'?'move':'status',value:element.value})}
   }
   const archiveButton=tag('button','');archiveButton.id='archiveDone';archiveButton.hidden=true;el('workActions').append(archiveButton)
-  bindAiBoard(()=>live?mails:[],()=>live?learnerFolders().map(f=>f.path):[])
-  renderAiSettings(el('aiSettings'),()=>live?learnerFolders():[])
-  syncColors=colorSettings(el('aiSettings'),service,()=>live,render)
+  bindAiBoard(()=>isLive()?mails:[],()=>isLive()?learnerFolders().map(f=>f.path):[])
+  renderAiSettings(el('aiSettings'),()=>isLive()?learnerFolders():[])
+  syncColors=colorSettings(el('aiSettings'),service,()=>isLive(),render)
   const prefix=tag('input','');prefix.value=String(getLegacyConfig().status_prefix||'Status: ')
   const setPrefix=async()=>{
     if(!prefix.value.trim() || prefix.value.length>128)throw new Error('Bitte ein gültiges Status-Präfix eingeben.')
@@ -491,42 +541,50 @@ async function start() {
   dialog.onclose=()=>{suggestionVersion++;if(selected)document.getElementById('mail-'+selected.id)?.focus()}
   search.oninput=render
   undoButton.onclick=()=>void undo()
-  back.onclick=()=>{search.value='';sourceUpdated(demoMails,false,demoFolders,'');notify('')}
+  back.onclick=()=>{if(busy)return;connection=undefined;sourceUpdated(demoMails,'demo',demoFolders,'');notify('')}
   if(service) {
     inboxButton.hidden=false;inboxButton.onclick=()=>void connect()
-    const testButton=el<HTMLButtonElement>('openOutlookTest')
-    testButton.hidden=false
-    testButton.onclick=()=>void exclusive(async()=>{await service.invoke('outlook_test');notify('Outlook-Testfenster geschlossen.')})
-    el('openOriginal').onclick=()=>{if(live&&selected)void openOriginal(selected)}
-    el('connectOutlook').onclick=async()=>{
-      await exclusive(async()=>{await service.invoke('outlook_connect');notify('Outlook geöffnet.')})
-      await connect()
-    }
+    el('openOriginal').onclick=()=>{if(isLive()&&selected)void openOriginal(selected)}
+    el('connectOutlook').onclick=()=>void connect(true)
     for(const button of document.querySelectorAll<HTMLButtonElement>('button[data-draft]'))
       button.onclick=()=>{if(selected)void draft(selected,button.dataset.draft!,el<HTMLSelectElement>('draftSnippet').value)}
     window.addEventListener('mailboard:foldersChanged',()=>void reloadFolders())
   }
-  let nextPoll=0
-  window.setInterval(()=>{
-    if(!live || busy || document.hidden || document.querySelector('dialog[open]') || Date.now()<nextPoll)return
+  let nextPoll=0,polling=false,dragging=false
+  document.addEventListener('dragstart',()=>{dragging=true})
+  for(const event of ['dragend','drop'])document.addEventListener(event,()=>{dragging=false},true)
+  window.setInterval(async()=>{
+    const unavailable=()=>!isLive() || busy || dragging || document.hidden || !!document.querySelector('dialog[open]')
+    if(polling || unavailable() || Date.now()<nextPoll)return
     const seconds=Number(getLegacyConfig().poll_seconds??30)
     if(seconds<=0)return
     nextPoll=Date.now()+Math.max(5,seconds)*1000
-    // Suppress a stale poll when the user changes folders or starts editing in the interim.
-    if(document.activeElement?.closest('.card') || search===document.activeElement)return
-    void exclusive(async()=>{
-      const rows=await readRows(scope,folders)
-      if(document.querySelector('dialog[open]'))return
-      mails=rows
-      hydrate(mails,folders);void queueAnalyses()
-      render();void correspondence.refresh()
-    })
+    const previous=mails,key=scope,items=folders,version=mutationVersion
+    const stillCurrent=()=>!unavailable() && previous===mails && key===scope && items===folders && version===mutationVersion
+    polling=true
+    try{
+      const rows=await readRows(key,items)
+      // The user can keep navigating and working while COM reads. Prefer their new state.
+      if(!stillCurrent())return
+      if(!Array.isArray(rows))throw new Error('Outlook lieferte keine Mailliste.')
+      hydrate(rows,items);mails=rows
+      render();void queueAnalyses();void correspondence.refresh()
+    }catch(error){
+      if(stillCurrent()){
+        const message=errorText(error)
+        if(/Outlook ist geschlossen|Verbindung zu Outlook wurde unterbrochen/i.test(message))sourceUpdated([],'offline',[],'')
+        notify(message)
+      }
+    }
+    finally{polling=false}
   },5000)
   document.addEventListener('keydown',e=>{
     if(e.defaultPrevented||!(e.ctrlKey||e.metaKey))return
     if(e.key.toLowerCase()==='f'&&!document.querySelector('dialog[open]')){e.preventDefault();search.focus()}
     if(e.key.toLowerCase()==='z'&&!(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) && !el<HTMLDialogElement>('moveConfirm').open){e.preventDefault();void undo()}
   })
-  sourceUpdated(demoMails,false,demoFolders,'')
+  sourceUpdated([],'offline',[],'')
+  if(service)await connect()
+  else notify('Für das Outlook-Postfach Mail-Board.exe unter Windows öffnen.')
 }
 start().catch(e=>notify('Das Board konnte nicht starten: '+errorText(e)))

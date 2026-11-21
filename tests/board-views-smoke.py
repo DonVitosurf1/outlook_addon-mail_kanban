@@ -12,6 +12,8 @@ with sync_playwright() as pw:
  errors=[]
  p.on('pageerror',lambda e:errors.append(str(e)))
  p.goto(f'http://127.0.0.1:{server.server_port}/')
+ p.locator('#moreTools summary').click()
+ p.locator('#backDemo').click()
  expect(p.locator('.card')).to_have_count(14)
  a=p.locator('#mail-DEMO0000');c=p.locator('#mail-DEMO0001')
  a.click(modifiers=['Control']);c.click(modifiers=['Control'])
@@ -108,7 +110,6 @@ with sync_playwright() as pw:
  """)
  p.on('pageerror',lambda e:errors.append(str(e)))
  p.goto(f'http://127.0.0.1:{server.server_port}/')
- p.locator('#loadInbox').click()
  expect(p.locator('.lane[data-status=Erledigt] #mail-aa')).to_have_count(1)
  p.locator('#undo').click()
  expect(p.locator('.lane[data-status=Warten] #mail-aa')).to_contain_text('Antwort von Anna')

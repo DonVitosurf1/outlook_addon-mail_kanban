@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis } from '../src/ai'
+import { setAiLive, suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis } from '../src/ai'
 import { LEGACY } from '../src/backup'
 
 function storage(files:Record<string,string>={}){
+  setAiLive(false);setAiLive(true)
   const map=new Map<string,string>([[LEGACY,JSON.stringify(files)]])
   Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
     getItem:(key:string)=>map.get(key)??null,setItem:(key:string,value:string)=>map.set(key,value)
@@ -129,4 +130,61 @@ test('Gesamttestlauf zählt die tatsächlich ausgewählte Quelle und berücksich
   const filtered=evaluateHoldout(rows,['IT','Labor'],fixed,['Regel','Hybrid'],semantic)
   assert.deepEqual(filtered.combined,{correct:17,shown:18})
   assert.equal(filtered.sources.Hybrid,undefined);assert.equal(filtered.sources.Regel,undefined)
+})
+
+test('Beispielpostfach verwendet nur Beispielordner, ohne reale Regeln, Cache oder Training', async()=>{
+  storage({'config.yaml':'filing_rules: [{match: domain:labor.de, folder: Labor}]',
+    'ki-cache.json':JSON.stringify({'team@labor.de|Projekt|20261120100100':{summary:'Vertraulich',needs_reply:true}})})
+  const sample={...mail,subject:'Projekt',body:'',senderEmail:'team@labor.de',received:'2026-11-20T10:01:00',id:'sample',aiSummary:''}
+  const targets=['Labor','Projekt']
+  const livePredict=trustedFolderBatch(targets)
+  assert.equal(livePredict(sample)?.folder,'Labor')
+  setAiLive(false)
+  const real=globalThis.localStorage
+  const commands:string[]=[]
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
+    getItem:()=>{throw Error('Unerlaubtes Lesen von Outlook-Speicher')},setItem:()=>{throw Error('Unerlaubtes Schreiben in Outlook-Speicher')}
+  }})
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{__TAURI__:{core:{invoke:async(cmd:string)=>{commands.push(cmd)}}}}})
+  try{
+    assert.deepEqual(await suggestFolder(sample,targets),{folder:'Projekt',reason:'Begriff aus dem Beispielordner'})
+    assert.equal(livePredict(sample),undefined);assert.equal(trustedFolderBatch(targets)(sample),undefined)
+    recordFiling(sample,'Labor');rejectSuggestion(sample,'Labor');restoreAnalysis(sample)
+    await queueAnalyses()
+    assert.equal(sample.aiSummary,'')
+    await assert.rejects(trainFromFolders([{id:'123',name:'Labor',path:'Labor'}]),/Outlook/)
+    assert.deepEqual(commands,[])
+  }finally{Object.defineProperty(globalThis,'localStorage',{configurable:true,value:real})}
+})
+
+test('Ein Quellenwechsel verwirft laufende Hintergrundanalysen auch nach erneutem Öffnen von Outlook',async()=>{
+  storage()
+  localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,auto:true,model:'lokal'}))
+  let started!:()=>void,finish!:(value:unknown)=>void,calls=0
+  const ready=new Promise<void>(r=>{started=r}), delayed=new Promise(r=>{finish=r})
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{getElementById:()=>null}})
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{dispatchEvent:()=>{},__TAURI__:{core:{invoke:async()=>{calls++;started();return delayed}}}}})
+  const m={...mail,id:'private',aiSummary:''}
+  bindAiBoard(()=>[m,{...m,id:'private2'}],()=>['Labor'])
+  const running=queueAnalyses()
+  await ready
+  setAiLive(false);setAiLive(true)
+  finish({zusammenfassung:'Vertrauliche Analyse',antwort_noetig:true,arten:[],frist:null,ordner:null})
+  await running
+  assert.equal(m.aiSummary,'');assert.equal(calls,1)
+  assert.equal(localStorage.getItem('outlook-kanban-ai-cache-v1'),null)
+})
+
+test('Ein Quellenwechsel während des Lernens verhindert weitere Outlook-Aufrufe und Speicheränderungen',async()=>{
+  storage()
+  const original=JSON.stringify({rows:[],stamp:1})
+  localStorage.setItem('outlook-kanban-ai-training-v1',original)
+  let finish!:(s:string)=>void,calls=0
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{__TAURI__:{core:{invoke:()=>{calls++;return new Promise<string>(r=>{finish=r})}}}}})
+  const running=trainFromFolders(['A','B'].map(path=>({id:path,name:path,path})))
+  assert.equal(calls,1)
+  setAiLive(false);setAiLive(true)
+  finish(JSON.stringify([{...mail,id:'real'}]))
+  await assert.rejects(running,/Outlook/)
+  assert.equal(calls,1);assert.equal(localStorage.getItem('outlook-kanban-ai-training-v1'),original)
 })

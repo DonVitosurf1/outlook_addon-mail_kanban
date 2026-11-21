@@ -2,16 +2,21 @@
 
 Mail-Board ist eine eigenständige Windows-App für das tägliche Sichten, Nachverfolgen und Ablegen von E-Mails. Links stehen Postfach und Fokusansichten, in der Mitte die vier Statusspalten. Lesen, Antworten und Senden erfolgen in Outlook. Das Board kann Entwürfe in Outlook öffnen.
 
-![Das Mail-Board mit 14 Beispielmails in vier Statusspalten](docs/mail-board.png)
+![Das über Werkzeuge geöffnete Beispielpostfach mit 14 Mails in vier Statusspalten](docs/mail-board.png)
 
 ## Unter Windows ausprobieren
 
 1. [Windows-x64-ZIP herunterladen](downloads/Mail-Board-Windows-x64.zip?raw=true) und den **gesamten Inhalt** in einen beschreibbaren Ordner entpacken.
-2. **Mail-Board.exe** starten. Der erste Start zeigt ein Demo-Postfach. **Outlook-Mails laden** öffnet das Board für das vorhandene Outlook-Profil. Der mitgelieferte Helfer muss neben der EXE liegen.
-3. Unter **Werkzeuge → Projektordner verwalten** einen vorhandenen Testordner als Board- und Lernziel wählen. Unter **Werkzeuge → Outlook und lokale KI** „Echte Mails verschieben erlauben“ einschalten.
-4. Eine entbehrliche Testmail mit einem zum Ordner passenden Betreff anklicken, **Ablagevorschlag ermitteln**, das Ziel prüfen und die Verschiebung bestätigen. In Outlook den Zielordner prüfen. Im Board **Aktualisieren**, dann **Strg+Z** drücken und in Outlook den Ursprungsordner prüfen.
+2. **Mail-Board.exe** starten. Die App verbindet sich beim Start automatisch mit dem eingerichteten Profil in **klassischem Outlook für Windows**. Der mitgelieferte Outlook-Helfer muss neben der EXE liegen.
+3. Falls die Verbindung fehlschlägt, zeigt das leere Board den Grund an. Klassisches Outlook mit dem gewünschten Profil öffnen, eventuelle Outlook-Dialoge schließen und die Verbindung im Board erneut versuchen.
+4. Unter **Werkzeuge → Projektordner verwalten** einen vorhandenen Testordner als Board- und Lernziel wählen. Unter **Werkzeuge → Outlook und lokale KI** „Echte Mails verschieben erlauben“ einschalten.
+5. Eine entbehrliche Testmail mit einem zum Ordner passenden Betreff anklicken, **Ablagevorschlag ermitteln**, das Ziel prüfen und die Verschiebung bestätigen. In Outlook den Zielordner prüfen. Im Board **Aktualisieren**, dann **Strg+Z** drücken und in Outlook den Ursprungsordner prüfen.
 
 Der normale Start aus dem entpackten Ordner benötigt keine Administratorrechte, keinen Rust- oder Node-Dienst und keine Installation der App. Er setzt eine nutzbare **Microsoft Edge WebView2 Runtime** voraus. Für echte Mails benötigt der Helfer **klassisches Outlook für Windows** mit eingerichtetem Standardprofil und **.NET Framework 4.8**. Auf verwalteten Geräten gelten die lokalen Ausführungsrichtlinien für heruntergeladene Programme. Das neue Outlook für Windows stellt die verwendete COM-Schnittstelle nicht bereit.
+
+## Ohne Postfach ausprobieren
+
+**Werkzeuge → Beispielpostfach öffnen** lädt die Beispielkarten. Statuswechsel und Ablagen in dieser Ansicht betreffen ausschließlich die Beispieldaten. Auch die Browservorschau öffnet zunächst ein leeres Board. Dort lässt sich über dasselbe Menü das Beispielpostfach aufrufen. Das eigene Outlook-Profil ist in der Windows-App erreichbar.
 
 ## Bedienung und lokale Daten
 

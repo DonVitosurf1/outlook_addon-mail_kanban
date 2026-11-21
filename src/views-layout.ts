@@ -25,7 +25,7 @@ export class BoardLayout{
     this.preview.append(this.title,this.from,this.body,close);document.body.append(this.preview)
     this.resizeControl()
     if(!saved('intro')){
-      this.hint('Das Board startet mit Beispieldaten. Im verbundenen Outlook speichert es Status, Fristen und Notizen an der Mail. Eine Ablage bestätigst du vor dem Verschieben. Outlook öffnet Antworten als Entwurf.', 'intro')
+      this.hint('Die Windows-App lädt beim Start dein klassisches Outlook-Profil. Status, Fristen und Notizen speichert sie dort an der Mail. Eine Ablage bestätigst du vor dem Verschieben. Outlook öffnet Antworten als Entwurf.', 'intro')
     }
   }
   private hint(text:string,key:string){

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {mailAge} from '../src/card-content'
-import {snapshot} from '../src/cockpit'
+import {recordWeekly,snapshot} from '../src/cockpit'
 import type {ViewMail} from '../src/views-logic'
 
 const mail:ViewMail = {id:'1',status:'Warten',subject:'Anfrage',sender:'Lieferant',body:'',folder:'Posteingang',tags:[],attachments:[]}
@@ -25,4 +25,17 @@ test('Kartenalter verwendet lokale Kalendertage statt einer 24-Stunden-Differenz
   assert.equal(mailAge('2026-11-19T23:59:00',now),'Gestern')
   assert.equal(mailAge('2026-11-20T00:02:00',now),'Heute')
   assert.equal(mailAge('kaputt',now),'')
+})
+
+test('Rücknahme einer Ablage aus der Vorwoche erhält die Zähler dieser Woche',()=>{
+  const data=new Map<string,string>()
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{
+    getItem:(key:string)=>data.get(key)??null,setItem:(key:string,value:string)=>data.set(key,value)
+  }})
+  recordWeekly(true,'filed',5)
+  const previousWeek=new Date()
+  previousWeek.setDate(previousWeek.getDate()-7)
+  recordWeekly(true,'filed',-1,previousWeek)
+  assert.equal(JSON.parse(data.get('outlook-kanban-activity-live')!).filed,5)
+  assert.equal(data.has('outlook-kanban-activity-demo'),false)
 })
