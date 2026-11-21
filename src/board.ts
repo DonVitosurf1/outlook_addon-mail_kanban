@@ -426,7 +426,7 @@ function render() {
   el('title').textContent=!hasMailbox()?'Outlook-Postfach':isLive()?'Outlook · '+(scope==='__backlog'?'Aufräumen':folders.find(f=>f.id===scope)?.name||'Alle Mails'):scope||'Alle Mails'
   el('summary').textContent=!hasMailbox()?'':visible.length+' von '+mails.length+' Mails'
   const board=el('board');board.replaceChildren()
-  board.hidden=el('viewControls').hidden=!hasMailbox()
+  board.hidden=el('viewMenu').hidden=!hasMailbox()
   if(!hasMailbox()){controls();return}
   const config=getLegacyConfig()
   const suggest=config.suggestions===false?undefined:trustedFolderBatch(learnerFolders().map(f=>f.path))

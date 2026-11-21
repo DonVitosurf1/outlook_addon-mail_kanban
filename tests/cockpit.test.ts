@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {mailAge} from '../src/card-content'
+import {cardDates,receivedLabel} from '../src/card-content'
 import {recordWeekly,snapshot} from '../src/cockpit'
 import type {ViewMail} from '../src/views-logic'
 
@@ -20,11 +20,22 @@ test('Heute und Warten-Hygiene berücksichtigen Fristen, Antwort und Wiedervorla
   assert.equal(report.active.length,5)
 })
 
-test('Kartenalter verwendet lokale Kalendertage statt einer 24-Stunden-Differenz',()=>{
+test('Empfangszeit zeigt heute die lokale Uhrzeit und sonst das kurze Datum',()=>{
   const now=new Date(2026,10,20,0,5)
-  assert.equal(mailAge('2026-11-19T23:59:00',now),'Gestern')
-  assert.equal(mailAge('2026-11-20T00:02:00',now),'Heute')
-  assert.equal(mailAge('kaputt',now),'')
+  assert.equal(receivedLabel('2026-11-19T23:59:00',now),'19.11.')
+  assert.equal(receivedLabel('2025-11-19T23:59:00',now),'19.11.2025')
+  assert.equal(receivedLabel('2026-11-20T00:02:00',now),'00:02')
+  assert.equal(receivedLabel('kaputt',now),'')
+})
+
+test('Fällige Termine stehen einmal auf der Karte und unterscheiden heute, vergangene und künftige Termine',()=>{
+  const now=new Date(2026,10,20,14,0)
+  const replyEvidence={id:'reply',sender:'Anna'}
+  for(const status of ['Offen','Warten'])assert.deepEqual(cardDates({...mail,status,hasReply:true,replyEvidence},5,now).attention,['Antwort von Anna'])
+  assert.deepEqual(cardDates({...mail,followUp:'2026-11-20'},5,now),{attention:['Heute nachfassen'],scheduled:[]})
+  assert.deepEqual(cardDates({...mail,followUp:'2026-11-19'},5,now),{attention:['Nachfassen seit 19.11. fällig'],scheduled:[]})
+  assert.deepEqual(cardDates({...mail,snoozeUntil:'2026-11-21'},5,now),{attention:[],scheduled:['Wiedervorlage am 21.11.']})
+  assert.deepEqual(cardDates({...mail,deadline:'2026-11-20',snoozeUntil:'2026-11-20'},5,now),{attention:['Heute zur Wiedervorlage','KI-Frist heute'],scheduled:[]})
 })
 
 test('Rücknahme einer Ablage aus der Vorwoche erhält die Zähler dieser Woche',()=>{

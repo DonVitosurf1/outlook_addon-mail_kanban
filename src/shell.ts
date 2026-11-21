@@ -9,16 +9,19 @@ toolsMenu.addEventListener('click', event => {
     toolsTrigger.focus()
   }
 }, { capture: true })
-document.addEventListener('pointerdown', event => {
-  if (toolsMenu.open && event.target instanceof Node && !toolsMenu.contains(event.target)) toolsMenu.open = false
-})
-toolsMenu.addEventListener('keydown', event => {
-  if (event.key === 'Escape') {
-    event.stopPropagation()
-    toolsMenu.open = false
-    toolsTrigger.focus()
-  }
-})
+const viewMenu = document.querySelector<HTMLDetailsElement>('#viewMenu')!
+for (const menu of [toolsMenu, viewMenu]) {
+  document.addEventListener('pointerdown', event => {
+    if (menu.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false
+  })
+  menu.addEventListener('keydown', event => {
+    if (menu.open && event.key === 'Escape') {
+      event.stopPropagation()
+      menu.open = false
+      menu.querySelector('summary')?.focus()
+    }
+  })
+}
 
 type Command = { label: string; run(): void }
 const palette = document.querySelector<HTMLDialogElement>('#palette')!

@@ -62,9 +62,11 @@ export class BoardLayout{
       if(this.closed.size)board.style.gridTemplateColumns=['Offen','In Bearbeitung','Warten','Erledigt'].map(s=>this.closed.has(s)?'minmax(5.8rem,auto)':'minmax(11.4rem,1fr)').join(' ')
       else board.style.removeProperty('grid-template-columns')
       board.classList.toggle('grouped-board',extraStyles)
+      if(extraStyles)board.style.setProperty('--group-count',String(groupCount))
+      else board.style.removeProperty('--group-count')
     }
     lane.dataset.status=status;lane.classList.toggle('folded',collapsed)
-    if(extraStyles)lane.style.gridRow='1 / span '+Math.max(2,groupCount+1)
+    if(extraStyles)lane.style.gridRow='1 / -1'
     const toggle=action('',()=>{
       if(this.closed.has(status))this.closed.delete(status);else this.closed.add(status)
       store('columns',[...this.closed].join('|'))

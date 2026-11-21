@@ -108,7 +108,17 @@ try:
         assert board.evaluate("n=>[n.scrollTop,n.scrollLeft]") == position
         expect(search).to_have_value("Projekt")
 
-        page.get_by_label("Gruppierung",exact=True).select_option("folder")
+        expect(page.locator(".selection-count")).to_be_visible()
+        expect(page.locator("#viewControls")).to_be_hidden()
+        view_trigger=page.locator("#viewMenu summary")
+        view_trigger.click()
+        group_by=page.get_by_label("Gruppierung",exact=True)
+        group_by.select_option("folder")
+        group_by.focus()
+        page.keyboard.press("Escape")
+        expect(view_trigger).to_be_focused()
+        expect(page.locator("#viewControls")).to_be_hidden()
+        expect(view_trigger).to_have_accessible_name("Ansicht · 1")
         drop(page,"#mail-aa","01")
         expect(page.locator("#message")).to_contain_text("1 von 1")
         assert page.evaluate("writes") == [["outlook_status","aa","01","Offen"]]

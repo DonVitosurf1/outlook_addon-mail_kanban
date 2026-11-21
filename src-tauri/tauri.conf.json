@@ -1,6 +1,6 @@
 {
   "productName": "Mail-Board",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "identifier": "de.outlookkanban.mailboard",
   "build": {
     "frontendDist": "../dist",

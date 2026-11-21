@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Mail-Kanban</title>
+  <title>Mail-Board</title>
   <link rel="stylesheet" href="board.css">
 </head>
 <body>
   <a href="#board" class="skip-link">Zum Board</a>
   <aside aria-label="Postfachnavigation" class="sidebar">
-    <div class="brand"><span aria-hidden="true" class="board-mark"><i></i><i></i><i></i><i></i></span>Mail-Kanban</div>
+    <div class="brand"><span aria-hidden="true" class="board-mark"><i></i><i></i><i></i><i></i></span>Mail-Board</div>
     <div class="side-scroll">
       <section class="focus-section"><h2>Fokus</h2><nav id="focusViews" aria-label="Fokus"></nav></section>
       <section><h2>Ordner</h2><nav id="folders" aria-label="Ordner"></nav></section>
@@ -53,7 +53,11 @@
 
     <div class="board-heading">
       <div class="board-title"><h1 id="title">Outlook-Postfach</h1><p id="summary" aria-live="polite"></p></div>
-      <div id="viewControls" role="group" aria-label="Ansicht und Filter"></div>
+      <span class="selection-count" id="selectionCount" aria-live="polite"></span>
+      <details id="viewMenu" hidden>
+        <summary>Ansicht<span id="activeViewCount"></span></summary>
+        <div id="viewControls" role="group" aria-label="Ansicht und Filter"></div>
+      </details>
     </div>
     <div id="board" class="board" role="region" tabindex="-1" aria-label="Kanban-Board"></div>
     <p id="message" role="status"></p>

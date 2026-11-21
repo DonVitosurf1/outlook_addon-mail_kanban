@@ -6,6 +6,47 @@ import shutil
 from playwright.sync_api import sync_playwright,expect
 server=ThreadingHTTPServer(('127.0.0.1',0),partial(SimpleHTTPRequestHandler,directory=Path(__file__).resolve().parents[1]/'dist'))
 Thread(target=server.serve_forever,daemon=True).start()
+
+def view_controls(page):
+ trigger=page.locator('#viewMenu summary')
+ controls=page.locator('#viewControls')
+ if not controls.is_visible():trigger.click()
+ expect(controls).to_be_visible()
+ return controls
+
+def close_views(page):
+ controls=page.locator('#viewControls')
+ controls.locator('select').first.focus()
+ page.keyboard.press('Escape')
+ expect(controls).to_be_hidden()
+ expect(page.locator('#viewMenu summary')).to_be_focused()
+
+def blank_drop(page,card,target,group=False):
+ # Use Chromium's native mouse drag with the viewport hit target checked before dropping.
+ card.scroll_into_view_if_needed()
+ source=card.evaluate("""el=>{
+   const r=el.getBoundingClientRect(),x=r.x+r.width/2,y=r.y+r.height/2
+   return el.contains(document.elementFromPoint(x,y))?{x,y}:null
+ }""")
+ assert source, f'Die zu ziehende Karte ist verdeckt: {card}'
+ page.mouse.move(source['x'],source['y'])
+ page.mouse.down()
+ page.mouse.move(source['x']+15,source['y'],steps=4)
+ target.scroll_into_view_if_needed()
+ point=target.evaluate("""(el,grouped)=>{
+   const board=document.querySelector('#board').getBoundingClientRect(), r=el.getBoundingClientRect()
+   const left=Math.max(r.left,board.left,0), right=Math.min(r.right,board.right,innerWidth)
+   const bottom=Math.min(r.bottom,board.bottom,innerHeight), x=(left+right)/2, y=bottom-12
+   const hit=document.elementFromPoint(x,y)
+   if(!hit || !el.contains(hit) || hit.closest('button,.card,.group-label'))return null
+   if(!grouped && (hit.closest('.group-cell') || Math.abs(bottom-Math.min(board.bottom,innerHeight))>20))return null
+   return {x,y}
+ }""",group)
+ assert point, f'Keine leere Ablagefläche am unteren Ende von {target}'
+ page.mouse.move(point['x']-2,point['y'],steps=8)
+ page.mouse.move(point['x'],point['y'])
+ page.mouse.up()
+
 with sync_playwright() as pw:
  b=pw.chromium.launch(executable_path=shutil.which('chromium'),args=['--no-sandbox'])
  p=b.new_page(viewport={'width':1280,'height':800})
@@ -18,6 +59,8 @@ with sync_playwright() as pw:
  a=p.locator('#mail-DEMO0000');c=p.locator('#mail-DEMO0001')
  a.click(modifiers=['Control']);c.click(modifiers=['Control'])
  expect(p.locator('.selection-count')).to_have_text('2 markiert')
+ expect(p.locator('.selection-count')).to_be_visible()
+ expect(p.locator('#viewControls')).to_be_hidden()
  c.focus();p.keyboard.press('3')
  expect(p.locator('.lane').nth(2).locator('#mail-DEMO0000')).to_have_count(1)
  expect(p.locator('.lane').nth(2).locator('#mail-DEMO0001')).to_have_count(1)
@@ -29,16 +72,16 @@ with sync_playwright() as pw:
  d.get_by_role('combobox',name='Textbaustein einfügen').select_option(index=1)
  d.get_by_role('button',name='Übernehmen').click()
  expect(p.locator('#mail-DEMO0000')).to_contain_text('Notiz')
- p.get_by_label('Gruppierung',exact=True).select_option('tag');expect(p.locator('.group-label').first).to_be_visible()
+ view_controls(p).get_by_label('Gruppierung',exact=True).select_option('tag');close_views(p);expect(p.locator('.group-label').first).to_be_visible()
  p.locator('.group-label button').first.click()
  expect(p.locator('.group-label button').first).to_have_attribute('aria-expanded','false')
- p.get_by_label('Benannte Sicht').select_option('undated');expect(p.locator('#summary')).to_contain_text('3 von 14')
+ view_controls(p).get_by_label('Benannte Sicht').select_option('undated');close_views(p);expect(p.locator('#summary')).to_contain_text('3 von 14')
  p.locator('#search').fill('unfindbarer text')
  expect(p.locator('.card')).to_have_count(0)
- p.locator('#viewControls').get_by_role('button',name='Zurücksetzen').click()
+ view_controls(p).get_by_role('button',name='Zurücksetzen').click()
  expect(p.locator('#summary')).to_contain_text('14 von 14')
  # Keyboard preview follows focus without reopening a blocking dialog.
- p.get_by_label('Gruppierung',exact=True).select_option('')
+ view_controls(p).get_by_label('Gruppierung',exact=True).select_option('');close_views(p)
  a.focus();p.keyboard.press('Shift+Space')
  expect(p.get_by_role('complementary',name='Kurzvorschau')).to_contain_text('Angebot Pipettenspitzen')
  p.keyboard.press('ArrowDown')
@@ -53,15 +96,27 @@ with sync_playwright() as pw:
  width=p.locator('.sidebar').bounding_box()['width']
  separator.focus();p.keyboard.press('ArrowRight')
  assert p.locator('.sidebar').bounding_box()['width']>width
- p.get_by_label('Gruppierung',exact=True).select_option('folder')
+ # Even if the last lane has only two cards, its blank area at the board bottom accepts mail.
+ last_lane=p.locator('.lane[data-status=Erledigt]')
+ blank_drop(p,a,last_lane)
+ expect(last_lane.locator('#mail-DEMO0000')).to_have_count(1)
+ p.locator('#undo').click()
+ expect(p.locator('.lane[data-status=Offen] #mail-DEMO0000')).to_have_count(1)
+ view_controls(p).get_by_label('Gruppierung',exact=True).select_option('folder');close_views(p)
  target=p.locator('.group-cell[data-folder=Posteingang][data-status=Warten]')
- dt=p.evaluate_handle('new DataTransfer()')
- p.dispatch_event('#mail-DEMO0000','dragstart',{'dataTransfer':dt})
- target.dispatch_event('drop',{'dataTransfer':dt})
+ blank_drop(p,a,target,group=True)
  expect(target.locator('#mail-DEMO0000')).to_have_count(1)
  p.locator('#undo').click()
  expect(p.locator('.group-cell[data-folder=Pipettenspitzen][data-status=Offen] #mail-DEMO0000')).to_have_count(1)
- p.get_by_label('Gruppierung',exact=True).select_option('')
+ # Grouped boards with few matches retain a status-only drop zone below the last folder row.
+ p.locator('#search').fill('Angebot Pipettenspitzen 200')
+ expect(p.locator('.card')).to_have_count(1)
+ blank_drop(p,a,last_lane)
+ expect(p.locator('.group-cell[data-folder=Pipettenspitzen][data-status=Erledigt] #mail-DEMO0000')).to_have_count(1)
+ p.locator('#undo').click()
+ expect(p.locator('.group-cell[data-folder=Pipettenspitzen][data-status=Offen] #mail-DEMO0000')).to_have_count(1)
+ p.locator('#search').fill('')
+ view_controls(p).get_by_label('Gruppierung',exact=True).select_option('');close_views(p)
  p.keyboard.press('Control+g')
  sent=p.get_by_role('dialog',name='Gesendet ohne Antwort')
  expect(sent.locator('input')).to_have_count(2)

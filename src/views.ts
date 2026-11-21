@@ -1,4 +1,4 @@
-import {ArrivalMarks,collapseThreads, dueReasons, groupCards, localDay, matchesFocus, matchesSplit, orderCards} from './views-logic'
+import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderCards} from './views-logic'
 import {BoardLayout} from './views-layout'
 import {getLegacyConfig, textSnippets,updateConfig} from './data-settings'
 import type {Focus, Group, Sort, Split, ViewMail} from './views-logic'
@@ -73,7 +73,7 @@ export class BoardViews {
   private tag:HTMLSelectElement
   private sort:HTMLSelectElement
   private group:HTMLSelectElement
-  private counter=element('span')
+  private counter=document.getElementById('selectionCount')!
   private vipTokens:string[]=[]
   private overdueDays=5
   private resetButton=button('Zurücksetzen',()=>this.clearFilters())
@@ -96,11 +96,15 @@ export class BoardViews {
     for(const [name,select] of [['sort',this.sort],['group',this.group]] as const){
       const value=remembered(name);if(Array.from(select.options).some(o=>o.value===value))select.value=value
     }
-    this.counter.className='selection-count';this.counter.setAttribute('aria-live','polite')
     const edit=button('Kartenaktionen',()=>this.editSelection())
     edit.title='Status, Kategorie, Nachfassen, Wiedervorlage oder Notiz ändern'
     const controls=document.getElementById('viewControls')
-    controls?.append(this.split,this.tag,this.sort,this.group,edit,this.resetButton,this.counter)
+    for(const select of [this.split,this.tag,this.sort,this.group]){
+      const label=element('label',select.getAttribute('aria-label')||'')
+      label.append(select)
+      controls?.append(label)
+    }
+    controls?.append(edit,this.resetButton)
     const tools=document.querySelector('.tools-panel')||controls
     const threads=button('Unterhaltungen zusammenfassen',()=>{
       this.threads=!this.threads;threads.setAttribute('aria-pressed',String(this.threads))
@@ -181,6 +185,8 @@ export class BoardViews {
       b.setAttribute('aria-pressed',String(this.focus===focus))
     }
     const search=document.getElementById('search') as HTMLInputElement|null
+    const viewCount=[this.tag.value,this.split.value,this.group.value,this.sort.value!=='recent'].filter(Boolean).length
+    document.getElementById('activeViewCount')!.textContent=viewCount?' · '+viewCount:''
     this.resetButton.disabled=!(search?.value || this.api.hasScope?.() || this.tag.value || this.split.value || this.focus!=='all')
     this.updateCounter()
   }
@@ -250,19 +256,12 @@ export class BoardViews {
     const mail=this.byId.get(id)
     if(this.marks.returned.has(id)||this.marks.fresh.has(id)){
       const marker=element('b',this.marks.returned.has(id)?'Wieder da':'Neu')
-      marker.className='arrival-mark';card.prepend(marker)
+      marker.className='arrival-mark';card.append(marker)
     }
     if(mail) {
-      const reasons=dueReasons(mail,localDay(),this.overdueDays)
-      if(reasons.length){
-        const attention=element('em',reasons.join(' · '))
-        attention.className='card-attention'
-        card.append(attention)
-      }
       const details=mail.note?['Notiz · '+mail.note]:[]
       const hidden=this.hiddenThreads.get(mail.id)
       if(hidden)details.push('Unterhaltung +'+hidden)
-      if(mail.replyEvidence) details.push('Antwort von '+mail.replyEvidence.sender)
       if(details.length){const note=element('em',details.join(' · '));card.append(note)}
     }
     card.setAttribute('aria-pressed',String(this.selected.has(id)))
