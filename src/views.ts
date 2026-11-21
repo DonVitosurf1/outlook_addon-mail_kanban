@@ -254,7 +254,12 @@ export class BoardViews {
     }
     if(mail) {
       const reasons=dueReasons(mail,localDay(),this.overdueDays)
-      const details=[...reasons,mail.note?'Notiz · '+mail.note:''].filter(Boolean)
+      if(reasons.length){
+        const attention=element('em',reasons.join(' · '))
+        attention.className='card-attention'
+        card.append(attention)
+      }
+      const details=mail.note?['Notiz · '+mail.note]:[]
       const hidden=this.hiddenThreads.get(mail.id)
       if(hidden)details.push('Unterhaltung +'+hidden)
       if(mail.replyEvidence) details.push('Antwort von '+mail.replyEvidence.sender)

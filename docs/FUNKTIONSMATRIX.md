@@ -35,7 +35,7 @@ Die Referenz enthält die **Morgen-Triage** und benannte Filtersichten. Die für
 
 ## Abdeckung in der Tauri-Fassung
 
-Die folgenden Bedienwege beziehen sich auf Mail-Board 0.2.0. „Lokal geprüft“ bezeichnet einen automatisierten Test mit Beispieldaten, einer COM-Testattrappe oder einem lokalen HTTP-Testserver. Für Outlook-Operationen steht die Abnahme mit einem echten klassischen Windows-Outlook und dessen Postfach aus.
+Die folgenden Bedienwege beziehen sich auf Mail-Board 0.2.1. „Lokal geprüft“ bezeichnet einen automatisierten Test mit Beispieldaten, einer COM-Testattrappe oder einem lokalen HTTP-Testserver. Für Outlook-Operationen steht die Abnahme mit einem echten klassischen Windows-Outlook und dessen Postfach aus.
 
 | Bereich | In der Tauri-App ausprobieren | Unterschied oder ausstehende Prüfung |
 |---|---|---|

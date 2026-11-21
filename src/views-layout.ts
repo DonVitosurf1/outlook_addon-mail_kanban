@@ -23,6 +23,13 @@ export class BoardLayout{
     this.preview.setAttribute('aria-label','Kurzvorschau');this.preview.setAttribute('aria-live','polite')
     const close=action('Schließen',()=>this.hide())
     this.preview.append(this.title,this.from,this.body,close);document.body.append(this.preview)
+    const profile = document.querySelector<HTMLSelectElement>('#displayProfile')!
+    profile.value = saved('display-profile') === 'monitor' ? 'monitor' : 'laptop'
+    document.body.dataset.displayProfile = profile.value
+    profile.addEventListener('change', () => {
+      document.body.dataset.displayProfile = profile.value
+      store('display-profile', profile.value)
+    })
     this.resizeControl()
     if(!saved('intro')){
       this.hint('Die Windows-App lädt beim Start dein klassisches Outlook-Profil. Status, Fristen und Notizen speichert sie dort an der Mail. Eine Ablage bestätigst du vor dem Verschieben. Outlook öffnet Antworten als Entwurf.', 'intro')

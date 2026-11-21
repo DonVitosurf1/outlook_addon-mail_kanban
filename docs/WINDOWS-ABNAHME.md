@@ -1,6 +1,6 @@
 # Abnahme im eigenen Windows-Profil
 
-Die Prüfliste gilt für Mail-Board 0.2.0 und klassisches Outlook für Windows. Im eingerichteten Profil zwei Testordner, ein entbehrliches Projekt und mehrere entbehrliche Mails verwenden. Nach Schreibaktionen auch den tatsächlichen Zustand in Outlook prüfen. Für Rückmeldungen Paketversion, Windows- und Outlook-Version sowie gegebenenfalls den Wortlaut der Meldung angeben.
+Die Prüfliste gilt für Mail-Board 0.2.1 und klassisches Outlook für Windows. Im eingerichteten Profil zwei Testordner, ein entbehrliches Projekt und mehrere entbehrliche Mails verwenden. Nach Schreibaktionen auch den tatsächlichen Zustand in Outlook prüfen. Für Rückmeldungen Paketversion, Windows- und Outlook-Version sowie gegebenenfalls den Wortlaut der Meldung angeben.
 
 | Erledigt | Ablauf | Erwartetes Ergebnis |
 |---|---|---|
@@ -15,7 +15,7 @@ Die Prüfliste gilt für Mail-Board 0.2.0 und klassisches Outlook für Windows. 
 | ☐ | Eine wartende Nachricht beantworten lassen, Gesendet ohne Antwort und Warten-Hygiene öffnen. Einen Nachfassentwurf erstellen. | Eine passende Antwort wird zugeordnet. Der Entwurf ist in Outlook editierbar und wird erst durch den eigenen Versand verschickt. |
 | ☐ | Outlook schließen oder mit einem modalen Dialog beschäftigen. Board aktualisieren, Outlook wieder öffnen bzw. Dialog schließen und erneut laden. | Das Board bleibt bedienbar, erklärt den Fehler und lädt anschließend ohne Neustart. |
 | ☐ | Falls vorhanden, lokale KI mit laufendem Ollama testen, danach den Dienst beenden. | Auswertung oder Entwurf erscheint bei verfügbarem Modell. Das Board bleibt bei Ausfall für die manuelle Arbeit bedienbar. |
-| ☐ | Auf einem zweiten Monitor nutzen, Fenster verkleinern, längere Betreffzeilen und große Schrift prüfen. | Suche, Status, Fokusmarkierungen, Dialogaktionen und horizontales Scrollen bleiben erreichbar. |
+| ☐ | Unten links von Laptop auf Zweitmonitor wechseln, neu starten und anschließend wieder auf Laptop wechseln. Das Fenster verkleinern und lange Betreffzeilen lesen. | Die zuletzt gewählte Bildschirmansicht bleibt nach dem Neustart aktiv. Betreff und fällige Aktionen sind in der Zweitmonitoransicht größer. Suche, Fokusmarkierungen und horizontales Scrollen bleiben erreichbar. |
 | ☐ | Auf dem zweiten Monitor schließen, neu starten, erneut schließen und den Monitor trennen. | Größe und Position werden wiederhergestellt. Mit nur einem Monitor bleibt das Fenster erreichbar. |
 | ☐ | Während einer bestätigten Sammeländerung auf das Fenster-X klicken und anschließend in Outlook prüfen. | Der Fenstertitel meldet die laufende Änderung. Die App schließt nach Abschluss des Stapels. |
 | ☐ | Sicherungs-ZIP aus den lokalen Daten exportieren und eine Kopie importieren. | Vorherige Einstellungen können zurückgeholt werden. Der Import löst keine Postfachoperation aus. |

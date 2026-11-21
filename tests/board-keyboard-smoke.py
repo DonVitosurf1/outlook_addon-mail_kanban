@@ -22,6 +22,17 @@ def check_board(page, base_url, font_size):
     expect(search).to_be_focused()
     search.fill("Pipettenspitzen")
     expect(cards.first).to_be_visible()
+    desktop_view = page.get_by_role("combobox", name="Bildschirmansicht")
+    expect(desktop_view).to_have_value("laptop")
+    subject = cards.first.locator("strong")
+    laptop_size = subject.evaluate("(el) => parseFloat(getComputedStyle(el).fontSize)")
+    filtered_ids = cards.evaluate_all("(rows) => rows.map(r => r.id)")
+    desktop_view.focus()
+    desktop_view.press("End")
+    expect(desktop_view).to_have_value("monitor")
+    expect(search).to_have_value("Pipettenspitzen")
+    assert cards.evaluate_all("(rows) => rows.map(r => r.id)") == filtered_ids
+    assert subject.evaluate("(el) => parseFloat(getComputedStyle(el).fontSize)") > laptop_size
     search.fill("")
     cards.first.focus()
     page.keyboard.press("Space")
@@ -47,6 +58,12 @@ def check_board(page, base_url, font_size):
     expect(page.locator("#palette")).to_be_hidden()
 
     page.reload()
+    expect(desktop_view).to_have_value("monitor")
+    desktop_view.focus()
+    desktop_view.press("Home")
+    expect(desktop_view).to_have_value("laptop")
+    page.reload()
+    expect(desktop_view).to_have_value("laptop")
     page.evaluate("(size) => document.documentElement.style.fontSize = size", f"{font_size}px")
     trigger = page.locator("#moreTools summary")
     trigger.click()
@@ -67,7 +84,7 @@ if __name__ == "__main__":
         try:
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM") or shutil.which("chromium"))
-                for width, height, font in [(1280, 720, 16), (960, 640, 24), (680, 480, 24)]:
+                for width, height, font in [(1920, 1080, 16), (1280, 720, 16), (960, 640, 24), (680, 480, 24)]:
                     page = browser.new_page(viewport={"width": width, "height": height})
                     errors = []
                     page.on("pageerror", lambda error: errors.append(str(error)))

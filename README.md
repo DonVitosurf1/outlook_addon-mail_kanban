@@ -4,6 +4,8 @@ Mail-Board ist eine eigenständige Windows-App für das tägliche Sichten, Nachv
 
 ![Das über Werkzeuge geöffnete Beispielpostfach mit 14 Mails in vier Statusspalten](docs/mail-board.png)
 
+[Zweitmonitoransicht mit denselben Beispielmails ansehen](docs/mail-board-zweitmonitor.png)
+
 ## Unter Windows ausprobieren
 
 1. [Windows-x64-ZIP herunterladen](downloads/Mail-Board-Windows-x64.zip?raw=true) und den **gesamten Inhalt** in einen beschreibbaren Ordner entpacken.
@@ -20,6 +22,7 @@ Der normale Start aus dem entpackten Ordner benötigt keine Administratorrechte,
 
 ## Bedienung und lokale Daten
 
+- Unten links wechselt **Bildschirmansicht** zwischen **Laptop** (kompakte Karten) und **Zweitmonitor** (größere Betreffzeilen, farbige Spaltenköpfe und hervorgehobene fällige Aktionen). Die App merkt sich die Auswahl beim Schließen.
 - **F1** öffnet die Hilfe, **Strg+K** die Befehlspalette, **Strg+F** die Suche. Über **Start** sind unter anderem Morgen-Triage, Wochenblick und Posteingang aufräumen erreichbar. **1–4** ändert den Status ausgewählter Karten.
 - Ohne KI lassen sich Mails verarbeiten und Ablageziele anhand von Regeln, Steckbriefen und gelernten Beispielen vorschlagen. Wer die Modellfunktionen nutzen möchte, startet lokal Ollama, installiert ein passendes Modell und wählt es unter **Outlook und lokale KI** aus. Modellzugriffe laufen über Rust und sind auf Loopback beschränkt.
 - **Werkzeuge → Lokale Daten und Textbausteine** exportiert und importiert Sicherungen. Die App speichert lokale Einstellungen im Benutzerprofil. Das bloße Kopieren der EXE auf einen anderen PC überträgt diese Daten nicht.

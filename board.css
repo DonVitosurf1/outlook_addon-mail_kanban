@@ -242,3 +242,52 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .structure-dialog fieldset p { color:var(--muted); font-size:.85rem; margin-top:.25rem; }
 .structure-dialog button { margin:.4rem .35rem 0 0; }
 .arrival-mark { display:inline-block; padding:.07rem .35rem; margin-bottom:.2rem; color:#20594b; background:#e1f2eb; border-radius:.25rem; font-size:.74rem; }
+
+.display-profile {
+  display: grid;
+  gap: .25rem;
+  margin: .5rem 1rem .2rem;
+  font-size: .8rem;
+  color: var(--muted);
+}
+.display-profile select { width: 100%; color: var(--ink); }
+[data-display-profile="monitor"] .lane .column-toggle {
+  width: 100%;
+  justify-content: space-between;
+  padding: .45rem .65rem;
+  background: var(--accent);
+  color: white;
+  font-size: 1.2rem;
+}
+[data-display-profile="monitor"] .column-toggle span,
+[data-display-profile="monitor"] .column-toggle b {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+[data-display-profile="monitor"] .column-toggle b { font-size: 1rem; }
+[data-display-profile="monitor"] .card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: .18rem;
+  margin-bottom: .65rem;
+  padding: .8rem;
+}
+[data-display-profile="monitor"] .card strong {
+  order: -1;
+  font-size: 1.4rem;
+  line-height: 1.25;
+}
+[data-display-profile="monitor"] .card .card-author { font-size: 1rem; }
+[data-display-profile="monitor"] .card .card-attention {
+  order: -2;
+  align-self: flex-start;
+  margin: 0 0 .15rem;
+  padding: .15rem .45rem;
+  border-radius: .25rem;
+  color: #654606;
+  background: #ffebaf;
+  font-size: 1rem;
+  font-weight: 650;
+}
