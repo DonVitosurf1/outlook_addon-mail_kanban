@@ -163,6 +163,81 @@ Für alle Schritte gilt:
 - [ ] **C#-Vertragstest** für den seitenweisen Backlog.
 - **Fertig, wenn** ein Postfach mit grober Struktur in einer Sitzung zu bereinigten Lernordnern mit Steckbriefen, gemessener Trefferquote vorher/nachher und einem abgearbeiteten Posteingang kommt. Jede Postfachänderung muss dabei bestätigt und rücknehmbar sein.
 
-## 5. Weitere Themen
+## 5. Bedienbarkeit (entschieden am 23.11.2026)
+
+Ausgangslage aus einem Rundgang als Anwender (Erststart, Verbinden mit Outlook, Einstellungen, Ordnerdialog, Maildetails, Kontextmenü, Start, Werkzeuge):
+- Die Grundbedienung ist klar. Die Einrichtung ist es nicht.
+- Im Alltag sind viele Funktionen nur über Rechtsklick oder Tasten erreichbar.
+- Start, Werkzeuge und Seitenleiste überschneiden sich teilweise.
+
+**Empfohlene Reihenfolge:**
+1. Kleine, unabhängige Punkte zuerst: U2, U11, U10, U7.
+2. Danach die tägliche Bedienung: U5, U6, U8, U9.
+3. Dann U1 und U4.
+4. U3 kommt zusammen mit dem Einrichtungsassistenten (E0).
+
+Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
+
+### Ersteinrichtung und Einstellungen
+
+- [ ] **U1 Einstellungen neu ordnen.** Der Dialog „Outlook und lokale KI“ wird in die Abschnitte **Outlook**, **Board**, **Lokale KI**, **Lernen** und **Darstellung** aufgeteilt, jeder mit einem erklärenden Satz.
+  - Betroffen sind heute `start()` in `src/board.ts`, `renderAiSettings` in `src/ai.ts` und `colorSettings`.
+  - Jeder KI-Schalter bekommt einen Satz, was er bewirkt und was er kostet.
+  - „Verbindung testen“ zeigt den Outlook-Status, das tatsächlich gewählte Sprachmodell (statt „Automatisch auswählen“), das Embedding-Modell und die Antwortzeit an einer kurzen Probe.
+  - Test: Bestehende Layoutprüfung bei 24 px Grundschrift, alle Abschnitte erreichbar.
+- [ ] **U2 Verschieben im Dialog freigeben.** Die erste Ablage endet nicht mehr mit einer Fehlermeldung. Der Bestätigungsdialog fragt stattdessen: „Das Board darf noch keine Mails verschieben. Jetzt erlauben und verschieben?“
+  - Betroffen ist `change()` in `src/board.ts`, gesetzt wird `allow_move`.
+  - Abbrechen lässt die Mail unverändert. Die Freigabe bleibt in den Einstellungen änderbar.
+  - Test: `live-board-smoke.py`.
+- [ ] **U3 „Nächster Schritt“-Hinweis.** Nach dem ersten Verbinden ohne Lernziele zeigt das Board einen deutlichen Hinweis „Einrichtung starten“. Er führt in den Assistenten (E0).
+  - Solange die Einrichtung nicht abgeschlossen ist, zeigt Start den Fortschritt, z. B. „3 von 7 Schritten“.
+- [ ] **U4 Kurze Einführung.** Der lange Hinweistext (`board-hint` „intro“ in `src/views-layout.ts`) wird durch drei kurze Hinweise direkt an Board, Karte und Tabs ersetzt.
+  - Weiter und Überspringen gehen per Tastatur, Escape schließt.
+  - Über die Hilfe lässt sich die Einführung erneut zeigen.
+  - Im Beispielpostfach und im Outlook-Postfach getrennt merkbar.
+
+### Tägliche Bedienung
+
+- [ ] **U5 Aktionsleiste in den Maildetails.** Eine Knopfleiste unter dem Betreff mit Antworten, Allen antworten, Weiterleiten, Wiedervorlage (W), Nachfassen (N), Notiz (K), Fokus (F) und Vorgang, jeweils mit Tastenkürzel.
+  - Genutzt werden dieselben Aktionen wie im Kontextmenü (`BoardActions` in `src/views.ts`).
+  - Nicht verfügbare Aktionen, etwa Antworten im Beispielpostfach, sind deaktiviert und haben einen Tooltip, warum.
+- [ ] **U6 Kontextmenü gruppiert.** Ein echtes Menü an der Mausposition (`role=menu`, Pfeiltasten, Escape) ersetzt den heutigen Dialog (`editSelection`).
+  - Die Tastatur öffnet es mit Umschalt+F10 oder der Menütaste an der Karte.
+  - Gruppen: **Status** (1–4), **Antworten** (R, Umschalt+R), **Planen** (W, N, K, F), **Ordnen** (Kategorien, Vorgang, Ablagevorschlag).
+  - Tastenkürzel stehen rechts. Bei mehreren markierten Karten nennt der Kopf die Anzahl.
+- [ ] **U7 Rückmeldung mit Rückgängig.** Nach jeder Aktion erscheint für etwa 8 Sekunden eine Meldung wie „Nach Einkauf verschoben · Rückgängig“, mit `role=status`.
+  - Der Knopf „Rückgängig“ oben zeigt im Tooltip, was er zurücknimmt.
+  - Dafür bekommen Undo-Schritte eine Beschriftung, in `LiveBoard.batches` und `demoUndo` in `src/board.ts`. `notify()` bleibt für Fehler und Hinweise.
+- [ ] **U8 Tastenkürzel-Übersicht.** Die Taste `?` öffnet eine Hilfeseite „Tastenkürzel“, gruppiert nach Karte, Board, Ansichten, Triage und Dialogen.
+  - Die Daten kommen aus einer gemeinsamen Liste, damit Hilfe, Kontextmenü und Aktionsleiste dieselben Kürzel zeigen.
+
+### Orientierung und Begriffe
+
+- [ ] **U9 Start entschlacken.** Start zeigt nur noch:
+  - **Heute** (fällig, Fokus, wartend fällig, jeweils klickbar als Ansicht),
+  - die Morgen-Triage,
+  - fällige Routinen zum Abhaken,
+  - solange nötig den Einrichtungsfortschritt.
+
+  Doppelte Knöpfe zu Tabs und Seitenleiste entfallen (Wochenkalender, Routinen, Vorgänge, Heute dran, Hilfe). Der Versionshinweis schrumpft auf eine Zeile.
+- [ ] **U10 Werkzeuge aufräumen.**
+  - „Gesendet ohne Antwort“ wird ein Eintrag unter den Ansichten der Seitenleiste.
+  - „Unterhaltungen zusammenfassen“ wandert als Schalter mit sichtbarem Zustand ins Menü Ansicht.
+  - Die VIP-Liste kommt in die Einstellungen (Abschnitt Board).
+  - Werkzeuge enthält danach nur noch: Befehl suchen, Einstellungen, Ordner und Steckbriefe, Einrichtung, Lokale Daten und Textbausteine, Beispielpostfach, Hilfe.
+- [ ] **U11 Begriffe klären.**
+  - Der Seitenleisten-Abschnitt „Fokus“ heißt künftig **„Ansichten“**. Er enthält auch eine Ansicht „Fokus“.
+  - Die Datumsarten bekommen eine einheitliche Erklärung, als Tooltip an Karten und Feldern und als Hilfethema:
+    - **Wiedervorlage** = die Karte ist bis zu diesem Tag geparkt,
+    - **Nachfassen** = an diesem Tag beim Gegenüber nachhaken,
+    - **Frist** = bis dahin muss es erledigt sein,
+    - **KI-Frist** = von der lokalen KI erkannte Frist.
+
+### Tests
+
+- [ ] **Smoke-Tests:** Aktionsleiste und Kontextmenü per Maus und Tastatur, Meldung mit Rückgängig, Freigabe des Verschiebens im Dialog, Einführung überspringen und erneut zeigen, `?`-Übersicht.
+- [ ] **Bestehende Tests anpassen,** die heute `.view-dialog` als Kontextmenü, die Start-Knöpfe oder den Werkzeug-Eintrag „Gesendet ohne Antwort“ verwenden (`board-views-smoke.py`, `cockpit-smoke.py`, `planning-smoke.py`).
+
+## 6. Weitere Themen
 
 *Folgen aus dem nächsten Gespräch.*
