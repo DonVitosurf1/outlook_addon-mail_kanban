@@ -24,6 +24,8 @@ import { initTabs } from './tabs'
 import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
 import './setup-outliers'
 import './setup-refine'
+import './setup-profiles'
+import './setup-compare'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'

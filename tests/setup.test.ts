@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { defaultScopes, freshState, initialScopes, isComplete, nextOpen, parseState, progressText, shouldOfferSetup, stepIds } from '../src/setup-logic'
+import { compareMeasurements, diffText, defaultScopes, freshState, initialScopes, isComplete, nextOpen, parseState, progressText, shouldOfferSetup, stepIds } from '../src/setup-logic'
 
 const folders=[
   {name:'Posteingang',path:'',isInbox:true},
@@ -96,4 +96,21 @@ test('Gespeicherter Stand: bestätigte Ausreißer und Kandidaten für E4 werden 
   assert.deepEqual(state.confirmed,['a','b'])
   assert.deepEqual(state.outlierFolders,[{folder:'Labor',outliers:2,total:6}])
   assert.deepEqual(parseState({version:1,confirmed:'a',outlierFolders:{}}).confirmed,[])
+})
+
+test('Vergleich: Differenz in Prozentpunkten, „schlechter“ je Ordner und Quelle, Ordner aus beiden Messungen',()=>{
+  const tally=(shown:number,correct:number)=>({shown,correct})
+  const measurement=(combined:ReturnType<typeof tally>,byFolder:Record<string,{tested:number;shown:number;correct:number}>,sources={}):any=>
+    ({date:'x',note:'',samples:{},report:{tested:0,folders:0,combined,bayes:combined,rule:tally(0,0),sources,embedding:null,plain:null,semanticTested:0,missing:0,byFolder}})
+  const before=measurement(tally(20,15),{Einkauf:{tested:10,shown:10,correct:8},Labor:{tested:10,shown:10,correct:7},Alt:{tested:10,shown:0,correct:0},Stumm:{tested:10,shown:5,correct:5},Weg:{tested:10,shown:5,correct:5}},{Bayes:tally(20,15)})
+  const after=measurement(tally(20,16),{Einkauf:{tested:10,shown:10,correct:9},Labor:{tested:10,shown:10,correct:6},Neu:{tested:10,shown:10,correct:5},Stumm:{tested:10,shown:0,correct:0}},{Bayes:tally(10,5),Regel:tally(4,4)})
+  const result=compareMeasurements(before,after)
+  assert.deepEqual(result.folders.map(r=>[r.name,r.before,r.after,r.diff,r.worse]),[
+    ['Alt',null,null,null,false],['Einkauf',80,90,10,false],['Labor',70,60,-10,true],['Neu',null,50,null,false],['Stumm',100,null,null,true],['Weg',100,null,null,false]])
+  const names=result.sources.map(r=>r.name)
+  assert.deepEqual(names,['Gesamtergebnis','Bayes einzeln','Endgültige Quelle · Bayes','Endgültige Quelle · Regel'])
+  assert.deepEqual(result.sources[0],{name:'Gesamtergebnis',before:75,after:80,diff:5,worse:false})
+  assert.equal(result.sources[2].worse,true)
+  assert.equal(result.sources[2].diff,-25)
+  assert.deepEqual([diffText(5),diffText(-10),diffText(0),diffText(null)],['+5 Pp.','−10 Pp.','±0 Pp.','–'])
 })

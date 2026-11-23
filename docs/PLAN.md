@@ -139,13 +139,13 @@ Für alle Schritte gilt:
 
 ### E5 Steckbriefe
 
-- [ ] **Entwürfe** für alle Lernordner ohne Steckbrief nacheinander (`draftProfile`), mit Fortschritt und Abbruchmöglichkeit.
-- [ ] **Prüfung** als Liste mit Übernehmen / Bearbeiten / Verwerfen. Gespeichert wird nur Übernommenes (`setProfile`).
+- [x] **Entwürfe** für alle Lernordner ohne Steckbrief nacheinander (`draftProfile`), mit Fortschritt und Abbruchmöglichkeit.
+- [x] **Prüfung** als Liste mit Übernehmen / Bearbeiten / Verwerfen. Gespeichert wird nur Übernommenes (`setProfile`).
 
 ### E6 Neu lernen und vergleichen
 
-- [ ] **Lernen** mit bereinigten Ordnern, ausgeschlossenen Ausreißern und neuen Steckbriefen.
-- [ ] **Vergleich** vorher/nachher je Quelle und je Ordner. Ordner, die schlechter geworden sind, werden hervorgehoben.
+- [x] **Lernen** mit bereinigten Ordnern, ausgeschlossenen Ausreißern und neuen Steckbriefen.
+- [x] **Vergleich** vorher/nachher je Quelle und je Ordner. Ordner, die schlechter geworden sind, werden hervorgehoben.
 
 ### E7 Posteingang abarbeiten
 

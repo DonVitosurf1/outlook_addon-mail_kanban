@@ -125,3 +125,31 @@ export function initialScopes(folders:readonly ScopeFolder[],current:{board:stri
 export function shouldOfferSetup(input:{mailbox:'outlook'|'demo'|'offline';learning:string[]|null;state:SetupState;later:boolean}){
   return input.mailbox==='outlook'&&!input.learning?.length&&!isComplete(input.state)&&!input.later
 }
+
+type Rate={shown:number;correct:number}
+/** Trefferquote in ganzen Prozent, `null` ohne Vorschläge. */
+export function ratePercent(tally?:Rate|null):number|null{return tally?.shown?Math.round(100*tally.correct/tally.shown):null}
+/** Eine Zeile des Vergleichs. `diff` in Prozentpunkten (jetzt minus Ausgangswert), `worse` bei weniger Treffern als vorher. */
+export type CompareRow={name:string;before:number|null;after:number|null;diff:number|null;worse:boolean}
+function compareRow(name:string,before:Rate|null|undefined,after:Rate|null|undefined,tested=false):CompareRow{
+  const a=ratePercent(before),b=ratePercent(after),diff=a==null||b==null?null:b-a
+  // Wer vorher Vorschläge hatte und jetzt keine mehr (bei weiterhin getesteter Quelle), ist ebenfalls schlechter.
+  return {name,before:a,after:b,diff,worse:diff!=null?diff<0:a!=null&&tested}
+}
+/**
+ * E6: Vergleich zweier Messungen je Quelle (Gesamtergebnis, Regeln, Bayes, Embeddings, endgültige Quelle) und je Ordner.
+ * Die Differenz rechnet mit den angezeigten, gerundeten Prozentwerten. Ohne Wert auf einer Seite bleibt sie leer. Ein Ordner ohne Vorschläge, der vorher welche hatte, gilt als schlechter.
+ * Ordner aus beiden Messungen erscheinen, sortiert nach Name.
+ */
+export function compareMeasurements(before:Measurement,after:Measurement):{sources:CompareRow[];folders:CompareRow[]}{
+  const a=before.report,b=after.report
+  const sources=[compareRow('Gesamtergebnis',a.combined,b.combined),compareRow('Regeln einzeln',a.rule,b.rule),compareRow('Bayes einzeln',a.bayes,b.bayes),
+    compareRow('Embeddings mit Steckbrief',a.embedding,b.embedding),compareRow('Embeddings ohne Steckbrief',a.plain,b.plain)]
+  for(const name of [...new Set([...Object.keys(a.sources),...Object.keys(b.sources)])].sort())
+    sources.push(compareRow('Endgültige Quelle · '+name,a.sources[name as keyof typeof a.sources],b.sources[name as keyof typeof b.sources]))
+  const folders=[...new Set([...Object.keys(a.byFolder??{}),...Object.keys(b.byFolder??{})])].sort((x,y)=>x.localeCompare(y,'de'))
+    .map(name=>compareRow(name,a.byFolder?.[name],b.byFolder?.[name],!!b.byFolder?.[name]?.tested))
+  return {sources:sources.filter(r=>r.before!=null||r.after!=null),folders}
+}
+/** „+5 Pp.“, „−3 Pp.“, „±0 Pp.“ oder „–“ ohne Differenz. */
+export function diffText(diff:number|null){return diff==null?'–':(diff>0?'+':diff<0?'−':'±')+Math.abs(diff)+' Pp.'}
