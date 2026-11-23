@@ -213,7 +213,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
 
 ### Orientierung und Begriffe
 
-- [ ] **U9 Start entschlacken.** Start zeigt nur noch:
+- [x] **U9 Start entschlacken.** Start zeigt nur noch:
   - **Heute** (fällig, Fokus, wartend fällig, jeweils klickbar als Ansicht),
   - die Morgen-Triage,
   - fällige Routinen zum Abhaken,

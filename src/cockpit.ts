@@ -17,9 +17,9 @@ type Options = CleanupOptions & {
   startTriage: () => void
   triageActive: () => boolean
   routines: () => Routine[]
-  openRoutines: () => void
-  openCalendar: () => void
-  openCases: () => void
+  markRoutine: (id: string) => void
+  showFocus: (key: 'today' | 'focus') => void
+  showOverdue: () => void
 }
 export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning' | 'shortcuts'
 
@@ -207,24 +207,36 @@ export function initCockpit(options: Options) {
       const {counts} = weeklyCounts(options.isLive())
       body.append(element('h3','Diese Woche'),element('p',
         'Abgelegt: '+counts.filed+' · Nachgefasst: '+counts.followed_up+' · Wiedervorlage gesetzt: '+counts.snoozed))
-      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene'),link('Wochenkalender',options.openCalendar)))
+      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene')))
     } else {
       title.textContent = 'Start'
-      body.append(element('h3','Heute'),element('p',s.due.length+' fällig · '+s.late.length+' wartend und fällig · '+s.snoozed+' auf Wiedervorlage'),
-        actions(go('Heute dran','today'),button(options.triageActive()?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startTriage)),
-        actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}),go('Hilfe','help')))
-      if(options.openUnanswered)body.append(button('Gesendet ohne Antwort',()=>{dialog.close();void options.openUnanswered!()}))
+      const focusCount=options.getMails().filter(m=>isFocusCard(m,day)).length
+      const show=(run:()=>void)=>()=>{dialog.close();run()}
+      const stats=element('div');stats.className='cockpit-actions'
+      stats.append(button(s.due.length+' fällig',show(()=>options.showFocus('today'))),
+        button(focusCount+' im Fokus',show(()=>options.showFocus('focus'))),
+        button(s.late.length+' wartend und fällig',show(options.showOverdue)))
+      const triage=button(options.triageActive()?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startTriage)
+      triage.className='cockpit-primary'
+      body.append(element('h3','Heute'),stats,triage,element('h3','Routinen heute'))
       const due=dueRoutines(options.routines(),day)
-      body.append(element('h3','Planung'),element('p',due.length?'Fällige Routinen: '+due.map(r=>r.routine.title).join(', '):'Keine Routine fällig.'),
-        actions(link('Wochenkalender',options.openCalendar),link('Routinen',options.openRoutines),link('Vorgänge',options.openCases)))
+      if(!due.length)body.append(element('p','Keine Routine fällig.'))
+      for(const {routine} of due){
+        const row=element('div');row.className='cockpit-actions'
+        row.append(element('span',routine.title),button('Erledigt',()=>{options.markRoutine(routine.id);render()}))
+        row.lastElementChild?.setAttribute('aria-label',routine.title+' erledigt')
+        body.append(row)
+      }
+      const more=actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}))
+      body.append(element('h3','Weitere Ansichten'),more)
       const startup=element('input');startup.type='checkbox';startup.checked=preference(launchKey)
       startup.onchange=()=>remember(launchKey,startup.checked)
       const label=element('label');label.append(startup,' Diese Übersicht beim Start öffnen')
       body.append(label)
       if(!preference(versionKey)){
-        const intro=element('section')
-        intro.append(element('h3','Mail-Board '+metadata.version),element('p','Die Windows-App lädt dein klassisches Outlook-Profil beim Start. Wähle Werkzeuge → Beispielpostfach öffnen, um das Board mit Beispielen zu erkunden.'),
-          button('Versionshinweis schließen',()=>{remember(versionKey,true);intro.remove()}))
+        const intro=element('p');intro.className='cockpit-note'
+        intro.append('Mail-Board '+metadata.version+' lädt dein klassisches Outlook-Profil beim Start. ',
+          button('Ausblenden',()=>{remember(versionKey,true);intro.remove()}))
         body.append(intro)
       }
       const tips = [
@@ -238,7 +250,9 @@ export function initCockpit(options: Options) {
       const today = new Date()
       const index = Math.floor(Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()) / 86400000) % tips.length
       const [tip, term] = tips[index]
-      body.append(element('p',tip),button('Tipp in der Hilfe öffnen',()=>{helpTerm=term;open('help')}))
+      const tipRow=element('p');tipRow.className='cockpit-note'
+      tipRow.append('Tipp: '+tip+' ',button('Mehr in der Hilfe',()=>{helpTerm=term;open('help')}))
+      body.append(tipRow)
       return
     }
     body.append(go('Zur Übersicht','start'))

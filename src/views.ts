@@ -3,6 +3,7 @@ import {BoardLayout} from './views-layout'
 import {cardRow, counter} from './card-content'
 import {shortcutFor} from './shortcuts'
 import type {ShortcutAction} from './shortcuts'
+import {showView} from './tabs'
 import {dateTerms} from './date-terms'
 import {getLegacyConfig, textSnippets,updateConfig} from './data-settings'
 import type {Focus, Group, Sort, Split, ViewMail} from './views-logic'
@@ -306,6 +307,17 @@ export class BoardViews {
     this.focus='all';this.split.value=''
     if(!Array.from(this.tag.options).some(o=>o.value===tag))this.tag.add(new Option(tag,tag))
     this.tag.value=tag;this.changed()
+  }
+  /** Zeigt eine Fokusansicht auf dem Board, etwa aus der Startseite. */
+  showFocus(key:'today'|'focus'){this.showBoard(key,'')}
+  /** Zeigt eine benannte Sicht (z. B. 'overdue') auf dem Board. */
+  showSplit(value:string){this.showBoard('all',value)}
+  private showBoard(focus:Focus,split:string){
+    const search=document.getElementById('search') as HTMLInputElement|null
+    if(search)search.value=''
+    this.focus=focus;this.split.value=split;this.tag.value=''
+    this.api.clearScope?.()
+    showView('board');this.changed()
   }
   resetSelection(){this.layout.hide();this.selected.clear();this.anchor='';this.paint()}
   reset(){this.focus='all';this.split.value='';this.tag.value='';this.resetSelection()}
