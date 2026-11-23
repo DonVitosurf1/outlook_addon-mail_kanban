@@ -16,6 +16,7 @@ localStorage.setItem('kanban-board-options-v1', JSON.stringify({project_folders:
 const folders = [{id:'01',name:'Posteingang',path:'',isInbox:true},{id:'02',name:'Einkauf',path:'Einkauf'},{id:'03',name:'Archiv',path:'Archiv'}]
 let mail={id:'aa',folderId:'01',folder:'Posteingang',status:'Offen',subject:'Einkauf Rechnung',sender:'Anna',body:'Einkauf',tags:[],attachments:[]}
 window.ageDone=()=>{mail={...mail,status:'Erledigt',statusSince:'2023-02-10T11:00:00Z'}}
+window.editInOutlook=()=>{mail={...mail,statusSince:'2026-01-15T12:00:00Z'};window.currentMail=mail}
 let sequence=170
 window.calls=[]
 window.__TAURI__={core:{invoke:async(name,args={})=>{
@@ -30,9 +31,10 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_status'){
     if(mail.id!==args.id || mail.folderId!==args.folder)throw Error('Status im falschen Ordner')
     const previous=mail.status,previousSince=mail.statusSince||''
+    if(args.expected!=null && (args.expected!==previous || (args.expectedSince!=null && args.expectedSince!==previousSince))) return JSON.stringify({conflict:true})
     mail={...mail,status:args.status,statusSince:args.since??new Date().toISOString()}
     window.currentMail=mail
-    return JSON.stringify({previous,previousSince})
+    return JSON.stringify({previous,previousSince,statusSince:mail.statusSince})
   }
   if(name==='outlook_folders') return JSON.stringify(folders)
   if(name==='outlook_board')return JSON.stringify([mail])
@@ -57,8 +59,7 @@ try:
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto(f"http://127.0.0.1:{server.server_port}/")
-        expect(page.locator(".card")).to_have_count(14)
-        page.locator("#loadInbox").click()
+        expect(page.locator(".foot")).to_have_text("Klassisches Outlook")
         card = page.locator(".card").filter(has_text="Einkauf Rechnung")
         expect(card).to_have_count(1)
         card.click()
@@ -103,6 +104,19 @@ try:
         page.keyboard.press("Control+z")
         expect(page.locator("#message")).to_contain_text("rückgängig")
         assert page.evaluate("currentMail.folderId==='01' && currentMail.statusSince.startsWith('2023-')")
+        card.click()
+        page.locator("#status").select_option("Warten")
+        expect(page.locator("#message")).to_contain_text("1 von 1")
+        page.evaluate("window.editInOutlook()")
+        page.locator("#undo").click()
+        conflict = page.get_by_role("dialog", name="Der Status wurde inzwischen", exact=False)
+        conflict.get_by_role("button", name="Abbrechen").click()
+        expect(page.locator("#undo")).to_be_enabled()
+        page.locator("#undo").click()
+        conflict.get_by_role("button", name="Schritt überspringen").click()
+        expect(page.locator("#undo")).to_be_disabled()
+        assert page.evaluate("currentMail.status==='Warten' && currentMail.statusSince==='2026-01-15T12:00:00Z'")
+        page.locator("#moreTools summary").click()
         page.locator("#backDemo").click()
         expect(page.locator(".card")).to_have_count(14)
         assert not errors, errors

@@ -15,6 +15,14 @@ const folders=[{id:'aa',name:'IT',parentId:'root',path:'IT'},
                {id:'bb',name:'Drucker',parentId:'aa',path:'IT/Drucker'}]
 window.created=[]
 window.moves=[]
+const initialRead=new Promise(resolve=>window.openMailbox=resolve)
+const monday=new Date()
+monday.setDate(monday.getDate()-(monday.getDay()+6)%7)
+const week=[monday.getFullYear(),String(monday.getMonth()+1).padStart(2,'0'),String(monday.getDate()).padStart(2,'0')].join('-')
+localStorage.setItem('outlook-kanban-activity-live',JSON.stringify({week,filed:5}))
+const mails=['VPN einrichten','VPN erweitern','Hardware bestellen'].map((subject,i)=>({
+   id:'de'+i,folderId:'aa',sender:'IT',subject,body:'',status:'Offen',tags:[],attachments:[]
+}))
 window.__TAURI__={core:{invoke:async (cmd,args={})=>{
   if(cmd==='outlook_batch'){
     if(Boolean(window.batchActive)===args.active) throw Error('Fehlerhafter Stapelbeginn oder Abschluss')
@@ -22,17 +30,22 @@ window.__TAURI__={core:{invoke:async (cmd,args={})=>{
     return
   }
   if(['project_create','project_move','outlook_move'].includes(cmd) && !window.batchActive) throw Error('Fehlender Schreibschutz für '+cmd)
- if(cmd==='outlook_folders')return JSON.stringify(folders)
- if(cmd==='outlook_folder')return JSON.stringify([{id:'de',folderId:'aa',sender:'IT',subject:'VPN einrichten',body:'Zugang',tags:[],attachments:[]}])
+ if(cmd==='outlook_folders'){await initialRead;return JSON.stringify(folders)}
+ if(cmd==='outlook_board'||cmd==='outlook_categories')return '[]'
+ if(cmd==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
+ if(cmd==='outlook_folder')return JSON.stringify(mails.filter(m=>m.folderId===args.folder))
  if(cmd==='project_move'){
    const folder=folders.find(f=>f.id===args.folder),target=folders.find(f=>f.id===args.target)
    if(folder.parentId!==args.source||!target)throw Error('Ungültige Ordner für Archivierung')
    const receipt={...folder,previousName:folder.name,previousParentId:folder.parentId,parentId:target.id,path:target.path+'/'+folder.name}
    Object.assign(folder,receipt);return JSON.stringify(receipt)
  }
- if(cmd==='outlook_move'){
+ if(cmd==='outlook_move'||cmd==='outlook_undo'){
+   const row=mails.find(m=>m.id===args.id && m.folderId===args.source)
+   if(!row)throw Error('Falsche ID oder Quellordner')
    window.moves.push(args)
-   return JSON.stringify({id:'df',source:args.source,target:args.target})
+   row.id+='f';row.folderId=args.target
+   return JSON.stringify({id:row.id,source:args.source,target:args.target})
  }
  if(cmd==='outlook_training'){
    if(args.folder!=='aa'||args.limit!==40)throw Error('Unerwartete Leseanforderung')
@@ -64,6 +77,11 @@ if __name__ == "__main__":
                 page.add_init_script(bootstrap)
                 page.goto(f"http://127.0.0.1:{server.server_port}")
                 page.locator("#moreTools summary").click()
+                expect(page.locator("#projectTools")).to_be_hidden()
+                page.locator("#moreTools summary").click()
+                page.evaluate("openMailbox()")
+                expect(page.locator("#loadInbox")).to_have_text("Aktualisieren")
+                page.locator("#moreTools summary").click()
                 page.locator("#projectTools").click()
                 page.get_by_role("button", name="Unterteilung vorschlagen …").click()
                 form = page.locator(".structure-dialog")
@@ -92,14 +110,32 @@ if __name__ == "__main__":
                 assert page.evaluate("JSON.parse(localStorage.getItem('kanban-board-options-v1')).suggestion_folders") == [
                     "IT/Drucker","IT/Hardware","IT/VPN"]
                 targets.get_by_role("button",name="Vorschläge ermitteln").click()
-                targets.get_by_label("VPN einrichten",exact=True).check()
-                target = targets.get_by_label("Ziel für VPN einrichten")
-                target.select_option(label="IT/VPN")
-                targets.get_by_role("button",name="Markierte Mails verschieben").click()
-                targets.get_by_role("button",name="Bestätigen").click()
-                expect(targets.get_by_role("status")).to_contain_text("1 von 1 verschoben")
-                assert page.evaluate("moves.length===1 && !batchActive")
-                targets.get_by_role("button",name="Schließen").click()
+                for subject, folder in [("VPN einrichten","IT/VPN"),("VPN erweitern","IT/VPN"),("Hardware bestellen","IT/Hardware")]:
+                    targets.get_by_label(subject,exact=True).check()
+                    targets.get_by_label("Ziel für "+subject).select_option(label=folder)
+                move = targets.get_by_role("button",name="Markierte Mails verschieben")
+                move.click()
+                confirm = targets.locator("dialog[open]")
+                expect(confirm).to_contain_text("2 Mails nach „IT/VPN“")
+                expect(confirm).to_contain_text("1 Mail nach „IT/Hardware“")
+                confirm.get_by_role("button",name="Abbrechen").click()
+                assert page.evaluate("moves.length") == 0
+                move.click()
+                # Changes to the underlying select after the preview must never change the confirmed destination.
+                targets.locator('select[aria-label="Ziel für Hardware bestellen"]').evaluate(
+                    "(select)=>select.value=Array.from(select.options).find(o=>o.text==='IT/VPN').value")
+                confirm.get_by_role("button",name="Bestätigen").click()
+                expect(targets.get_by_role("status")).to_contain_text("3 von 3 verschoben")
+                assert page.evaluate("moves.map(m=>m.target)") == ["cc3","cc3","cc2"]
+                assert page.evaluate("JSON.parse(localStorage.getItem('outlook-kanban-activity-live')).filed") == 8
+                targets.get_by_role("button",name="Schließen",exact=True).click()
+                page.locator(".project-tools").get_by_role("button", name="Schließen",exact=True).click()
+                expect(page.locator("#undo")).to_be_enabled()
+                page.keyboard.press("Control+z")
+                expect(page.locator("#message")).to_contain_text("rückgängig")
+                assert page.evaluate("JSON.parse(localStorage.getItem('outlook-kanban-activity-live')).filed") == 5
+                page.locator("#moreTools summary").click()
+                page.locator("#projectTools").click()
                 projects = page.get_by_role("dialog")
                 projects.get_by_role("combobox").first.select_option(label="IT/VPN")
                 projects.get_by_role("button",name="Projekt abschließen").click()

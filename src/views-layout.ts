@@ -23,9 +23,16 @@ export class BoardLayout{
     this.preview.setAttribute('aria-label','Kurzvorschau');this.preview.setAttribute('aria-live','polite')
     const close=action('Schließen',()=>this.hide())
     this.preview.append(this.title,this.from,this.body,close);document.body.append(this.preview)
+    const profile = document.querySelector<HTMLSelectElement>('#displayProfile')!
+    profile.value = saved('display-profile') === 'monitor' ? 'monitor' : 'laptop'
+    document.body.dataset.displayProfile = profile.value
+    profile.addEventListener('change', () => {
+      document.body.dataset.displayProfile = profile.value
+      store('display-profile', profile.value)
+    })
     this.resizeControl()
     if(!saved('intro')){
-      this.hint('Das Board startet mit Beispieldaten. Im verbundenen Outlook speichert es Status, Fristen und Notizen an der Mail. Eine Ablage bestätigst du vor dem Verschieben. Outlook öffnet Antworten als Entwurf.', 'intro')
+      this.hint('Die Windows-App lädt beim Start dein klassisches Outlook-Profil. Status, Fristen und Notizen speichert sie dort an der Mail. Eine Ablage bestätigst du vor dem Verschieben. Outlook öffnet Antworten als Entwurf.', 'intro')
     }
   }
   private hint(text:string,key:string){
@@ -55,9 +62,11 @@ export class BoardLayout{
       if(this.closed.size)board.style.gridTemplateColumns=['Offen','In Bearbeitung','Warten','Erledigt'].map(s=>this.closed.has(s)?'minmax(5.8rem,auto)':'minmax(11.4rem,1fr)').join(' ')
       else board.style.removeProperty('grid-template-columns')
       board.classList.toggle('grouped-board',extraStyles)
+      if(extraStyles)board.style.setProperty('--group-count',String(groupCount))
+      else board.style.removeProperty('--group-count')
     }
     lane.dataset.status=status;lane.classList.toggle('folded',collapsed)
-    if(extraStyles)lane.style.gridRow='1 / span '+Math.max(2,groupCount+1)
+    if(extraStyles)lane.style.gridRow='1 / -1'
     const toggle=action('',()=>{
       if(this.closed.has(status))this.closed.delete(status);else this.closed.add(status)
       store('columns',[...this.closed].join('|'))

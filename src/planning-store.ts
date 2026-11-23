@@ -5,11 +5,22 @@ export const ROUTINES = 'mailboard-routines-v1'
 export const CASES = 'mailboard-cases-v1'
 export const TRIAGE = 'mailboard-triage-last-v1'
 
+// Das Beispielpostfach arbeitet wie die übrigen Einstellungen nur im Speicher. So erscheinen dort keine
+// echten Routinen oder Vorgänge, und Beispieldaten gelangen nicht in das echte Profil.
+let sample:Map<string,string>|undefined
+export function useSamplePlanning(enabled:boolean){
+  if(enabled===!!sample)return
+  sample=enabled?new Map():undefined
+}
 function read(key:string):unknown{
-  try{return JSON.parse(localStorage.getItem(key)||'null')}catch{return null}
+  try{return JSON.parse((sample?sample.get(key):localStorage.getItem(key))||'null')}catch{return null}
 }
 function write(key:string,value:unknown){
-  try{localStorage.setItem(key,JSON.stringify(value));return true}catch{return false}
+  try{
+    if(sample)sample.set(key,JSON.stringify(value))
+    else localStorage.setItem(key,JSON.stringify(value))
+    return true
+  }catch{return false}
 }
 function changed(){if(typeof document!=='undefined')document.dispatchEvent(new CustomEvent('mailboard:planning'))}
 

@@ -1,12 +1,13 @@
 import {recordFiling, suggestFolder, type AiMail} from './ai'
-import {ask,readLimits} from './data-settings'
-import type {LiveBoard, Folder} from './live'
+import {ask,getLegacyConfig,readLimits} from './data-settings'
+import {countsAsFiling, type LiveBoard, type Folder} from './live'
 
 type Mail=AiMail & {id:string;folderId:string}
 type Choice = {mail:Mail; target:HTMLSelectElement; check:HTMLInputElement}
 function button(label:string,fn:()=>void){const b=document.createElement('button');b.textContent=label;b.onclick=fn;return b}
-export function distribute(service:LiveBoard,source:Folder,folders:Folder[],refresh:()=>void,preselected:string[]=[]) {
+export function distribute(service:Pick<LiveBoard,'json'|'begin'|'move'|'writeBatch'>,source:Folder,folders:Folder[],refresh:()=>void,preselected:string[]=[]) {
   const d=document.createElement('dialog'),title=document.createElement('h2')
+  d.className='distribute-dialog'
   title.textContent='Mails aus „'+(source.path||source.name)+'“ verteilen';d.setAttribute('aria-label',title.textContent)
   const targets=folders.filter(f=>f.path && f.id!==source.id && !f.path.split('/').some(p=>p.startsWith('_')))
   const field=document.createElement('fieldset'),legend=document.createElement('legend')
@@ -48,32 +49,48 @@ export function distribute(service:LiveBoard,source:Folder,folders:Folder[],refr
   const apply=button('Markierte Mails verschieben',async()=>{
     if(applying)return
     if(!document.querySelector<HTMLInputElement>('#allowMove')?.checked){text.textContent='Bitte zuerst „Echte Mails verschieben erlauben“ aktivieren.';return}
-    const rows=choices.filter(c=>c.check.checked)
-    if(!rows.length || rows.some(c=>!c.target.value)){text.textContent='Bitte Mails markieren und für jede ein Ziel auswählen.';return}
-    if(!await ask(d,rows.length+' markierte Mails wirklich aus „'+(source.path||source.name)+'“ verschieben?'))return
-    applying=true;field.disabled=preview.disabled=apply.disabled=close.disabled=true
-    const batch=service.begin(), errors:string[]=[]
-    const plan=rows.map(r=>({...r,destination:r.target.value}))
-    for(const row of choices){row.target.disabled=true;row.check.disabled=true}
-    let count=0
+    const archive=String(getLegacyConfig().archive_folder||'')
+    const plan:{choice:Choice;destination:Folder;filed:boolean}[]=[]
+    const quantities=new Map<Folder,number>()
+    for(const choice of choices.filter(c=>c.check.checked)) {
+      const destination=targets.find(f=>f.id===choice.target.value)
+      if(!destination){text.textContent='Bitte für jede markierte Mail ein Ziel auswählen.';return}
+      plan.push({choice,destination,filed:countsAsFiling(destination,archive)})
+      quantities.set(destination,(quantities.get(destination)??0)+1)
+    }
+    if(!plan.length){text.textContent='Bitte mindestens eine Mail markieren.';return}
+    const summary=Array.from(quantities,([folder,n])=>n+(n===1?' Mail':' Mails')+' nach „'+folder.path+'“').join(', ')
+    applying=true
+    let confirmed=false, count=0
+    const errors:string[]=[]
     try {
+      confirmed=await ask(d,'Aus „'+(source.path||source.name)+'“ verschieben? '+summary)
+      if(!confirmed)return
+      field.disabled=preview.disabled=apply.disabled=close.disabled=true
+      for(const row of choices){row.target.disabled=true;row.check.disabled=true}
+      const batch=service.begin()
       await service.writeBatch(async()=>{
-        for(const {mail,destination,check} of plan){
-          try {
-            await service.move(batch,mail.id,source.id,destination)
-            count++;check.checked=false
-            choices=choices.filter(r=>r.mail!==mail);check.closest('div')?.remove()
-            const folder=targets.find(f=>f.id===destination)
-            if(folder)recordFiling(mail,folder.path)
-          }catch(e){errors.push(mail.subject+' – '+String(e))}
+        for(const {choice,destination,filed} of plan){
+          const {mail,check}=choice
+          try {await service.move(batch,mail.id,source.id,destination.id,filed)}
+          catch(error){errors.push(mail.subject+' – '+String(error));continue}
+          count++;check.checked=false
+          choices=choices.filter(r=>r!==choice);check.closest('div')?.remove()
+          if(filed){
+            try {recordFiling(mail,destination.path)}
+            catch(error){errors.push(mail.subject+' – Lernbeispiel konnte nicht gespeichert werden: '+String(error))}
+          }
         }
       })
     }catch(e){errors.push(String(e))}
     finally{
-      text.textContent=count+' von '+rows.length+' verschoben.'+(errors.length?' '+errors.join(' · '):'')
-      applying=false;field.disabled=preview.disabled=close.disabled=false;apply.disabled=!choices.length
-      for(const row of choices){row.target.disabled=false;row.check.disabled=false}
-      refresh()
+      applying=false
+      if(confirmed){
+        text.textContent=count+' von '+plan.length+' verschoben.'+(errors.length?' '+errors.join(' · '):'')
+        field.disabled=preview.disabled=close.disabled=false;apply.disabled=!choices.length
+        for(const row of choices){row.target.disabled=false;row.check.disabled=false}
+        refresh()
+      }else if(errors.length)text.textContent=errors.join(' · ')
     }
   })
   const close=button('Schließen',()=>d.close())

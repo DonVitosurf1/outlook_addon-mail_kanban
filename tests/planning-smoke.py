@@ -70,7 +70,8 @@ def check_triage(page):
     expect(banner).to_be_hidden()
     expect(page.locator('#search')).to_have_value('Raum')
     expect(page.locator('#summary')).to_have_text('1 von 14 Mails')
-    assert page.evaluate("JSON.parse(localStorage.getItem('mailboard-triage-last-v1')).demo") > 0
+    # Das Beispielpostfach hält Triage-Zeitpunkt und Routinen nur im Speicher, das echte Profil bleibt unberührt.
+    assert page.evaluate("[localStorage.getItem('mailboard-triage-last-v1'),localStorage.getItem('mailboard-routines-v1')]") == [None, None]
     page.locator('#search').fill('')
 
 
@@ -100,7 +101,9 @@ def check_case_and_calendar(page, today, next_monday):
     expect(side).to_contain_text('1')
     side.click()
     expect(page.locator('#board .card')).to_have_count(1)
+    page.locator('#viewMenu summary').click()
     page.locator('#viewControls').get_by_role('button', name='Zurücksetzen').click()
+    page.keyboard.press('Escape')
 
     page.locator('#moreTools summary').click()
     page.locator('#openCases').click()
@@ -132,9 +135,10 @@ def check_case_and_calendar(page, today, next_monday):
     cal.get_by_role('button', name='Schließen', exact=True).click()
     wednesday = (dt.date.fromisoformat(next_monday) + dt.timedelta(days=2)).isoformat()
     page.locator('#focusViews button', has_text='Wiedervorlage').click()
-    expect(page.locator('#mail-DEMO0004')).to_contain_text('Wiedervorlage ' + wednesday)
+    short = lambda day: dt.date.fromisoformat(day).strftime('%d.%m.')
+    expect(page.locator('#mail-DEMO0004')).to_contain_text('Wiedervorlage am ' + short(wednesday))
     page.locator('#undo').click()
-    expect(page.locator('#mail-DEMO0004')).to_contain_text('Wiedervorlage ' + next_monday)
+    expect(page.locator('#mail-DEMO0004')).to_contain_text('Wiedervorlage am ' + short(next_monday))
 
 
 LIVE = """
@@ -223,6 +227,9 @@ if __name__ == '__main__':
                 page.goto(base)
                 page.evaluate('seed => localStorage.setItem("outlook-kanban-demo-positions-v1", JSON.stringify(seed))', seed)
                 page.goto(base)
+                page.locator('#moreTools summary').click()
+                page.locator('#backDemo').click()
+                expect(page.locator('.foot')).to_have_text('Beispielpostfach')
                 check_focus(page)
                 check_routine(page)
                 check_triage(page)

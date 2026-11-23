@@ -234,6 +234,35 @@ internal static class Contracts
         localized.Execute(new[]{"--status","AB01AA","01","Warten","2025-01-01T09:30:00"},null);
         Check(ns.Mail.Categories.StartsWith("Büro: Warten") &&
             ((DateTime)ns.Mail.UserProperties.Find("KanbanStatusSeit").Value).Year==2025,"Präfix und Zeitwiederherstellung");
+        foreach(string field in new[]{"note","followUp","snoozeUntil"}) {
+            string first=field=="note"?"Text vom Board":"2026-11-22";
+            string external=field=="note"?"Parallel geändert":"2026-12-01";
+            dynamic initial=call(new[]{"--field","AB01AA","01",field,first});
+            call(new[]{"--field","AB01AA","01",field,external});
+            int saves=ns.Mail.Saves;
+            string original=initial.previous;
+            dynamic mismatch=call(new[]{"--field","AB01AA","01",field,original,first});
+            Check(mismatch.conflict && ns.Mail.Saves==saves,"Konflikt erhält "+field);
+            dynamic current=call(new[]{"--field","AB01AA","01",field,first});
+            Check(current.previous==external,"Paralleländerung erhalten");
+            dynamic retried=call(new[]{"--field","AB01AA","01",field,original,first});
+            Check(retried.previous==first && retried.value==original,"Undo mit passendem Wert: "+field);
+        }
+        dynamic changed=call(new[]{"--status","AB01AA","01","Warten"});
+        string oldStatus=changed.previous, oldSince=changed.previousSince, expectedSince=changed.statusSince;
+        call(new[]{"--status","AB01AA","01","Erledigt"});
+        int statusSaves=ns.Mail.Saves;
+        string[] revert={"--status","AB01AA","01",oldStatus,oldSince,"Warten",expectedSince};
+        dynamic blocked=call(revert);
+        Check(blocked.conflict && ns.Mail.Saves==statusSaves && ns.Mail.Categories.Contains("Status: Erledigt"),"Fremdstatus erhalten");
+        call(new[]{"--status","AB01AA","01","Warten","2025-12-20T10:00:00"});
+        statusSaves=ns.Mail.Saves;
+        blocked=call(revert);
+        Check(blocked.conflict && ns.Mail.Saves==statusSaves,"Gleicher Status mit neuerem Stichtag bleibt erhalten");
+        call(new[]{"--status","AB01AA","01","Warten",expectedSince});
+        dynamic restored=call(revert);
+        Check(restored.previous=="Warten" && restored.status==oldStatus && restored.statusSince==oldSince,"Status und Stichtag rückgängig");
+        Console.WriteLine("OK: Undo-Wertkonflikte, Zeitstempel und Wiederholung");
         Console.WriteLine("OK: Projektordner, HTML-Entwurf, Nachfassen");
         Console.WriteLine("OK: Ordner, Karten, Verschlüsselt, Move/Undo über Refresh, Fehler, Status, Tags, Fristen, Notiz");
     }

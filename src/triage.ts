@@ -7,6 +7,7 @@ import {localDay, type ViewMail} from './views-logic'
 type Options = {
   getMails():readonly ViewMail[]
   isLive():boolean
+  hasMailbox():boolean
   overdueDays():number
   views:{setExtraFilter(filter:((mail:ViewMail)=>boolean)|undefined):void; captureView():ViewState; restoreView(state:ViewState):void; reset():void}
   /** Bereitet das Board vor, etwa Ordnerauswahl im Demo-Postfach, und liefert die Rücknahme. */
@@ -46,6 +47,11 @@ export function initTriage(options:Options){
   }
   function start(){
     if(active){banner.querySelector<HTMLElement>('h2')?.focus();return}
+    if(!options.hasMailbox()){
+      const message=document.getElementById('message')
+      if(message)message.textContent='Für die Morgen-Triage zuerst Outlook verbinden oder das Beispielpostfach öffnen.'
+      return
+    }
     saved=options.views.captureView()
     undoScope=options.enter()
     const search=document.getElementById('search') as HTMLInputElement|null
@@ -120,12 +126,15 @@ export function initTriage(options:Options){
     if(focused)Array.from(banner.querySelectorAll<HTMLElement>('button,summary')).find(n=>n.textContent===focused)?.focus()
   }
 
+  // Beim Wechsel zwischen Outlook, Beispielpostfach und Offline beginnt die Triage neu.
+  document.addEventListener('mailboard:source-changed',()=>stop(false))
   document.addEventListener('keydown',event=>{
     if(event.defaultPrevented||!(event.ctrlKey||event.metaKey)||event.altKey||event.key.toLowerCase()!=='t'||document.querySelector('dialog[open]'))return
     event.preventDefault();start()
   })
   document.addEventListener('board-commands',event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
+    if(!options.hasMailbox())return
     if(!active)entries.push({label:'Morgen-Triage starten (Strg+T)',run:start})
     else entries.push({label:'Morgen-Triage: nächster Schritt',run:()=>step<triageSteps.length-1?go(step+1):stop(true)},
       {label:'Morgen-Triage abbrechen',run:()=>stop(false)})

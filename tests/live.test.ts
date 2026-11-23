@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {LiveBoard} from '../src/live'
+import {LiveBoard, UndoConflict} from '../src/live'
 
-function fixture(){
+function fixture(onFiled?:(delta:number, occurredAt:Date)=>void){
   const rows=new Map([['11',{folder:'01',status:'Offen'}],['22',{folder:'01',status:'Warten'}]])
   let seq=100
   const board=new LiveBoard(async<T>(op:string,args:Record<string,unknown>={})=>{
@@ -18,7 +18,7 @@ function fixture(){
     const newId=String(++seq)
     rows.delete(id);rows.set(newId,{...row,folder:target})
     return JSON.stringify({id:newId,source,target}) as T
-  })
+  },onFiled)
   return {board,rows}
 }
 
@@ -85,4 +85,80 @@ test('zehn erfolgreiche Aktionen bleiben erhalten, auch nach leeren und fehlgesc
   let count=0
   while(board.canUndo){await board.undo();count++}
   assert.equal(count,10)
+})
+
+test('Undo behält Konfliktschritt für Retry und überspringt ihn nur nach expliziter Auswahl',async()=>{
+  const fields=new Map<string,string>([['note','ursprünglich'],['followUp',''],['snoozeUntil','']])
+  const calls:string[]=[]
+  const board=new LiveBoard(async<T>(op:string,args:Record<string,unknown>={})=>{
+    assert.equal(op,'outlook_field')
+    const {field,value,expected}=args as Record<string,string>
+    const previous=fields.get(field)
+    if(expected!==undefined && expected!==previous)return JSON.stringify({conflict:true}) as T
+    fields.set(field,value)
+    calls.push(field)
+    return JSON.stringify({previous,value}) as T
+  })
+  const batch=board.begin()
+  await board.field(batch,'11','01','note','meine Notiz')
+  await board.field(batch,'11','01','followUp','2026-11-25')
+  await board.field(batch,'11','01','snoozeUntil','2026-11-27')
+  fields.set('followUp','2026-12-12')
+  const conflict=await board.undo().then(()=>assert.fail('Konflikt erwartet'),e=>e as UndoConflict)
+  assert.ok(conflict instanceof UndoConflict)
+  assert.equal(fields.get('followUp'),'2026-12-12')
+  assert.equal(fields.get('snoozeUntil'),'')
+  await assert.rejects(board.undo(),UndoConflict)
+  assert.equal(calls.filter(x=>x==='snoozeUntil').length,2)
+  assert.ok(conflict.skip())
+  assert.equal(conflict.skip(),false)
+  assert.equal(fields.get('followUp'),'2026-12-12')
+  await board.undo()
+  assert.equal(fields.get('note'),'ursprünglich')
+  assert.equal(board.canUndo,false)
+})
+
+test('Status-Undo prüft Status samt Zeitpunkt und erlaubt Wiederholung nach aufgelöstem Konflikt',async()=>{
+  let status='Offen', since='',writes=0
+  const board=new LiveBoard(async<T>(op:string,args:Record<string,unknown>={})=>{
+    assert.equal(op,'outlook_status')
+    const previous=status, previousSince=since
+    if(args.expected!==undefined){
+      assert.equal(args.expected,'Warten')
+      assert.equal(args.expectedSince,'2026-11-20')
+      if(status!==args.expected || since!==args.expectedSince)return JSON.stringify({conflict:true}) as T
+    }
+    status=String(args.status);since=String(args.since??'2026-11-20');writes++
+    return JSON.stringify({previous,previousSince,statusSince:since}) as T
+  })
+  await board.status(board.begin(),'11','01','Warten')
+  since='2026-11-21'
+  const error=await board.undo().then(()=>assert.fail('Konflikt erwartet'),e=>e as UndoConflict)
+  assert.ok(error instanceof UndoConflict)
+  assert.equal(writes,1)
+  since='2026-11-20'
+  await board.undo()
+  assert.equal(status,'Offen')
+  assert.equal(since,'')
+  assert.equal(error.skip(),false)
+})
+
+
+test('Ablagestatistik zählt nur erfolgreiche Ablagen und deren erfolgreiche Rücknahme',async()=>{
+  let filed=5
+  const dates:Date[]=[]
+  const {board,rows}=fixture((delta,occurredAt)=>{filed+=delta;dates.push(occurredAt)})
+  const batch=board.begin()
+  const filedId=await board.move(batch,'11','01','02',true)
+  await assert.rejects(board.move(batch,'22','ff','02',true))
+  await board.move(batch,'22','01','03',false)
+  assert.equal(filed,6)
+  rows.get(filedId)!.folder='ff'
+  await assert.rejects(board.undo())
+  assert.equal(filed,6)
+  rows.get(filedId)!.folder='02'
+  await board.undo()
+  assert.equal(filed,5)
+  assert.equal(dates.length,2)
+  assert.equal(dates[0],dates[1])
 })

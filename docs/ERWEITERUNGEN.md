@@ -12,6 +12,8 @@ Die Stufen folgen der Roadmap der Python-Referenz. Umgesetzt sind sie nur in die
 
 Die ZIP-Sicherung unter **Lokale Daten und Textbausteine** enthält die lokalen Schlüssel automatisch. Beim Import wird geprüft, dass Routinen und Vorgänge Listen sind.
 
+Im **Beispielpostfach** liegen Routinen, Vorgänge und der Triage-Zeitpunkt wie die übrigen Beispiel-Einstellungen nur im Speicher. Dort erscheinen keine echten Daten, und Beispieldaten gelangen nicht ins Profil. Ohne geöffnetes Postfach startet keine Triage. Ein Wechsel zwischen Outlook, Beispielpostfach und Offline-Zustand bricht eine laufende Triage ab.
+
 ## 0.16 Morgen-Triage auf dem Board
 
 Bisher war die Triage ein Dialog mit drei Schritten. Ein Klick auf eine Mail schloss den Dialog und unterbrach den Ablauf. Jetzt bleibt das Board die Arbeitsfläche.

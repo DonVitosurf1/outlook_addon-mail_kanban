@@ -1,7 +1,11 @@
 import { archive, isRecord, LEGACY, parseBackup, PREVIOUS, readLegacyConfig, restore, snapshot, type Snapshot } from './backup'
 
+let sampleMode=false
+let sampleOptions:Record<string,unknown>={vip_senders:[]}
+export function useSampleSettings(enabled:boolean){sampleMode=enabled}
+
 export function getLegacyFile(name:string):string|undefined {
-  return importedFiles()[name]
+  return sampleMode?undefined:importedFiles()[name]
 }
 let previousImport:string|null|undefined
 let parsedFiles:Snapshot={}
@@ -19,6 +23,7 @@ let cachedOptions:string|null|undefined
 let options:Record<string,unknown>={}
 let cachedConfig:Record<string,unknown>={}
 export function getLegacyConfig():Record<string,unknown> {
+  if(sampleMode)return {...sampleOptions}
   const source=importedFiles()
   if(source!==cachedSource){
     cachedConfig=readLegacyConfig(source)
@@ -30,6 +35,7 @@ export function getLegacyConfig():Record<string,unknown> {
 }
 const REVISIONS='kanban-config-revisions-v1'
 export function updateConfig(values:Record<string,unknown>){
+  if(sampleMode){sampleOptions={...sampleOptions,...values};return}
   const previous=localStorage.getItem(OPTIONS)||'{}'
   const next=JSON.stringify({...JSON.parse(previous),...values})
   if(previous===next)return
@@ -43,6 +49,7 @@ export function readLimits() {
 }
 
 export function getLegacyProfiles():Record<string,string> {
+  if(sampleMode)return {}
   const entries=Object.entries(importedFiles()).flatMap(([name,body])=>{
     if(!name.startsWith('knowledge/'))return []
     const front=body.replace(/\r\n/g,'\n').match(/^---\n([\s\S]*?)\n---/)
@@ -80,6 +87,7 @@ const defaults:Snippet[]=[
   {label:'Intern klären',kind:'note',body:'Intern noch klären.'}
 ]
 function allSnippets():Snippet[]{
+  if(sampleMode)return defaults
   const custom=localStorage.getItem(SNIPPETS)
   const values:unknown=custom!==null?JSON.parse(custom):getLegacyConfig().text_snippets
   if(!Array.isArray(values))return defaults
@@ -161,10 +169,10 @@ function showSettings(){
   dialog.addEventListener('close',()=>dialog.remove())
   document.body.append(dialog);dialog.showModal()
 }
-export function ask(parent:HTMLElement,question:string):Promise<boolean>{
+export function ask(parent:HTMLElement,question:string,confirmLabel='Bestätigen'):Promise<boolean>{
   return new Promise(resolve=>{
     const d=make('dialog');d.setAttribute('aria-label',question)
-    d.append(make('p',question),action('Abbrechen',()=>d.close()),action('Bestätigen',()=>d.close('ok')))
+    d.append(make('p',question),action('Abbrechen',()=>d.close()),action(confirmLabel,()=>d.close('ok')))
     d.onclose=()=>{const ok=d.returnValue==='ok';d.remove();resolve(ok)}
     parent.append(d);d.showModal()
   })

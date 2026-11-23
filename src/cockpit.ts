@@ -1,4 +1,5 @@
 import metadata from '../package.json'
+import {renderLearningDashboard} from './ai'
 import { getLegacyConfig } from './data-settings'
 import { initCleanup, type CleanupOptions } from './cleanup'
 import { dueRoutines, isFocusCard, snapshot, type Routine } from './planning-logic'
@@ -18,11 +19,11 @@ type Options = CleanupOptions & {
   openCalendar: () => void
   openCases: () => void
 }
-export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help'
+export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning'
 
 const states = ['Offen', 'In Bearbeitung', 'Warten', 'Erledigt']
 const help = [
-  ['Wo finde ich meine echten Mails?', 'Mit „Outlook-Mails laden“ liest das Board Mails des klassischen Outlook-Profils. Die Demodaten lassen sich unabhängig vom Postfach ausprobieren.'],
+  ['Wo finde ich meine echten Mails?', 'Unter Windows lädt das Board beim Start automatisch dein klassisches Outlook-Profil. Bei einem Verbindungsfehler kannst du Outlook öffnen und es erneut versuchen. Über Werkzeuge → Beispielpostfach öffnen kannst du mit Beispieldaten arbeiten.'],
   ['Wie finde ich eine Mail?', 'Strg+F setzt den Fokus in die Suche. Mit dem Ordnerfilter schränkst du die Anzeige ein. Öffne die gewünschte Karte für die Maildetails.'],
   ['Was zeigt „Heute dran“?', 'Hier stehen fällige Wiedervorlagen, wartende Mails mit Antwort, heutige oder überfällige Nachfassfristen und fällige KI-Fristen. Eine Mail kann aus mehreren Gründen fällig sein.'],
   ['Wie funktioniert die Morgen-Triage?', 'Strg+T oder Start → „Morgen-Triage starten“ blendet über dem Board ein Banner mit Briefing ein. Das Board zeigt nacheinander „Heute dran“, „Offen durchgehen“ und „Rest parken“. Du arbeitest mit den gewohnten Kartenaktionen. Eine Karte verlässt den Schritt, sobald sich ihr Status, ihre Wiedervorlage oder ihr Ordner ändert. Beenden oder Abbrechen stellt deine vorherige Ansicht wieder her.'],
@@ -73,6 +74,13 @@ function weeklyCounts(live: boolean) {
   return {key, counts}
 }
 
+export function recordWeekly(live:boolean, action:Action, delta=1, occurredAt=new Date()) {
+  const {key,counts}=weeklyCounts(live)
+  if(monday(occurredAt)!==counts.week)return
+  counts[action]=Math.max(0,counts[action]+delta)
+  try {localStorage.setItem(key,JSON.stringify(counts))} catch { /* optional */ }
+}
+
 export function initCockpit(options: Options) {
   let page: Page = 'start'
   let helpTerm = ''
@@ -92,7 +100,7 @@ export function initCockpit(options: Options) {
   dialog.append(close, title, body)
   document.body.append(dialog)
   const open = (next: Page) => {
-    page = next
+    page = !options.hasMailbox()&&next!=='help'?'start':next
     render()
     if (!dialog.open) dialog.showModal()
   }
@@ -140,10 +148,15 @@ export function initCockpit(options: Options) {
   }
   function render() {
     body.replaceChildren()
-    const day=localDay(), overdue=Number(getLegacyConfig().overdue_days??5)
+    if(page==='help'){renderHelp();return}
+    if(!options.hasMailbox()){
+      title.textContent='Start'
+      body.append(element('p','Es ist kein Postfach geöffnet. Verbinde Outlook oder öffne die Beispieldaten zum Ausprobieren.'),go('Hilfe','help'))
+      return
+    }
+    const day=localDay(), overdue=options.isLive()?Number(getLegacyConfig().overdue_days??5):5
     const reasons=(m:ViewMail)=>dueReasons(m,day,overdue)
     const s = snapshot(options.getMails(),day,overdue)
-    if (page === 'help') { renderHelp(); return }
     if (page === 'today') {
       title.textContent = 'Heute dran'
       body.append(mailList(s.due, m => reasons(m).join(', ')))
@@ -151,6 +164,9 @@ export function initCockpit(options: Options) {
       title.textContent = 'Warten-Hygiene'
       body.append(element('h3','Fällig · '+s.late.length),mailList(s.late),
         element('h3','Ohne Nachfassfrist · '+s.undated.length),mailList(s.undated))
+    } else if (page === 'learning') {
+      title.textContent='Ablage-Auswertung'
+      renderLearningDashboard(body)
     } else if (page === 'week') {
       title.textContent = 'Wochenblick'
       const list = element('ul')
@@ -166,7 +182,7 @@ export function initCockpit(options: Options) {
       title.textContent = 'Start'
       body.append(element('h3','Heute'),element('p',s.due.length+' fällig · '+s.late.length+' wartend und fällig · '+s.snoozed+' auf Wiedervorlage'),
         actions(go('Heute dran','today'),button(options.triageActive()?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startTriage)),
-        actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}),go('Hilfe','help')))
+        actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}),go('Hilfe','help')))
       if(options.openUnanswered)body.append(button('Gesendet ohne Antwort',()=>{dialog.close();void options.openUnanswered!()}))
       const due=dueRoutines(options.routines(),day)
       body.append(element('h3','Planung'),element('p',due.length?'Fällige Routinen: '+due.map(r=>r.routine.title).join(', '):'Keine Routine fällig.'),
@@ -177,7 +193,7 @@ export function initCockpit(options: Options) {
       body.append(label)
       if(!preference(versionKey)){
         const intro=element('section')
-        intro.append(element('h3','Mail-Board '+metadata.version),element('p','Du startest im Demo-Postfach. Über „Outlook-Mails laden“ wechselst du zu deinem klassischen Outlook-Profil.'),
+        intro.append(element('h3','Mail-Board '+metadata.version),element('p','Die Windows-App lädt dein klassisches Outlook-Profil beim Start. Wähle Werkzeuge → Beispielpostfach öffnen, um das Board mit Beispielen zu erkunden.'),
           button('Versionshinweis schließen',()=>{remember(versionKey,true);intro.remove()}))
         body.append(intro)
       }
@@ -199,8 +215,13 @@ export function initCockpit(options: Options) {
   }
   document.addEventListener('board-commands', event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
-    entries.push({label:'Wochenblick',run:()=>open('week')},
+    if(!options.hasMailbox())return
+    entries.push({label:'Wochenblick',run:()=>open('week')},{label:'Ablage-Auswertung',run:()=>open('learning')},
       {label:'Warten-Hygiene',run:()=>open('hygiene')},{label:'Posteingang aufräumen',run:()=>void openCleanup()})
+  })
+  document.addEventListener('mailboard:source-changed',()=>{
+    page='start';body.replaceChildren()
+    if(dialog.open)dialog.close()
   })
   document.getElementById('cockpit-start')?.addEventListener('click',()=>open('start'))
   document.getElementById('cockpit-help')?.addEventListener('click',()=>open('help'))
@@ -223,9 +244,7 @@ export function initCockpit(options: Options) {
     openPage:(next:Page)=>open(next),
     openCleanup:()=>void openCleanup(),
     record(action:Action,delta=1) {
-      const {key,counts} = weeklyCounts(options.isLive())
-      counts[action]=Math.max(0,counts[action]+delta)
-      try {localStorage.setItem(key,JSON.stringify(counts))} catch { /* optional */ }
+      recordWeekly(options.isLive(),action,delta)
     },
   }
 }

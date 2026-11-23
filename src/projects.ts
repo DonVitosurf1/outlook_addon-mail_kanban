@@ -1,44 +1,91 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
 import { getLegacyConfig, getLegacyProfiles, setProfile, rekeyProfile, updateConfig } from './data-settings'
-import type {Invoke,LiveBoard} from './live'
+import type {LiveBoard} from './live'
 import {distribute} from './distribute'
 import {ask} from './data-settings'
 import {draftProfile} from './ai'
 import {profileDocument,profileName} from './profile-file'
 import {openStructure} from './structure'
 let liveService:LiveBoard|undefined
-export function bindProjectBoard(service:LiveBoard) {liveService=service}
+let generation=0
+const trigger=document.getElementById('projectTools') as HTMLButtonElement|null
+export function bindProjectBoard(service:LiveBoard|undefined){
+  if(service!==liveService){
+    generation++
+    for(const d of document.querySelectorAll<HTMLDialogElement>('.project-tools, .structure-dialog, .distribute-dialog')){
+      for(const nested of d.querySelectorAll<HTMLDialogElement>('dialog[open]'))nested.close()
+      d.close()
+    }
+  }
+  liveService=service
+  if(trigger){trigger.hidden=!service;trigger.disabled=!service}
+}
+type ProjectService=Pick<LiveBoard,'json'|'invoke'|'begin'|'writeBatch'|'move'>
+function session():ProjectService{
+  const version=generation
+  const current=()=>{
+    if(!liveService||version!==generation)throw new Error('Bitte zuerst das Outlook-Postfach laden und die Ordnerwerkzeuge erneut öffnen.')
+    return liveService
+  }
+  return {
+    json:(name,args)=>current().json(name,args),invoke:(name,args)=>current().invoke(name,args),
+    begin:()=>current().begin(),writeBatch:action=>current().writeBatch(action),
+    move:(...args)=>current().move(...args)
+  }
+}
 
 type Folder = {id:string; parentId:string; name:string; path:string; isInbox?:boolean}
 type Receipt = Folder & {previousName:string; previousParentId:string}
 type Step = {stamp:number; receipt:Receipt; kind:'rename'|'move'; oldPath:string; boardKeys:string[]; learnKeys:string[]|null}
 const history:Step[]=[]
-const native=()=>window.__TAURI__?.core.invoke as Invoke|undefined
-async function request<T>(command:string,args?:Record<string,unknown>):Promise<T>{
-  const invoke=native()
-  if(!invoke)throw new Error('Bitte die Windows-Anwendung öffnen.')
-  return JSON.parse(await invoke<string>(command,args))
-}
 const changed=()=>window.dispatchEvent(new Event('mailboard:foldersChanged'))
 export function projectUndoLatest(){return history.at(-1)?.stamp??0}
 export async function undoProjectIfLatest(mailStamp:number):Promise<boolean>{
   const step=history.at(-1)
   if(!step || step.stamp<mailStamp)return false
   const r=step.receipt
+  const api=session()
+  const before=await api.json<Folder[]>('outlook_folders')
+  const current=before.find(f=>f.id===r.id)
+  if(!current || current.path!==r.path || current.name!==r.name)
+    throw new Error('Das geänderte Projekt ist unter der gespeicherten Outlook-ID und dem erwarteten Pfad nicht mehr eindeutig zuzuordnen. Bitte den aktuellen Ordner in Outlook prüfen.')
+  if(step.kind==='move' && !before.some(f=>f.id===r.previousParentId))
+    throw new Error('Der ursprüngliche Projektordner ist in Outlook nicht mehr verfügbar. Bitte den Zielordner prüfen.')
   const result=step.kind==='rename'
-    ?await request<Receipt>('project_rename',{folder:r.id,name:r.previousName})
-    :await request<Receipt>('project_move',{folder:r.id,source:r.parentId,target:r.previousParentId})
+    ?await api.json<Receipt>('project_rename',{folder:r.id,name:r.previousName})
+    :await api.json<Receipt>('project_move',{folder:r.id,source:r.parentId,target:r.previousParentId})
   history.pop()
   forgetUndo(step.stamp)
-  for(const older of history){
-    if(older.receipt.id===r.id)older.receipt.id=result.id
-  }
+  await remapFolderHistory(api,before,r,result)
   try {
     const restored=result.path||step.oldPath
     rekeyConfig(r.path,restored)
     restoreMembership(restored,step.boardKeys,step.learnKeys)
   } finally {changed()}
   return true
+}
+async function remapFolderHistory(api:ProjectService,before:Folder[],from:Folder,to:Receipt){
+  const ids=new Map([[from.id,to.id]])
+  const children=before.filter(f=>f.path.startsWith(from.path+'/'))
+  if(children.length){
+    for(const child of children)ids.set(child.id,child.id)
+    // A subtree stays together. Use paths relative to the known moved folder, never mail subjects.
+    try{
+      const after=await api.json<Folder[]>('outlook_folders')
+      for(const child of children){
+        const path=to.path+child.path.slice(from.path.length)
+        const matches=after.filter(folder=>folder.path===path)
+        if(matches.length===1)ids.set(child.id,matches[0].id)
+      }
+    }catch{ /* The operation succeeded. Keep receipts and still remap the confirmed root ID. */ }
+  }
+  for(const previous of history){
+    const item=previous.receipt
+    item.id=ids.get(item.id)??item.id
+    item.parentId=ids.get(item.parentId)??item.parentId
+    item.previousParentId=ids.get(item.previousParentId)??item.previousParentId
+  }
+  liveService?.remapFolders(ids)
 }
 function paths(value:unknown):string[]{
   return Array.isArray(value)?value.filter((v):v is string=>typeof v==='string'&&v.length>0):[]
@@ -73,10 +120,13 @@ function message(text:string){const p=document.createElement('p');p.textContent=
 function label(text:string,input:HTMLElement){
   const l=document.createElement('label');l.textContent=text;l.append(input);return l
 }
-const confirmAction=(question:string)=>ask(document.body,question)
 async function showTools(){
+  if(!liveService)return
+  const service=session()
+  const request=service.json
   const d=document.createElement('dialog');d.className='project-tools'
   const heading=document.createElement('h2');heading.textContent='Ordner und Steckbriefe'
+  const confirmAction=(question:string)=>ask(d,question)
   d.setAttribute('aria-label',heading.textContent)
   const folders=document.createElement('select')
   const name=document.createElement('input')
@@ -106,11 +156,12 @@ async function showTools(){
     const areaFolder=reopening?all.find(p=>p.id===parent.parentId):parent
     if(!areaFolder || segments(areaFolder.path).join('/')!==area)throw new Error('Bitte einen Projektordner auswählen.')
     if(!await confirmAction('Projekt „'+f.name+'“ samt allen enthaltenen Mails '+(reopening?'wieder öffnen?':'nach „_Abgeschlossen“ verschieben? Der Archivordner wird bei Bedarf angelegt.')))return
-    await liveService!.writeBatch(async()=>{
+    await service.writeBatch(async()=>{
       let dest=areaFolder
       if(!reopening)dest=all.find(p=>p.parentId===areaFolder.id&&p.name==='_Abgeschlossen')||
         await request<Receipt>('project_create',{parent:areaFolder.id,name:'_Abgeschlossen'})
       const receipt=await request<Receipt>('project_move',{folder:f.id,source:f.parentId,target:dest.id})
+      await remapFolderHistory(service,all,f,receipt)
       remember(receipt,f,'move',reopening?'reopen':'close')
       await reload(receipt.id)
     })
@@ -154,7 +205,7 @@ async function showTools(){
   }
   let busy=false
   async function run(task:()=>Promise<void>){
-    if(busy)return
+    if(busy||!d.open)return
     busy=true;controls.disabled=true
     try{await task()}catch(e){status.textContent=String(e)}finally{busy=false;controls.disabled=!all.length}
   }
@@ -170,6 +221,7 @@ async function showTools(){
     if(!value||value===f.name)throw new Error('Bitte einen neuen Namen eingeben.')
     if(!await confirmAction('„'+(f.path||f.name)+'“ in „'+value+'“ umbenennen?'))return
     const receipt=await request<Receipt>('project_rename',{folder:f.id,name:value})
+    await remapFolderHistory(service,all,f,receipt)
     remember(receipt,f,'rename');await reload(receipt.id)
   }))
   const profile=button('Steckbrief speichern',()=>run(async()=>{
@@ -207,20 +259,20 @@ async function showTools(){
     status.textContent='Entwurf zum Bearbeiten. Mit „Steckbrief speichern“ übernehmen.'
   }))
   const structure=button('Unterteilung vorschlagen …',()=>{
-    const f=current(), service=liveService
-    if(service&&f)openStructure(service,f,async(created)=>{
+    const f=current()
+    if(f)openStructure(service,f,async(created)=>{
       await reload(f.id);changed()
       distribute(service,f,all,changed,created.map(x=>x.id))
     })
   })
   folders.onchange=fill
   controls.append(label('Ordner',folders),board.label,learn.label,archive.label,recursive.label,scopes,label('Neuer Name',name),create,rename,relocate,
-    label('Steckbrief (Markdown)',note),importFile,button('Markdown laden',()=>importFile.click()),exportFile,draft,profile,structure,button('Mails in Zielordner verteilen …',()=>{if(liveService&&current())distribute(liveService,current()!,all,changed)}),button('Letzte Projektänderung zurücknehmen',()=>run(async()=>{
+    label('Steckbrief (Markdown)',note),importFile,button('Markdown laden',()=>importFile.click()),exportFile,draft,profile,structure,button('Mails in Zielordner verteilen …',()=>{if(current())distribute(service,current()!,all,changed)}),button('Letzte Projektänderung zurücknehmen',()=>run(async()=>{
       if(!await undoProjectIfLatest(0)){status.textContent='Keine Projektänderung zum Zurücknehmen.';return}
       await reload()
     })))
   d.append(heading,controls,status,button('Schließen',()=>d.close()))
   d.onclose=()=>d.remove();document.body.append(d);d.showModal();await run(()=>reload())
 }
-const trigger=document.getElementById('projectTools')
-if(trigger && native()){trigger.hidden=false;trigger.addEventListener('click',()=>void showTools())}
+bindProjectBoard(undefined)
+trigger?.addEventListener('click',()=>void showTools())

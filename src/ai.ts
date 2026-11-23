@@ -5,10 +5,28 @@ export type AiMail = {subject:string; sender:string; body:string; senderEmail?:s
 type Suggestion = {folder:string;reason:string}
 type FolderInfo = {key:string;profile:string}
 type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[]}
-type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;model:string;embedModel:string}
+type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;embedModel:string}
 const settingsKey='outlook-kanban-ai-settings-v1'
 const feedbackKey='outlook-kanban-filing-feedback-v1'
 const stop=new Set('und der die das für mit von den dem des ein eine einer auf aus bei ihre ihr ist zur zum the and for your you with from bitte info anfrage rückfrage frage'.split(' '))
+
+let mailboxMode:'offline'|'demo'|'outlook'='offline'
+let liveSource=false
+let sourceEpoch=0
+let refreshAiPanel:(()=>void)|undefined
+function current(epoch:number){return liveSource&&epoch===sourceEpoch}
+function requireLive(epoch=sourceEpoch){
+  if(!current(epoch))throw new Error('Für diesen Vorgang bitte das Outlook-Postfach öffnen.')
+}
+export function setAiLive(live:boolean,mode:'offline'|'demo'|'outlook'=live?'outlook':'offline'){
+  if(mode===mailboxMode&&live===liveSource)return
+  mailboxMode=mode;liveSource=live;sourceEpoch++
+  if(typeof window!=='undefined')window.clearTimeout?.(learnTimer)
+  training=undefined;processing=false;retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
+  recent=undefined;legacyCache=undefined;importedCache.clear()
+  refreshAiPanel?.()
+  if(typeof document!=='undefined')document.dispatchEvent?.(new Event('mailboard:source-changed'))
+}
 
 function object(x:unknown): Record<string,unknown> {
   return x && typeof x==='object' && !Array.isArray(x)? x as Record<string,unknown> : {}
@@ -21,13 +39,22 @@ function config(): Config {
   return {
     enabled:(own.enabled??old.llm_enabled)===true, auto:own.auto===true, autoLearn:own.autoLearn===true, embeddings:(own.embeddings??old.embeddings_enabled)===true,
     url:String(own.url||old.llm_url||'http://127.0.0.1:11434'),
+    embedUrl:String(own.embedUrl||old.embedding_url||own.url||old.llm_url||'http://127.0.0.1:11434'),
     model:String(own.model??old.llm_model??''), embedModel:String(own.embedModel||old.embedding_model||'qwen3-embedding:0.6b'),
   }
 }
 function native():Invoke {
+  const epoch=sourceEpoch
+  requireLive(epoch)
   const bridge=window.__TAURI__?.core
   if(!bridge) throw new Error('Für Ollama bitte die Desktop-App öffnen.')
-  return bridge.invoke as Invoke
+  const invoke=bridge.invoke as Invoke
+  return async<T>(command:string,args?:Record<string,unknown>)=>{
+    requireLive(epoch)
+    const result=await invoke<T>(command,args)
+    requireLive(epoch)
+    return result
+  }
 }
 function words(s:string) {
   return [...new Set(s.toLocaleLowerCase('de').match(/[\p{L}][\p{L}\p{N}-]{2,}/gu)||[])].filter(w=>!stop.has(w))
@@ -62,8 +89,10 @@ function rules():unknown[] {
   return Array.isArray(configured)?configured:[]
 }
 function rule(mail:AiMail,folders:FolderInfo[]):Suggestion|undefined {
-  const rulesList=rules()
-  const sender=(mail.senderEmail||mail.sender).trim().toLowerCase()
+  return ruleForSender(mail.senderEmail||mail.sender,folders,rules())
+}
+function ruleForSender(address:string,folders:FolderInfo[],rulesList:unknown[]):Suggestion|undefined {
+  const sender=address.trim().toLowerCase()
   if(!sender.includes('@'))return
   const domain=sender.split('@').pop()
   for(const kind of ['sender','domain']){
@@ -110,6 +139,7 @@ function rejected(mail:AiMail):string[] {
   return Array.isArray(value)?value.filter(v=>typeof v==='string'):[]
 }
 export function rejectSuggestion(mail:AiMail, folder:string) {
+  if(!liveSource)return
   const id=feedbackId(mail)
   if(!id||!allowed(folder)||rejected(mail).includes(folder))return
   const stats=stored(statisticsKey)
@@ -121,6 +151,7 @@ export function rejectSuggestion(mail:AiMail, folder:string) {
   if(hint && hint.folder===folder){rate(hint.reason,false);sourceHints.delete(mail)}
 }
 export function recordFiling(mail:AiMail,folder:string) {
+  if(!liveSource)return
   if(!allowed(folder))return
   const rows=history()
   rows.push({folder,features:features(mail),id:mail.id,received:mail.received})
@@ -178,7 +209,7 @@ function learned(mail:AiMail,targets:FolderInfo[],allowArea=true) {
   if(parent && valid.has(parent.folder))return {folder:parent.folder,reason:'Bereich aus früheren Ablagen'}
 }
 /** Evaluate the training-set baseline with latest ten samples held out per eligible folder. */
-export function holdout(rows:LearnRow[]){
+function splitHoldout(rows:LearnRow[]){
   const groups=new Map<string,LearnRow[]>()
   for(const r of rows){const g=groups.get(r.folder)||[];g.push(r);groups.set(r.folder,g)}
   const test:LearnRow[]=[],train:LearnRow[]=[]
@@ -187,14 +218,82 @@ export function holdout(rows:LearnRow[]){
     const n=samples.length>=13?10:0
     test.push(...samples.slice(0,n));train.push(...samples.slice(n))
   }
+  return {train,test}
+}
+export function holdout(rows:LearnRow[]){
+  const {train,test}=splitHoldout(rows)
   const predict=classifier(train)
   let shown=0,correct=0
   for(const sample of test){const guess=predict(sample.features);if(guess){shown++;if(guess.folder===sample.folder)correct++}}
   return {tested:test.length,shown,correct}
 }
+type Tally={shown:number;correct:number}
+type Source='Regel'|'Bayes'|'Hybrid'|'Embedding'
+type Prediction={truth:string;id:string;folder:string;gap:number}
+type SemanticEvaluation={tested:number;missing:number;profiled:Tally;plain:Tally;predictions:Prediction[]}
+type EvaluationResult={tested:number;folders:number;combined:Tally;bayes:Tally;rule:Tally;sources:Partial<Record<Source,Tally>>;
+  embedding:Tally|null;plain:Tally|null;semanticTested:number;missing:number}
+const tally=():Tally=>({shown:0,correct:0})
+function count(target:Tally,guess:string|undefined,truth:string){
+  if(!guess)return
+  target.shown++
+  if(guess===truth)target.correct++
+}
+function combineForecast(bayes:string|undefined,semantic:Prediction|undefined):{folder:string;source:Source}|undefined{
+  if(semantic){
+    if(semantic.folder===bayes)return {folder:bayes,source:'Hybrid'}
+    if(!bayes||semantic.gap>=0.08)return {folder:semantic.folder,source:'Embedding'}
+  }
+  if(bayes)return {folder:bayes,source:'Bayes'}
+}
+export function evaluateHoldout(rows:LearnRow[],targets:string[],configuredRules:unknown[],hidden:string[],semantics?:SemanticEvaluation):EvaluationResult {
+  const valid=new Set(targets)
+  const {train,test}=splitHoldout(rows.filter(r=>valid.has(r.folder)))
+  const predict=classifier(train),destinations=targets.map(key=>({key,profile:''}))
+  const evidence=new Map(semantics?.predictions.map(p=>[JSON.stringify([p.truth,p.id]),p]))
+  const result:EvaluationResult={tested:test.length,folders:new Set(test.map(r=>r.folder)).size,
+    combined:tally(),bayes:tally(),rule:tally(),sources:{},embedding:semantics?.profiled??null,plain:semantics?.plain??null,
+    semanticTested:semantics?.tested??0,missing:semantics?.missing??0}
+  for(const row of test){
+    const bayes=predict(row.features)?.folder, sender=row.features.find(f=>f.startsWith('e:'))?.slice(2)||''
+    count(result.bayes,bayes,row.folder)
+    const rule=hidden.includes('Regel')?undefined:ruleForSender(sender,destinations,configuredRules)?.folder
+    count(result.rule,rule,row.folder)
+    const hit=row.id?evidence.get(JSON.stringify([row.folder,row.id])):undefined
+    const sem=hit&&valid.has(hit.folder)?hit:undefined
+    const final=rule?{folder:rule,source:'Regel' as const}:combineForecast(bayes,sem)
+    if(!final||hidden.includes(final.source))continue
+    count(result.combined,final.folder,row.folder)
+    count(result.sources[final.source]??=tally(),final.folder,row.folder)
+  }
+  return result
+}
+function renderEvaluation(parent:HTMLElement,result:EvaluationResult){
+  const table=document.createElement('table'),caption=document.createElement('caption')
+  table.className='ai-evaluation'
+  caption.textContent='Ablage-Testlauf · '+result.tested+' zurückgehaltene Mails aus '+result.folders+' Ordnern'
+  table.append(caption)
+  const head=table.createTHead().insertRow()
+  for(const name of ['Auswertung','Vorschläge','Richtig','Trefferquote']){const cell=document.createElement('th');cell.scope='col';cell.textContent=name;head.append(cell)}
+  const body=table.createTBody()
+  const row=(label:string,v:Tally)=>{
+    const r=body.insertRow(),title=document.createElement('th');title.scope='row';title.textContent=label;r.append(title)
+    for(const value of [String(v.shown),String(v.correct),v.shown?Math.round(100*v.correct/v.shown)+' %':'–'])r.insertCell().textContent=value
+  }
+  row('Gesamtergebnis',result.combined);row('Regeln einzeln',result.rule);row('Bayes einzeln',result.bayes)
+  if(result.embedding)row('Embeddings mit Steckbrief',result.embedding)
+  if(result.plain)row('Embeddings ohne Steckbrief',result.plain)
+  for(const [source,n] of Object.entries(result.sources))row('Endgültige Quelle · '+source,n)
+  parent.append(table)
+  if(result.embedding){
+    const note=document.createElement('p')
+    note.textContent=result.semanticTested+' Testmails mit lokalem Vektor.'+(result.missing?' '+result.missing+' Vektoren fehlen. Bitte Lernordner aktualisieren.':'')
+    parent.append(note)
+  }
+}
 const centersKey='outlook-kanban-ai-centroids-v1'
 type SampleIndex={members:{token:string;weight:number}[];description:string|null}
-type Centers=Record<string,{model:string;profile:string;options:string;vector:number[];index?:SampleIndex}>
+type Centers=Record<string,{url?:string;model:string;profile:string;options:string;vector:number[];index?:SampleIndex;memberIds?:string[]}>
 function embeddingOptions(){
   const config=getLegacyConfig()
   return {sender:config.embedding_include_sender!==false,instruction:String(config.embedding_instruction??'Instruct: Represent this email for folder classification. '),
@@ -211,9 +310,10 @@ async function semanticScores(mail:AiMail,targets:FolderInfo[],cfg:Config){
   const centroids:Record<string,number[]>=Object.create(null)
   for(const f of targets){
     const e=state[f.key]
-    if(e && e.model===cfg.embedModel && e.profile===f.profile && e.options===stamp)centroids[f.key]=e.vector
+    if(e && e.url===cfg.embedUrl && e.model===cfg.embedModel && e.profile===f.profile && e.options===stamp)centroids[f.key]=e.vector
   }
-  return native()<SemanticScore[]>('ai_suggest',{url:cfg.url,model:cfg.embedModel,text:embedText(mail),folders:targets,centroids})
+  return native()<SemanticScore[]>('ai_suggest',{url:cfg.embedUrl,model:cfg.embedModel,text:embedText(mail),
+    folders:targets.map(f=>({...f,profile:f.profile.split(/(?:^| · )Nicht: /)[0]})),centroids})
 }
 async function trainCenter(folder:string,samples:AiMail[],ai:Config){
   const profile=folderInfo([folder])[0].profile, options=embeddingOptions()
@@ -222,25 +322,28 @@ async function trainCenter(folder:string,samples:AiMail[],ai:Config){
     const weight=options.recent&&selected.length>1?1-i/(2*(selected.length-1)):1
     return {text:embedText(m),weight}
   })
-  const {vector,index}=await native()<{vector:number[];index:SampleIndex}>('ai_centroid',{url:ai.url,model:ai.embedModel,samples:weighted,description:profile,descriptionWeight:options.profileWeight})
-  return {model:ai.embedModel,profile,options:JSON.stringify(options),index,vector:vector.map(x=>Number(x.toPrecision(6)))}
+  const {vector,index}=await native()<{vector:number[];index:SampleIndex}>('ai_centroid',{url:ai.embedUrl,model:ai.embedModel,samples:weighted,description:profile.split(/(?:^| · )Nicht: /)[0],descriptionWeight:options.profileWeight})
+  return {model:ai.embedModel,url:ai.embedUrl,profile,options:JSON.stringify(options),index,memberIds:selected.map(m=>m.id||''),vector:vector.map(x=>Number(x.toPrecision(6)))}
 }
 export async function draftProfile(folder:string,key:string){
+  const invoke=native()
   if(!allowed(key))throw new Error('Bitte einen aktiven Projekt- oder Bereichsordner auswählen.')
   const cfg=config(), model=await activeModel(cfg)
-  const raw=await native()<string>('outlook_training',{folder,limit:24,days:0})
+  const raw=await invoke<string>('outlook_training',{folder,limit:24,days:0})
   const samples:AiMail[]=JSON.parse(raw)
   if(!samples.length)throw new Error('Im Ordner fehlen Nachrichten für einen Steckbriefentwurf.')
-  return native()<string>('ai_profile',{url:cfg.url,model,key,samples:samples.map(m=>({sender:'',subject:m.subject,body:m.body.slice(0,260)}))})
+  return invoke<string>('ai_profile',{url:cfg.url,model,key,samples:samples.map(m=>({sender:'',subject:m.subject,body:m.body.slice(0,260)}))})
 }
 let training:Promise<{count:number;failures:string[]}>|undefined
 export function trainFromFolders(folders:Folder[],progress?:(message:string)=>void){
-  if(!training)training=learnFolders(folders,progress).finally(()=>{training=undefined})
+  const epoch=sourceEpoch
+  if(!liveSource)return Promise.reject(new Error('Für das Lernen bitte das Outlook-Postfach öffnen.'))
+  if(!training)training=learnFolders(folders,progress).finally(()=>{if(current(epoch))training=undefined})
   return training
 }
 function scopeStamp(folders:Folder[]){return JSON.stringify(folders.filter(f=>!f.isInbox&&allowed(f.path)).map(f=>[f.id,f.path]).sort())}
 async function learnFolders(folders:Folder[],progress?:(message:string)=>void) {
-  const invoke=native(), cfg=getLegacyConfig()
+  const epoch=sourceEpoch,invoke=native(), cfg=getLegacyConfig()
   const limit=300
   const days=Math.max(0,Math.min(3650,Number(cfg.learn_max_days??730)))
   const known=history(trainingKey)
@@ -249,6 +352,7 @@ async function learnFolders(folders:Folder[],progress?:(message:string)=>void) {
   const targets=folders.filter(f=>!f.isInbox && allowed(f.path))
   if(!targets.length)throw new Error('Bitte Outlook laden und mindestens einen Lernordner auswählen.')
   for(const [index,f] of targets.entries()){
+    requireLive(epoch)
     progress?.('Lese '+f.path+' ('+(index+1)+'/'+targets.length+') …')
     try{
       const samples:AiMail[]=JSON.parse(await invoke<string>('outlook_training',{folder:f.id,limit,days}))
@@ -259,14 +363,19 @@ async function learnFolders(folders:Folder[],progress?:(message:string)=>void) {
       rows.push(...samples.map(m=>({folder:f.path,id:m.id,received:m.received,features:features(m)})))
     }catch(err){failures.push(f.path+': '+String(err));rows.push(...known.filter(r=>r.folder===f.path));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path]}
   }
+  requireLive(epoch)
   if(failures.length!==targets.length)localStorage.setItem(trainingKey,JSON.stringify({rows,stamp:Date.now(),scope:scopeStamp(folders)}))
   if(ai.enabled&&ai.embeddings&&failures.length!==targets.length)localStorage.setItem(centersKey,JSON.stringify(centers))
   return {count:rows.length,failures:[...failures,...semanticFailures]}
 }
 function lexical(m:AiMail,folders:FolderInfo[]):Suggestion|undefined {
   const terms=new Set(words([m.subject,m.body].join(' ')))
-  const rank=folders.map(f=>({folder:f.key,score:words(f.key+' '+f.profile).filter(w=>terms.has(w)).length})).sort((a,b)=>b.score-a.score)
-  if(rank[0]?.score && rank[0].score>(rank[1]?.score||0))return {folder:rank[0].folder,reason:'Begriff aus Ordnername oder Steckbrief'}
+  const rank=folders.map(f=>{
+    const [positive,negative='']=f.profile.split(/(?:^| · )Nicht: /)
+    const overlap=(value:string)=>words(value).filter(w=>terms.has(w)).length
+    return {folder:f.key,score:overlap(f.key+' '+positive)-overlap(negative)}
+  }).sort((a,b)=>b.score-a.score)
+  if(rank[0]?.score>0 && rank[0].score>(rank[1]?.score||0))return {folder:rank[0].folder,reason:'Begriff aus Ordnername oder Steckbrief'}
 }
 
 async function activeModel(cfg:Config) {
@@ -277,12 +386,13 @@ async function activeModel(cfg:Config) {
   return model
 }
 export async function localChatModel() {
+  requireLive()
   const cfg=config()
   return {url:cfg.url,model:await activeModel(cfg)}
 }
 async function analyze(m:AiMail, folders:FolderInfo[],cfg:Config) {
-  const model=await activeModel(cfg)
-  return native()<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
+  const invoke=native(), model=await activeModel(cfg)
+  return invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
 }
 
 const cacheKey='outlook-kanban-ai-cache-v1'
@@ -371,14 +481,18 @@ function retainAnalysis(mail:AiMail,result:Analysis){
   window.dispatchEvent(new Event('kanban-analysis'))
 }
 export function restoreAnalysis(mail:AiMail){
+  if(!liveSource)return
   const result=lookupAnalysis(mail)
   if(result)applyAnalysis(mail,result)
 }
 export function trustedFolderBatch(folders:string[]){
+  const epoch=sourceEpoch
+  if(!liveSource)return ()=>undefined
   const targets=folders.filter(allowed).map(key=>({key,profile:''}))
   const all=new Set(targets.map(f=>f.key))
   const predict=classifier([...history(trainingKey),...history()].filter(r=>all.has(r.folder)))
   return (mail:AiMail):Suggestion|undefined=>{
+    if(!current(epoch))return
     const ignored=rejected(mail)
     const hidden=getLegacyConfig().hidden_sources
     const hide=Array.isArray(hidden)?hidden:[]
@@ -390,13 +504,20 @@ export function trustedFolder(mail:AiMail,folders:string[]){
   return trustedFolderBatch(folders)(mail)
 }
 export async function suggestFolder(mail:AiMail, folders:string[]):Promise<Suggestion> {
+  const epoch=sourceEpoch
+  if(!liveSource){
+    const match=lexical(mail,folders.filter(allowed).map(key=>({key,profile:''})))
+    return match?{folder:match.folder,reason:'Begriff aus dem Beispielordner'}:{folder:'',reason:'Kein eindeutiger Beispielordner gefunden.'}
+  }
   const dismissed=rejected(mail)
   const targets=folderInfo(folders.filter(f=>!dismissed.includes(f)))
   const hint=await chooseFolder(mail,targets)
+  requireLive(epoch)
   if(hint.folder)sourceHints.set(mail,hint)
   return hint
 }
 async function chooseFolder(mail:AiMail, targets:FolderInfo[]):Promise<Suggestion> {
+  const epoch=sourceEpoch
   const legacy=getLegacyConfig()
   const hidden=new Set(Array.isArray(legacy.hidden_sources)?legacy.hidden_sources:[])
   const fixed=rule(mail,targets)
@@ -427,6 +548,7 @@ async function chooseFolder(mail:AiMail, targets:FolderInfo[]):Promise<Suggestio
       }
     }catch(error){issues.push(String(error))}
   }
+  requireLive(epoch)
   if(bayes)return bayes
   if(cfg.enabled&&!hidden.has('KI')) {
     try{
@@ -440,7 +562,8 @@ async function chooseFolder(mail:AiMail, targets:FolderInfo[]):Promise<Suggestio
 export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:string[],
     openDraft?:(text:string)=>Promise<void>, applyTags?:(tags:string[])=>Promise<void>) {
   container.replaceChildren()
-  const cfg=config()
+  if(!liveSource)return
+  const epoch=sourceEpoch, cfg=config()
   if(!cfg.enabled)return
   const button=document.createElement('button')
   button.type='button';button.textContent='Mit lokaler KI analysieren'
@@ -458,7 +581,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
       const tag=String(getLegacyConfig().mail_type_prefix||'Art: ')+art
       if(mail.tags?.includes(tag))continue
       const apply=document.createElement('button'); apply.type='button';apply.textContent='„'+tag+'“ übernehmen'
-      apply.onclick=async()=>{apply.disabled=true;try{await applyTags([...new Set([...(mail.tags||[]),tag])])}catch(e){feedback.textContent=String(e)}finally{apply.disabled=false}}
+      apply.onclick=async()=>{if(!current(epoch))return;apply.disabled=true;try{await applyTags([...new Set([...(mail.tags||[]),tag])])}catch(e){feedback.textContent=String(e)}finally{apply.disabled=false}}
       types.append(apply)
     }
   }
@@ -466,10 +589,12 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
   const cached=lookupAnalysis(mail)
   if(cached)show(cached)
   button.onclick=async()=>{
+    if(!current(epoch))return
     button.disabled=true
     feedback.textContent='Lokale KI wertet die Mail aus …'
     try{
       const result=await analyze(mail,folderInfo(folders),cfg)
+      requireLive(epoch)
       retainAnalysis(mail,result)
       show(result)
     }catch(error){feedback.textContent=String(error)}
@@ -480,6 +605,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
     const draft=document.createElement('textarea');draft.hidden=true;draft.rows=6;draft.setAttribute('aria-label','KI-Antwort vor dem Öffnen bearbeiten')
     const open=document.createElement('button');open.type='button';open.hidden=true;open.textContent='Als Entwurf in Outlook öffnen'
     generate.onclick=async()=>{
+      if(!current(epoch))return
       generate.disabled=true; feedback.textContent='Antwortvorschlag wird erstellt …'
       try{
         const key=mail.folderPath||mail.folder||''
@@ -490,7 +616,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
       finally{generate.disabled=false}
     }
     open.onclick=async()=>{
-      if(!draft.value.trim())return
+      if(!current(epoch)||!draft.value.trim())return
       open.disabled=true
       try{await openDraft(draft.value)}catch(error){feedback.textContent=String(error)}
       finally{open.disabled=false}
@@ -502,19 +628,22 @@ let learningFolders:(()=>Folder[])|undefined
 let learnTimer:number|undefined, retryAt=0, retryDelay=120000
 function scheduleLearning(){
   window.clearTimeout?.(learnTimer)
-  if(!config().autoLearn||!learningFolders)return
+  const epoch=sourceEpoch
+  if(!current(epoch)||!config().autoLearn||!learningFolders)return
   const folders=learningFolders()
   if(!folders.length)return
   const previous=stored(trainingKey)
   const next=previous.scope===scopeStamp(folders)?Number(previous.stamp||0)+3600000:0
   const wait=Math.max(0,(retryAt||next)-Date.now())
   learnTimer=window.setTimeout(async()=>{
-    if(!config().autoLearn||!learningFolders?.().length)return
+    if(!current(epoch)||!config().autoLearn||!learningFolders?.().length)return
     try{
       const r=await trainFromFolders(learningFolders(),msg=>reportTraining(msg))
+      if(!current(epoch))return
       if(r.failures.length)throw new Error(r.failures.join(' · '))
       retryAt=0;retryDelay=120000;reportTraining(r.count+' Lernbeispiele · stündliche Aktualisierung aktiv.')
     }catch(error){
+      if(!current(epoch))return
       retryAt=Date.now()+retryDelay;retryDelay=Math.min(retryDelay*2,600000)
       reportTraining('Lernen angehalten. '+String(error)+' · Neuer Versuch in '+Math.ceil((retryAt-Date.now())/60000)+' Min.')
     }
@@ -527,6 +656,8 @@ let readBoard:(()=>AiMail[])|undefined, readFolders:(()=>string[])|undefined, pr
 export function bindAiBoard(mails:()=>AiMail[],folders:()=>string[]){readBoard=mails;readFolders=folders}
 function reportQueue(text:string){queueStatus=text;const node=document.getElementById('aiQueueState');if(node)node.textContent=text}
 export async function queueAnalyses(){
+  if(!liveSource)return
+  const epoch=sourceEpoch
   scheduleLearning()
   const cfg=config()
   if(!cfg.enabled||!cfg.auto||processing||!readBoard)return
@@ -535,19 +666,27 @@ export async function queueAnalyses(){
     const pending=readBoard().filter(m=>!!feedbackId(m)&&!lookupAnalysis(m))
     const folders=folderInfo(readFolders?.()||[])
     for(const [i,mail] of pending.entries()){
-      if(!config().auto||!config().enabled)break
+      if(!current(epoch)||!config().auto||!config().enabled)break
       reportQueue('Hintergrundanalyse '+(i+1)+' von '+pending.length+' …')
       const result=await analyze(mail,folders,cfg)
-      if(config().auto&&config().enabled)retainAnalysis(mail,result)
+      if(current(epoch)&&config().auto&&config().enabled)retainAnalysis(mail,result)
     }
-    reportQueue('Hintergrundanalyse abgeschlossen.')
-  }catch(error){reportQueue('Hintergrundanalyse angehalten. '+String(error))}
-  finally{processing=false}
+    if(current(epoch))reportQueue('Hintergrundanalyse abgeschlossen.')
+  }catch(error){if(current(epoch))reportQueue('Hintergrundanalyse angehalten. '+String(error))}
+  finally{if(current(epoch))processing=false}
 }
 export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[]) {
   learningFolders=getTrainingFolders
-  scheduleLearning()
-  container.replaceChildren()
+  const panel=document.createElement('div')
+  container.replaceChildren(panel)
+  refreshAiPanel=()=>{
+    panel.replaceChildren()
+    if(liveSource)renderLiveAiSettings(panel,getTrainingFolders)
+  }
+  refreshAiPanel()
+}
+function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[]) {
+  const epoch=sourceEpoch
   const cfg=config()
   const section=document.createElement('fieldset')
   section.className='ai-section'
@@ -572,6 +711,7 @@ export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>F
   const queue=document.createElement('p');queue.id='aiQueueState';queue.setAttribute('role','status');queue.textContent=queueStatus;section.append(queue)
   const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings)
   const embedModel=field('Embedding-Modell',cfg.embedModel)
+  const embedUrl=field('Adresse des lokalen Embedding-Servers',cfg.embedUrl)
   const list=document.createElement('datalist')
   list.id='local-models-list';model.setAttribute('list',list.id);embedModel.setAttribute('list',list.id)
   const check=document.createElement('button');check.type='button';check.textContent='Lokale Modelle laden'
@@ -589,17 +729,28 @@ export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>F
     finally{check.disabled=false}
   }
   save.onclick=()=>{
+    if(!current(epoch))return
     try{
-      const address=new URL(url.value)
+      for(const field of [url,embedUrl]){
+      const address=new URL(field.value)
       if(address.protocol!=='http:' || !['127.0.0.1','localhost','[::1]'].includes(address.hostname) || address.username || address.password || address.pathname!=='/' || address.search || address.hash) throw Error('Bitte eine lokale HTTP-Adresse ohne Pfad angeben.')
-      localStorage.setItem(settingsKey,JSON.stringify({enabled:on.checked,auto:auto.checked,autoLearn:autoLearn.checked,url:url.value.trim(),model:model.value.trim(),embeddings:embeddings.checked,embedModel:embedModel.value.trim()}))
+      }
+      localStorage.setItem(settingsKey,JSON.stringify({enabled:on.checked,auto:auto.checked,autoLearn:autoLearn.checked,url:url.value.trim(),model:model.value.trim(),embeddings:embeddings.checked,embedModel:embedModel.value.trim(),embedUrl:embedUrl.value.trim()}))
       feedback.textContent='KI-Einstellungen gespeichert.'
       void queueAnalyses()
     }catch(error){feedback.textContent=String(error)}
   }
 }
 
-function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[]) {
+export function renderLearningDashboard(container:HTMLElement){
+  if(!liveSource){
+    const note=document.createElement('p');note.textContent='Die Ablage-Auswertung verwendet die Lernordner deines geöffneten Outlook-Postfachs.'
+    container.append(note);return
+  }
+  renderLearning(container,learningFolders,true)
+}
+function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[],expanded=false) {
+  const epoch=sourceEpoch
   const details=document.createElement('details')
   const title=document.createElement('summary');title.textContent='Ablageregeln und Lernstatistik'
   const label=document.createElement('label')
@@ -616,6 +767,7 @@ function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[]) 
   details.append(title,label,apply,train,evaluate,status,metrics,domainRules)
   container.append(details)
   function refresh(){
+    if(!current(epoch)){details.remove();return}
     const examples=history(trainingKey),recent=history()
     const trained=new Set(examples.map(r=>r.folder)).size
     metrics.replaceChildren()
@@ -631,7 +783,9 @@ function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[]) 
       discard.onclick=()=>{types.proposals.delete(key);types.discarded.push(key);saveTypes(types);refresh()}
     }
     const last=object(stored(statisticsKey).evaluation)
-    if(last.text)line('Letzter Testlauf am '+last.date+' · '+last.text)
+    if(last.report){
+      line('Letzter Testlauf am '+last.date);renderEvaluation(metrics,last.report as EvaluationResult)
+    }else if(last.text)line('Letzter Testlauf am '+last.date+' · '+last.text)
     for(const [name,n] of Object.entries(sourceStats()))line(name+': '+n.correct+' übernommen · '+n.wrong+' abweichend')
     try{
       const imported=getLegacyFile('vorschlag-statistik.json')
@@ -660,7 +814,9 @@ function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[]) 
     }
   }
   details.ontoggle=()=>{if(details.open)refresh()}
+  if(expanded){details.open=true;refresh()}
   apply.onclick=()=>{
+    if(!current(epoch))return
     try {
       const items=editor.value.split(/\r?\n/).filter(row=>row.trim()).map((line,i)=>{
         const fields=line.split(/→|->/).map(s=>s.trim())
@@ -672,6 +828,7 @@ function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[]) 
     }catch(e){status.textContent=String(e)}
   }
   train.onclick=async()=>{
+    if(!current(epoch))return
     train.disabled=true
     try{
       const r=await trainFromFolders(getTrainingFolders?.()||[],s=>{status.textContent=s})
@@ -681,26 +838,37 @@ function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[]) 
     finally{train.disabled=false}
   }
   evaluate.onclick=async()=>{
+    if(!current(epoch))return
     evaluate.disabled=true
     try{
-      const r=holdout(history(trainingKey)), cfg=config(), legacy=getLegacyConfig()
-      if(!r.tested){status.textContent='Für den Testlauf braucht ein Lernordner mindestens 13 Beispiele (10 für den Test, mindestens 3 zum Lernen).';return}
-      let msg=r.tested+' zurückgehaltene Mails · Bayes: '+r.correct+' richtig bei '+r.shown+' Vorschlägen.'
-      const centers=stored(centersKey) as Centers
-      const scope=getTrainingFolders?.(),valid=scope?new Set(scope.map(f=>f.path)):undefined
-      const options=JSON.stringify(embeddingOptions())
-      const folders=Object.entries(centers).filter(([key,c])=>(!valid||valid.has(key))&&c.index&&c.model===cfg.embedModel&&c.options===options).map(([key,c])=>({key,index:c.index}))
-      if(cfg.enabled&&cfg.embeddings&&folders.length){
-        status.textContent=msg+' Semantischer Vergleich läuft …'
-        type Tally={correct:number;shown:number}
-        const result=await native()<{tested:number;missing:number;plain:Tally;profiled:Tally}>('ai_holdout',{
-          folders,weight:embeddingOptions().profileWeight,threshold:Number(legacy.embedding_threshold??0.78),margin:Number(legacy.embedding_min_margin??0.03)})
-        msg+=' Semantik ('+result.tested+' Testmails): mit Steckbrief '+result.profiled.correct+'/'+result.profiled.shown+', ohne Steckbrief '+result.plain.correct+'/'+result.plain.shown+' richtig.'
-        if(result.missing)msg+=' '+result.missing+' Beispiele fehlen im lokalen Cache. Bitte Lernordner aktualisieren.'
+      const cfg=config(),legacy=getLegacyConfig(),rows=history(trainingKey)
+      const scope=getTrainingFolders?.()?.map(f=>f.path)??[...new Set(rows.map(r=>r.folder))]
+      const targets=scope.filter(allowed),valid=new Set(targets),{test}=splitHoldout(rows.filter(r=>valid.has(r.folder)))
+      if(!test.length){status.textContent='Für den Testlauf braucht ein gewählter Lernordner mindestens 13 Beispiele (10 für den Test, mindestens 3 zum Lernen).';return}
+      const heldByFolder=new Map<string,Set<string>>()
+      for(const row of test){
+        if(!row.id)continue
+        const ids=heldByFolder.get(row.folder)??new Set<string>();ids.add(row.id);heldByFolder.set(row.folder,ids)
       }
-      status.textContent=msg
+      const centers=stored(centersKey) as Centers,options=JSON.stringify(embeddingOptions())
+      const folders=Object.entries(centers).flatMap(([key,c])=>{
+        if(!valid.has(key)||!c.index||c.memberIds?.length!==c.index.members.length||c.url!==cfg.embedUrl||c.model!==cfg.embedModel||c.options!==options)return []
+        const ids=heldByFolder.get(key)
+        const held=Object.fromEntries(c.memberIds.flatMap((id,i)=>ids?.has(id)?[[i,id]]:[]))
+        return [{key,index:c.index,held}]
+      })
+      let semantic:SemanticEvaluation|undefined
+      if(cfg.enabled&&cfg.embeddings&&folders.length){
+        status.textContent='Gespeicherte Vektoren werden mit den zurückgehaltenen Mails verglichen …'
+        semantic=await native()<SemanticEvaluation>('ai_holdout',{folders,weight:embeddingOptions().profileWeight,
+          threshold:Number(legacy.embedding_threshold??0.78),margin:Number(legacy.embedding_min_margin??0.03)})
+      }
+      const hidden=Array.isArray(legacy.hidden_sources)?legacy.hidden_sources.map(String):[]
+      const report=evaluateHoldout(rows,targets,rules(),hidden,semantic)
+      const additional=cfg.enabled&&cfg.embeddings&&!folders.length?' Für den Semantikvergleich bitte die Lernordner aktualisieren.':''
+      status.textContent='Testlauf abgeschlossen. '+report.combined.correct+' richtige Ablagen bei '+report.combined.shown+' Vorschlägen.'+additional
       const stats=stored(statisticsKey)
-      localStorage.setItem(statisticsKey,JSON.stringify({...stats,evaluation:{date:new Date().toLocaleDateString('de'),text:msg}}))
+      localStorage.setItem(statisticsKey,JSON.stringify({...stats,evaluation:{date:new Date().toLocaleDateString('de'),report}}))
       refresh()
     }catch(error){status.textContent=String(error)}
     finally{evaluate.disabled=false}

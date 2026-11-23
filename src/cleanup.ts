@@ -3,6 +3,7 @@ import {isSnoozed, type ViewMail} from './views-logic'
 import {suggestFolder, trustedFolderBatch} from './ai'
 
 export type CleanupOptions = {
+  hasMailbox:()=>boolean
   getMails:()=>readonly ViewMail[]
   getFolders:()=>readonly Folder[]
   getSuggestionFolders?:()=>readonly Folder[]
@@ -37,6 +38,7 @@ export function initCleanup(api:CleanupOptions) {
   let mail:ViewMail|undefined
   let loading=false
   let pending=false
+  let sourceVersion=0,openedVersion=0
   let viewVersion=0
   const commands=label('div'), navigation=label('div')
   commands.className=navigation.className='cockpit-actions'
@@ -128,7 +130,7 @@ export function initCleanup(api:CleanupOptions) {
     if(!on) render()
   }
   async function act(kind:'folder'|'status'|'undo',value:string) {
-    if(pending||(!mail && kind!=='undo'))return
+    if(!api.hasMailbox()||openedVersion!==sourceVersion||pending||(!mail && kind!=='undo'))return
     const current=mail
     const beforeFolder=mail?.folder
     let message=''
@@ -162,19 +164,28 @@ export function initCleanup(api:CleanupOptions) {
     finally {if(token===viewVersion)hints.disabled=false}
   }
   async function open() {
-    if(loading||pending)return
+    if(!api.hasMailbox()||loading||pending)return
+    const version=sourceVersion
     loading=true
     try{
-      if(!await api.loadBacklog())return
+      if(!await api.loadBacklog()||version!==sourceVersion||!api.hasMailbox())return
+      openedVersion=sourceVersion
       done.clear()
       render()
       if(!dialog.open)dialog.showModal()
     }catch(error){const message=document.getElementById('message');if(message)message.textContent=String(error)}
     finally {loading=false}
   }
+  document.addEventListener('mailboard:source-changed',()=>{
+    sourceVersion++;viewVersion++;done.clear();mail=undefined
+    subject.textContent=sender.textContent=content.textContent=progress.textContent=statusLine.textContent=''
+    folders.replaceChildren();groups.replaceChildren()
+    if(dialog.open)dialog.close()
+  })
   dialog.addEventListener('cancel',event=>{if(pending)event.preventDefault()})
   dialog.addEventListener('close',()=>{
     viewVersion++;hints.disabled=false
+    if(openedVersion!==sourceVersion||!api.hasMailbox())return
     Promise.resolve(api.closeBacklog?.()).catch(error=>{
       const message=document.getElementById('message');if(message)message.textContent=String(error)
     })
