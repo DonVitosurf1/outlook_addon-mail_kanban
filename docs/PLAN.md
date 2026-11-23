@@ -29,7 +29,7 @@ Für alle Punkte gilt:
 - Im Beispielpostfach laufen keine Modellaufrufe.
 - Mailinhalte sind Daten, keine Anweisungen. Das steht in jedem Prompt.
 
-**Reihenfolge:** K2 → K1 → K3 → K4 → K5. K2 ist klein und unabhängig. K3 ist die Grundlage für K4 und K5.
+**Reihenfolge innerhalb von Abschnitt 2:** K2 → K1 → K3 → K4 → K5. K2 ist klein und unabhängig. K3 ist die Grundlage für K4, K5 und den Einrichtungsassistenten. Die Gesamtreihenfolge steht in Abschnitt 4.
 
 ### K1 Aufgaben → Checkliste
 
@@ -79,6 +79,90 @@ Für alle Punkte gilt:
 - **C Bessere Eingaben:** Verlauf der Unterhaltung und Anhangnamen für die Analyse, eigener schneller Prompt für die KI-Stichwahl (heute startet sie eine volle Analyse), Stil aus eigenen früheren Antworten für Entwürfe.
 - **Weitere Ideen:** KI-Vorschläge für den Tagesfokus in der Triage, vorgeschlagene Nachfasstermine.
 
-## 4. Weitere Themen
+## 4. Einrichtungsassistent (entschieden am 23.11.2026)
+
+Ausgangslage:
+- Im Posteingang liegen etwa 500–2.000 Mails.
+- Die Zielordner sind grob vorhanden, ihre Zuordnung ist von Hand entstanden und **gemischt**: Manche Ordner sind sauber, andere Sammelbecken oder überschneiden sich.
+- Heute ist die Einrichtung auf Einzelwerkzeuge verteilt: Projektordner verwalten, Steckbrief entwerfen, Unterteilung für *einen* Ordner, Lernen, Ablage-Auswertung, Posteingang aufräumen (älteste 300). Die Reihenfolge muss man selbst kennen. Alles in den Ordnern gilt ungeprüft als richtig.
+
+| Entscheidung | Gewählt |
+|---|---|
+| Form | Geführter Assistent mit festen Schritten, pausierbar |
+| Struktur | Deine Struktur ist das Gerüst, die KI verfeinert. Jeder Vorschlag wird bestätigt. |
+| Ausreißer | Prüfliste je Ordner: **verschieben nach X** / **bleibt hier** (gilt dann als sicher richtig) / **nicht zum Lernen verwenden** |
+| KI darf vorschlagen | Unterordner, neue Ordner für Posteingangsgruppen, **zusammenlegen** und **umbenennen**, alles nach Bestätigung in Outlook ausgeführt |
+| Leerer Ordner nach Zusammenlegen | Wird nach `_Zusammengelegt` verschoben, nichts wird gelöscht, rücknehmbar |
+| Alte Posteingangsmails ohne Ziel | Sammelangebot „ins Archiv“ ab einem Alter von 3 Monaten (einstellbar) |
+| Steckbriefe | Die KI entwirft für alle Lernordner ohne Steckbrief einen Vorschlag, du prüfst jeden |
+
+Für alle Schritte gilt:
+- Jede Änderung am Postfach braucht eine Bestätigung mit Zielliste, ist ein Undo-Schritt und läuft über den vorhandenen Schreibstapel (`writeBatch`).
+- Die Schritte 3–5 brauchen die lokale KI und lassen sich ohne sie überspringen.
+- Ausreißerprüfung, Gruppen im Posteingang und die Erkennung von Überschneidungen nutzen die Einbettungen aus **K3** (Abschnitt 2). K3 kommt deshalb vor den Assistenten.
+
+**Empfohlene Gesamtreihenfolge:** K2 → K3 → E0–E7 → K1 → K4 → K5.
+
+### E0 Rahmen
+
+- [ ] **Neues Modul** `src/setup.ts` als eigene Ansicht `Einrichtung` (Panel wie in `tabs.ts`). Erreichbar über Start und Werkzeuge. Wird angeboten, wenn Outlook verbunden ist und noch keine Lernziele gesetzt sind.
+- [ ] **Fortschritt** lokal in `mailboard-setup-v1`: aktueller Schritt, erledigte Schritte, Ausgangswerte der Messung, Entscheidungen zu Ausreißern. Gespeichert wird nur für Outlook, nie im Beispielpostfach.
+- [ ] **Schrittleiste** oben mit Status je Schritt (offen, erledigt, übersprungen), dazu „Pausieren“ und „Weiter“.
+
+### E1 Ordner wählen
+
+- [ ] **Ordnerbaum** mit Mailanzahl und den Spalten Board / Lernen / Archiv. Er nutzt die vorhandenen Ziele (`getBoardScope`, `getLearningScope`, `getArchiveScope`, `updateConfig`).
+- [ ] **Vorbelegung:** alle Ordner außer Posteingang, Gesendet und `_…` als Lernziele. Ein Ordner mit „Archiv“ im Namen wird als Archiv vorgeschlagen. Gibt es keinen, kann der Assistent einen anlegen.
+
+### E2 Lernen und Ausgangswert messen
+
+- [ ] **Lernen** wie bisher (`learnFolders`: bis zu 300 Mails je Ordner aus zwei Jahren, Bayes und Embedding-Profil).
+- [ ] **Messen** mit `evaluateHoldout`. Die Trefferquote je Quelle und je Ordner wird als Ausgangswert gespeichert. Ordner mit wenigen Mails (unter 10) werden markiert.
+
+### E3 Ausreißer prüfen
+
+- [ ] **Erkennung je Lernordner** über dessen Trainingsmails: Ähnlichkeit zum *eigenen* Profil ohne die Mail selbst gegen das beste *fremde* Profil. Verdächtig ist eine Mail, wenn das fremde Profil um mindestens 0,05 vorne liegt und über der Ablageschwelle. Ohne Embeddings gibt es eine Bayes-Variante, die die Mail beim Training auslässt.
+  - Neuer Rust-Befehl `ai_outliers(model, folders:[{key, items:[{id,text}]}])` auf Basis des Vektor-Caches.
+- [ ] **Prüfliste** je Ordner, sortiert nach Deutlichkeit. Je Mail und als Stapel gibt es:
+  - **Verschieben nach X:** Bestätigung, Undo, Lernbeispiel wird umgehängt.
+  - **Bleibt hier:** wird lokal als bestätigt gespeichert und nie wieder gemeldet.
+  - **Nicht lernen:** wird aus `LearnRow` und Profil herausgefiltert.
+- [ ] **Ordner mit vielen Ausreißern** (z. B. über 25 %) gehen als Kandidaten für Unterteilung oder Zusammenlegen in E4.
+
+### E4 Struktur verfeinern
+
+- [ ] **Überfüllte Ordner** (viele Mails, geringer innerer Zusammenhalt): Unterordner-Vorschlag mit dem vorhandenen `ai_subfolders` (`structure.ts`), Verteilen mit `distribute.ts`.
+- [ ] **Überschneidungen:** Ordnerpaare mit sehr ähnlichem Profil (Kosinus über 0,9) oder häufiger gegenseitiger Verwechslung in der Messung. Vorschlag: den kleineren in den größeren zusammenlegen, mit Vorschau der Mailanzahl.
+  - Ausführung: alle Mails verschieben (Stapel), den leeren Ordner nach `_Zusammengelegt` verschieben (wie `_Abgeschlossen` in `projects.ts`), Steckbrief und Lernziele umschlüsseln (`rekeyProfile`), Lernbeispiele umhängen. Alles zusammen ist ein Undo-Schritt.
+- [ ] **Umbenennen:** Für unklare Namen (z. B. „Sonstiges“, „Diverses“, „Neuer Ordner“, sehr kurze Namen) schlägt die KI aus Steckbrief und Beispielbetreffs einen klareren Namen vor. Ausgeführt wird mit dem vorhandenen Umbenennen samt Undo.
+- [ ] **Neue Ordner aus dem Posteingang:** Mails ohne Ziel über der Schwelle werden nach Bedeutung gruppiert (neuer Rust-Befehl `ai_clusters` auf dem Vektor-Cache). Gruppen ab 5 Mails benennt die KI mit drei Beispielbetreffs (Namensprüfung wie `cleanFolderName`). Du wählst den Elternordner, dann wird angelegt und verteilt.
+
+### E5 Steckbriefe
+
+- [ ] **Entwürfe** für alle Lernordner ohne Steckbrief nacheinander (`draftProfile`), mit Fortschritt und Abbruchmöglichkeit.
+- [ ] **Prüfung** als Liste mit Übernehmen / Bearbeiten / Verwerfen. Gespeichert wird nur Übernommenes (`setProfile`).
+
+### E6 Neu lernen und vergleichen
+
+- [ ] **Lernen** mit bereinigten Ordnern, ausgeschlossenen Ausreißern und neuen Steckbriefen.
+- [ ] **Vergleich** vorher/nachher je Quelle und je Ordner. Ordner, die schlechter geworden sind, werden hervorgehoben.
+
+### E7 Posteingang abarbeiten
+
+- [ ] **Lesen:** Alle Posteingangsmails ohne Status werden gelesen. Heute liest `__backlog` die ältesten 300 (`outlook_backlog`). Der Befehl bekommt Grenze und Versatz, damit bis zu 2.000 Mails in Seiten gelesen werden. Das betrifft den C#-Helfer und braucht einen Vertragstest in `outlook-test/tests`.
+- [ ] **Einteilen** jeder Mail in **sicher** (Vorschlag mit hoher Sicherheit, wie `trustedFolderBatch`), **unsicher** oder **ohne Ziel**.
+- [ ] **Sicher:** Stapel je Zielordner mit Betreffliste, je Stapel bestätigen (wie die sicheren Sammelvorschläge beim Aufräumen).
+- [ ] **Unsicher:** öffnet „Posteingang aufräumen“ mit genau diesen Mails.
+- [ ] **Ohne Ziel und älter als 3 Monate:** Sammelangebot „ins Archiv“ mit Anzahl und Altersgrenze, als ein Undo-Schritt. Jüngere bleiben im Posteingang.
+
+### Tests und Abnahme
+
+- [ ] **Unit-Tests:** Ausreißer-Regel (Schwelle, Abstand, Bestätigte, Ausgeschlossene), Erkennung von Überschneidungen, Plan für das Zusammenlegen (Reihenfolge, Umschlüsseln), Einteilung des Posteingangs, Altersgrenze.
+- [ ] **Rust-HTTP-Tests:** `ai_outliers` und `ai_clusters` mit simulierten Vektoren, Cache-Treffer.
+- [ ] **Smoke-Test** mit simuliertem Outlook (drei Ordner, einer davon Sammelbecken, 40 Posteingangsmails): Assistent komplett durchlaufen, pausieren und fortsetzen, Ausreißer verschieben mit Undo, zusammenlegen nach `_Zusammengelegt` mit Undo, Stapelablage, Archivangebot.
+- [ ] **C#-Vertragstest** für den seitenweisen Backlog.
+- **Fertig, wenn** ein Postfach mit grober Struktur in einer Sitzung zu bereinigten Lernordnern mit Steckbriefen, gemessener Trefferquote vorher/nachher und einem abgearbeiteten Posteingang kommt. Jede Postfachänderung muss dabei bestätigt und rücknehmbar sein.
+
+## 5. Weitere Themen
 
 *Folgen aus dem nächsten Gespräch.*
