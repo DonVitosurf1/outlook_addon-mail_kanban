@@ -220,7 +220,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
   - solange nötig den Einrichtungsfortschritt.
 
   Doppelte Knöpfe zu Tabs und Seitenleiste entfallen (Wochenkalender, Routinen, Vorgänge, Heute dran, Hilfe). Der Versionshinweis schrumpft auf eine Zeile.
-- [ ] **U10 Werkzeuge aufräumen.**
+- [x] **U10 Werkzeuge aufräumen.**
   - „Gesendet ohne Antwort“ wird ein Eintrag unter den Ansichten der Seitenleiste.
   - „Unterhaltungen zusammenfassen“ wandert als Schalter mit sichtbarem Zustand ins Menü Ansicht.
   - Die VIP-Liste kommt in die Einstellungen (Abschnitt Board).

@@ -112,13 +112,10 @@ export class BoardViews {
       controls?.append(label)
     }
     controls?.append(edit,this.resetButton)
-    const tools=document.querySelector('.tools-panel')||controls
-    const threads=button('Unterhaltungen zusammenfassen',()=>{
-      this.threads=!this.threads;threads.setAttribute('aria-pressed',String(this.threads))
-      remember('threads',String(this.threads));refresh()
-    })
-    threads.setAttribute('aria-pressed',String(this.threads))
-    tools?.append(button('VIP-Liste',()=>this.editVip()),threads)
+    const threadBox=element('input');threadBox.type='checkbox';threadBox.checked=this.threads
+    threadBox.onchange=()=>{this.threads=threadBox.checked;remember('threads',String(this.threads));refresh()}
+    const threadLabel=element('label');threadLabel.append(threadBox,' Unterhaltungen zusammenfassen')
+    controls?.insertBefore(threadLabel,edit)
     window.addEventListener('kanban-analysis',()=>this.api.render())
     for(const [key,label] of [['all','Alle aktiven'],['today','Heute dran'],['focus','Fokus'],['snoozed','Wiedervorlage']] as const){
       const b=button(label,()=>{this.focus=key;this.api.clearScope?.();refresh()});b.dataset.label=label
@@ -429,7 +426,7 @@ export class BoardViews {
     }
     dialog.showModal();input.focus()
   }
-  private editVip(){
+  editVip(){
     const {dialog,form,actions}=formDialog('VIP-Absender')
     const label=element('label','Ein Name oder eine Adresse pro Zeile')
     const input=element('textarea');input.value=this.vipTokens.join('\n');label.append(input)

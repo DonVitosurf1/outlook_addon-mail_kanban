@@ -597,6 +597,7 @@ async function start() {
     input.onchange=()=>{updateConfig({[key]:input.checked});render();void correspondence.refresh()}
     const label=tag('label','');label.append(input,' '+caption);el('aiSettings').append(label)
   }
+  const vipButton=tag('button','VIP-Liste bearbeiten …');vipButton.type='button';vipButton.id='editVip';vipButton.onclick=()=>views.editVip();el('aiSettings').append(vipButton)
   dialog.onclose=()=>{suggestionVersion++;if(selected)document.getElementById('mail-'+selected.id)?.focus()}
   search.oninput=render
   undoButton.onclick=()=>void undo()
