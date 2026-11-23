@@ -69,7 +69,7 @@ export function initCaseSuggest(options:Options){
       const next=new Map(candidates.flatMap(m=>{const name=picked.get(contentId(m));return name?[[m.id,name] as [string,string]]:[]}))
       if(same(current,next))return
       current=next;options.render()
-    },()=>{if(mine===version&&current.size){current=new Map();options.render()}})
+    },()=>{if(mine===version)lastKey='';if(mine===version&&current.size){current=new Map();options.render()}})
   }
   function suggestionFor(mail:SuggestMail):CaseSuggestion|undefined{
     const name=current.get(mail.id)
@@ -86,7 +86,7 @@ export function initCaseSuggest(options:Options){
     const ids=options.selection()
     const mail=ids.length===1?options.mails().find(m=>m.id===ids[0]):undefined
     const suggestion=mail&&suggestionFor(mail)
-    if(suggestion)entries.push({label:'Vorgangsvorschlag übernehmen: '+suggestion.name,run:suggestion.accept})
+    if(suggestion)entries.push({label:'Vorgangsvorschlag übernehmen: '+suggestion.name,run:suggestion.accept},{label:'Vorgangsvorschlag ablehnen',run:suggestion.dismiss})
   })
   return {refresh,suggestionFor}
 }

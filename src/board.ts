@@ -613,7 +613,8 @@ async function start() {
     reply:async(id,all)=>{const mail=mails.find(m=>m.id===id);if(mail)await draft(mail,all?'reply-all':'reply','')},
     setField:(id,field,value)=>change([id],{kind:field,value}),setTags:(id,_previous,value)=>change([id],{kind:'tags',value}),
     toggleFocus,
-    assignCase:ids=>cases?.openAssign(ids)})
+    assignCase:ids=>cases?.openAssign(ids),
+    caseSuggestion:id=>{const m=mails.find(x=>x.id===id);return m&&caseSuggest?caseSuggest.suggestionFor(m):undefined}})
   let previousScope=''
   const overdueDays=()=>Number(getLegacyConfig().overdue_days??5)
   const assign=assignCase

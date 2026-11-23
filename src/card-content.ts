@@ -12,20 +12,16 @@ function flag(text:string,kind:string,title=''){
   if(title)pill.title=title
   return pill
 }
-/** Vorgangsvorschlag (K4): Pille zum Zuordnen und „×“ zum Ablehnen, beide eigene Buttons, die das Öffnen der Karte nicht auslösen. */
+/** Vorgangsvorschlag (K4): Pille zum Zuordnen und „×“ zum Ablehnen. Keine Buttons in der Karte, per Tastatur geht es über Kartenmenü und Befehlspalette. */
 function caseSuggestPill(suggestion:{name:string;accept():void;dismiss():void}){
   const box=node('span','','case-suggest')
-  const act=(button:HTMLButtonElement,run:()=>void)=>{
-    button.type='button'
-    button.onclick=event=>{event.preventDefault();event.stopPropagation();run()}
-    button.onkeydown=event=>event.stopPropagation()
-    button.draggable=false
+  const act=(target:HTMLElement,run:()=>void)=>{
+    target.onclick=event=>{event.preventDefault();event.stopPropagation();run()}
   }
-  const take=node('button','Vorgang '+suggestion.name+'?','card-flag flag-case')
+  const take=node('span','Vorgang '+suggestion.name+'?','card-flag flag-case')
   take.title='Mail dem Vorgang „'+suggestion.name+'“ zuordnen'
-  take.setAttribute('aria-label','Vorgang '+suggestion.name+' zuordnen')
-  const reject=node('button','×','case-suggest-x')
-  reject.title='Vorschlag ablehnen';reject.setAttribute('aria-label','Vorschlag ablehnen')
+  const reject=node('span','×','case-suggest-x')
+  reject.title='Vorschlag ablehnen';reject.setAttribute('aria-hidden','true')
   act(take,suggestion.accept);act(reject,suggestion.dismiss)
   box.append(take,reject)
   return box

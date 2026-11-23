@@ -29,6 +29,7 @@ type BoardActions={
   reply?(id:string,all:boolean):AsyncAction
   toggleFocus?(ids:string[]):AsyncAction
   assignCase?(ids:string[]):void
+  caseSuggestion?(id:string):{name:string;accept():void;dismiss():void}|undefined
 }
 /** Filter und Suche, die die Morgen-Triage beim Start merkt und beim Ende wiederherstellt. */
 export type ViewState={search:string;focus:Focus;split:string;tag:string}
@@ -399,6 +400,11 @@ export class BoardViews {
     }
     if(this.api.toggleFocus)add('Planen','Fokus umschalten',()=>this.api.toggleFocus!(ids),'focus')
     if(this.api.assignCase)add('Ordnen','Vorgang zuordnen …',()=>this.api.assignCase!(ids))
+    const caseHint=one?this.api.caseSuggestion?.(first.id):undefined
+    if(caseHint){
+      add('Ordnen','Vorgang '+caseHint.name+' zuordnen',caseHint.accept)
+      add('Ordnen','Vorgangsvorschlag ablehnen',caseHint.dismiss)
+    }
     if(one&&this.api.acceptSuggestion)add('Ordnen','Ablagevorschlag prüfen',()=>this.api.acceptSuggestion!(first.id),'accept-suggestion')
     const menu=element('div');menu.className='card-menu';menu.setAttribute('role','menu')
     const title=one?first.subject:ids.length+' markierte Mails'
@@ -526,7 +532,7 @@ export class BoardViews {
     if(e.key==='Escape' && input?.id==='search'){
       e.preventDefault(); this.clearFilters(); return
     }
-    if(input?.closest('input,textarea,select,[contenteditable=true],.case-suggest'))return
+    if(input?.closest('input,textarea,select,[contenteditable=true]'))return
     const modifier=e.ctrlKey||e.metaKey
     if(modifier && ['+','=','-','0'].includes(e.key)){
       e.preventDefault();this.changeZoom(e.key==='0'?0:e.key==='-'?-10:10);return

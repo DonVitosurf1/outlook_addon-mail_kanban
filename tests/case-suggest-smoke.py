@@ -72,7 +72,9 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             pill = lambda id: page.locator(f'#mail-{id} .case-suggest')
 
             # Nur Mails über Schwelle und Abstand bekommen eine Pille, Mails mit Vorgang und schwache nicht.
-            expect(pill('m2').get_by_role('button', name='Vorgang Umzug zuordnen')).to_have_text('Vorgang Umzug?')
+            expect(pill('m2').locator('.flag-case')).to_have_text('Vorgang Umzug?')
+            expect(page.locator('.card button')).to_have_count(0)
+            expect(page.locator('#mail-m2')).to_contain_text('Vorgang Umzug?')
             expect(pill('m3')).to_have_count(1)
             expect(pill('m4')).to_have_count(0)
             expect(pill('m1')).to_have_count(0)
@@ -81,7 +83,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert len(request['items']) == 3, request
 
             # Klick auf die Pille ordnet zu und öffnet die Karte nicht.
-            pill('m2').get_by_role('button', name='Vorgang Umzug zuordnen').click()
+            pill('m2').locator('.flag-case').click()
             expect(page.locator('#detail')).not_to_be_visible()
             expect(page.locator('#mail-m2 .card-chip')).to_have_text('Vorgang: Umzug')
             expect(pill('m2')).to_have_count(0)
@@ -90,9 +92,14 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(pill('m2')).to_have_count(1)
             assert tags('m2') == [], tags('m2')
 
-            # Tastatur: Pille per Tab erreichen und mit Enter zuordnen, ohne dass die Karte aktiviert wird.
-            pill('m2').get_by_role('button', name='Vorgang Umzug zuordnen').focus()
-            page.keyboard.press('Enter')
+            # Tastatur: Strg+K öffnet bei fokussierter Karte die Palette, das Kartenmenü bietet das Zuordnen an.
+            page.locator('#mail-m2').focus()
+            page.keyboard.press('Control+k')
+            expect(page.locator('#paletteFilter')).to_be_visible()
+            page.keyboard.press('Escape')
+            page.locator('#mail-m2').focus()
+            page.keyboard.press('Shift+F10')
+            page.get_by_role('menuitem', name='Vorgang Umzug zuordnen').click()
             expect(pill('m2')).to_have_count(0)
             assert tags('m2') == ['Vorgang: Umzug'], tags('m2')
             expect(page.locator('#detail')).not_to_be_visible()
@@ -109,8 +116,19 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             page.locator('#undo').click()
             expect(pill('m3')).to_have_count(1)
 
+            # Ablehnen per Palette (m3 markiert) und per Klick auf das „×“ (m2).
+            if page.locator('#mail-m3').get_attribute('aria-pressed') != 'true':
+                page.locator('#mail-m3').click(modifiers=['Control'])
+            page.keyboard.press('Control+k')
+            page.locator('#paletteFilter').fill('Vorgangsvorschlag ablehnen')
+            page.keyboard.press('Enter')
+            expect(pill('m3')).to_have_count(0)
+            page.evaluate("localStorage.setItem('mailboard-case-dismissed-v1','[]')")
+            page.reload()
+            expect(pill('m3')).to_have_count(1)
+
             # Ablehnen blendet aus. Das gilt auch nach dem Neuladen und mit neuer EntryID.
-            pill('m2').get_by_role('button', name='Vorschlag ablehnen').click()
+            pill('m2').locator('.case-suggest-x').click()
             expect(pill('m2')).to_have_count(0)
             expect(pill('m3')).to_have_count(1)
             assert 'mailboard-case-dismissed-v1' in page.evaluate('Object.keys(localStorage)')
