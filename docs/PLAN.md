@@ -180,7 +180,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
 
 ### Ersteinrichtung und Einstellungen
 
-- [ ] **U1 Einstellungen neu ordnen.** Der Dialog „Outlook und lokale KI“ wird in die Abschnitte **Outlook**, **Board**, **Lokale KI**, **Lernen** und **Darstellung** aufgeteilt, jeder mit einem erklärenden Satz.
+- [x] **U1 Einstellungen neu ordnen.** Der Dialog „Outlook und lokale KI“ wird in die Abschnitte **Outlook**, **Board**, **Lokale KI**, **Lernen** und **Darstellung** aufgeteilt, jeder mit einem erklärenden Satz.
   - Betroffen sind heute `start()` in `src/board.ts`, `renderAiSettings` in `src/ai.ts` und `colorSettings`.
   - Jeder KI-Schalter bekommt einen Satz, was er bewirkt und was er kostet.
   - „Verbindung testen“ zeigt den Outlook-Status, das tatsächlich gewählte Sprachmodell (statt „Automatisch auswählen“), das Embedding-Modell und die Antwortzeit an einer kurzen Probe.

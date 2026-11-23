@@ -93,6 +93,8 @@ def check_board(page, base_url, font_size):
     settings = page.locator("#settingsDialog")
     expect(settings).to_be_visible()
     assert settings.evaluate("(dialog) => dialog.scrollWidth <= dialog.clientWidth + 1")
+    for title in ["Outlook", "Board", "Lokale KI", "Lernen", "Darstellung"]:
+        assert settings.locator("h3", has_text=title).count() == 1
     settings.get_by_label("Echte Mails verschieben erlauben").focus()
     expect(settings.get_by_label("Echte Mails verschieben erlauben")).to_be_in_viewport()
     page.keyboard.press("Escape")

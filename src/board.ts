@@ -630,8 +630,23 @@ async function start() {
   }
   const archiveButton=tag('button','');archiveButton.id='archiveDone';archiveButton.hidden=true;el('workActions').append(archiveButton)
   bindAiBoard(()=>isLive()?mails:[],()=>isLive()?learnerFolders().map(f=>f.path):[])
-  renderAiSettings(el('aiSettings'),()=>isLive()?learnerFolders():[])
-  syncColors=colorSettings(el('aiSettings'),service,()=>isLive(),render)
+  const settings=el('aiSettings'),jump=tag('nav',''),parts:Record<string,HTMLElement>={}
+  jump.className='settings-jump';jump.setAttribute('aria-label','Abschnitte der Einstellungen');jump.hidden=true
+  for(const [key,title,hint] of [
+    ['outlook','Outlook','Wie das Board mit deinem Postfach umgeht.'],['board','Board','Wie viele Mails das Board zeigt und wann es nachfragt.'],
+    ['ki','Lokale KI','Sprachmodell und Embeddings laufen auf deinem Rechner. Mailinhalt geht an kein externes Modell.'],
+    ['lernen','Lernen','Woraus das Board Ablagevorschläge lernt und wie gut sie treffen.'],['darstellung','Darstellung','Was auf den Karten zu sehen ist.']
+  ] as const) {
+    const part=document.createElement('section'),head=tag('h3',title),note=tag('p',hint),body=document.createElement('div')
+    part.id='settings-'+key;part.className='settings-part';head.id='settings-'+key+'-title';head.tabIndex=-1;note.className='field-hint';part.setAttribute('aria-labelledby',head.id)
+    part.append(head,note,body);settings.append(part);parts[key]=body
+    const link=tag('button',title);link.type='button';link.onclick=()=>{head.scrollIntoView({block:'start'});head.focus()};jump.append(link)
+  }
+  settings.prepend(jump)
+  const fitJump=()=>{const dialogBox=el<HTMLDialogElement>('settingsDialog');jump.hidden=false;jump.hidden=dialogBox.scrollHeight<=dialogBox.clientHeight+1}
+  el('openSettings').addEventListener('click',()=>setTimeout(fitJump))
+  window.addEventListener('resize',()=>{if(el<HTMLDialogElement>('settingsDialog').open)fitJump()})
+  renderAiSettings(parts.ki,()=>isLive()?learnerFolders():[],parts.lernen)
   const prefix=tag('input','');prefix.value=String(getLegacyConfig().status_prefix||'Status: ')
   const setPrefix=async()=>{
     if(!prefix.value.trim() || prefix.value.length>128)throw new Error('Bitte ein gültiges Status-Präfix eingeben.')
@@ -639,32 +654,34 @@ async function start() {
     updateConfig({status_prefix:prefix.value})
   }
   prefix.onchange=()=>void exclusive(setPrefix)
-  const labelPrefix=tag('label','Outlook-Statuspräfix');labelPrefix.append(prefix);el('aiSettings').append(labelPrefix)
   if(service && prefix.value!=='Status: '){try{await setPrefix()}catch(error){notify(errorText(error))}}
   const toggle=document.createElement('input');toggle.type='checkbox';toggle.id='allowMove'
   toggle.checked=mayMove()
   toggle.onchange=()=>{updateConfig({allow_move:toggle.checked});render()}
   const label=tag('label','');label.append(toggle,' Echte Mails verschieben erlauben')
-  el('aiSettings').prepend(label)
-  for(const [key,caption,fallback,min,max] of [
-    ['preview_chars','Zeichen in der Kartenvorschau',160,0,1500],['inbox_days','Posteingang · Tage',60,0,36500],['done_days','Erledigt · Tage',14,0,36500],
-    ['sent_days','Gesendet · Tage',14,0,36500],['overdue_days','Überfällig ab Werktagen',5,0,36500],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500],['max_items_per_folder','Limit pro Ordner',500,0,5000],['poll_seconds','Aktualisieren · Sekunden',30,0,86400]
+  const labelPrefix=tag('label','Outlook-Statuspräfix');labelPrefix.append(prefix)
+  parts.outlook.append(label,labelPrefix)
+  for(const [key,caption,fallback,min,max,part] of [
+    ['poll_seconds','Aktualisieren · Sekunden',30,0,86400,'outlook'],['inbox_days','Posteingang · Tage',60,0,36500,'board'],['done_days','Erledigt · Tage',14,0,36500,'board'],
+    ['sent_days','Gesendet · Tage',14,0,36500,'board'],['overdue_days','Überfällig ab Werktagen',5,0,36500,'board'],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500,'board'],['max_items_per_folder','Limit pro Ordner',500,0,5000,'board'],
+    ['preview_chars','Zeichen in der Kartenvorschau',160,0,1500,'darstellung']
   ] as const) {
     const input=document.createElement('input');input.type='number';input.min=String(min);input.max=String(max)
     input.value=String(getLegacyConfig()[key]??fallback)
     input.onchange=()=>{if(input.checkValidity() && Number.isInteger(input.valueAsNumber)){updateConfig({[key]:input.valueAsNumber});render()}}
-    const l=tag('label',caption);l.append(input);el('aiSettings').append(l)
+    const l=tag('label',caption);l.append(input);parts[part].append(l)
   }
-  for(const [key,caption,fallback] of [
-    ['suggestions','Ablagevorschläge auf Karten anzeigen',true],['compact_cards','Kompakte Karten',true],['show_ai_summary','KI-Zusammenfassung auf Karten',true],
-    ['reply_to_offen','Bei erkannter Antwort die wartende Karte automatisch bearbeiten',false]
+  for(const [key,caption,fallback,part] of [
+    ['suggestions','Ablagevorschläge auf Karten anzeigen',true,'darstellung'],['compact_cards','Kompakte Karten',true,'darstellung'],['show_ai_summary','KI-Zusammenfassung auf Karten',true,'darstellung'],
+    ['reply_to_offen','Bei erkannter Antwort die wartende Karte automatisch bearbeiten',false,'board']
   ] as const){
     const input=document.createElement('input');input.type='checkbox'
     input.checked=(getLegacyConfig()[key]??fallback)===true
     input.onchange=()=>{updateConfig({[key]:input.checked});render();void correspondence.refresh()}
-    const label=tag('label','');label.append(input,' '+caption);el('aiSettings').append(label)
+    const label=tag('label','');label.append(input,' '+caption);parts[part].append(label)
   }
-  const vipButton=tag('button','VIP-Liste bearbeiten …');vipButton.type='button';vipButton.id='editVip';vipButton.onclick=()=>views.editVip();el('aiSettings').append(vipButton)
+  const vipButton=tag('button','VIP-Liste bearbeiten …');vipButton.type='button';vipButton.id='editVip';vipButton.onclick=()=>views.editVip();parts.board.append(vipButton)
+  syncColors=colorSettings(parts.outlook,service,()=>isLive(),render)
   initDetailBar()
   dialog.onclose=()=>{suggestionVersion++;if(selected)document.getElementById('mail-'+selected.id)?.focus()}
   search.oninput=render

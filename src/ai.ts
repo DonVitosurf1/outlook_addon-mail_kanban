@@ -675,26 +675,38 @@ export async function queueAnalyses(){
   }catch(error){if(current(epoch))reportQueue('Hintergrundanalyse angehalten. '+String(error))}
   finally{if(current(epoch))processing=false}
 }
-export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[]) {
+export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   learningFolders=getTrainingFolders
-  const panel=document.createElement('div')
-  container.replaceChildren(panel)
+  const panel=document.createElement('div'),learnPanel=learningContainer===container?panel:document.createElement('div')
+  container.append(panel);if(learnPanel!==panel)learningContainer.append(learnPanel)
   refreshAiPanel=()=>{
-    panel.replaceChildren()
-    if(liveSource)renderLiveAiSettings(panel,getTrainingFolders)
+    panel.replaceChildren();learnPanel.replaceChildren()
+    if(liveSource)renderLiveAiSettings(panel,getTrainingFolders,learnPanel)
+    else renderOfflineAiSettings(panel)
   }
   refreshAiPanel()
 }
-function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[]) {
+function renderOfflineAiSettings(container:HTMLElement) {
+  const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen';test.disabled=true
+  const note=document.createElement('p');note.className='field-hint';note.textContent='Die lokale KI gibt es nur mit geöffnetem Outlook-Postfach.'
+  container.append(note,test)
+}
+const sampleMail:AiMail={subject:'Rückfrage zur Lieferung',sender:'Beispiel Lieferant',body:'Guten Tag, wann wird unsere Bestellung 4711 geliefert? Bitte um kurze Rückmeldung bis Freitag.'}
+function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   const epoch=sourceEpoch
   const cfg=config()
   const section=document.createElement('fieldset')
   section.className='ai-section'
   const legend=document.createElement('legend');legend.textContent='Lokale KI · Ollama, llama.cpp oder LM Studio'
   section.append(legend)
-  const bool=(title:string,v:boolean)=>{
+  const bool=(title:string,v:boolean,hint?:string,target:HTMLElement=section)=>{
     const label=document.createElement('label'),input=document.createElement('input')
-    input.type='checkbox';input.checked=v;label.append(input,' '+title);section.append(label);return input
+    input.type='checkbox';input.checked=v;label.append(input,' '+title);target.append(label)
+    if(hint){
+      const note=document.createElement('p');note.className='field-hint';note.textContent=hint
+      note.id='hint-'+title.replace(/\W+/g,'-').toLowerCase();input.setAttribute('aria-describedby',note.id);target.append(note)
+    }
+    return input
   }
   const field=(title:string,v:string)=>{
     const label=document.createElement('label'),input=document.createElement('input')
@@ -704,21 +716,38 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const url=field('Adresse des lokalen Modellservers',cfg.url)
   const model=field('Sprachmodell',cfg.model)
   model.placeholder='Automatisch auswählen'
-  const autoLearn=bool('Lernordner stündlich aktualisieren',cfg.autoLearn)
+  const learnSection=document.createElement('div')
+  const autoLearn=bool('Lernordner stündlich aktualisieren',cfg.autoLearn,'Liest die Lernordner jede Stunde neu ein.',learnSection)
   const trainingState=document.createElement('p');trainingState.id='aiTrainingState';trainingState.setAttribute('role','status')
-  trainingState.textContent=lastTraining;section.append(trainingState)
-  const auto=bool('Geladene Outlook-Mails im Hintergrund analysieren',cfg.auto)
+  trainingState.textContent=lastTraining;learnSection.append(trainingState)
+  const auto=bool('Geladene Outlook-Mails im Hintergrund analysieren',cfg.auto,'Analysiert geladene Mails nacheinander mit dem Sprachmodell. Belastet Rechner und Grafikkarte, solange sie läuft.')
   const queue=document.createElement('p');queue.id='aiQueueState';queue.setAttribute('role','status');queue.textContent=queueStatus;section.append(queue)
-  const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings)
+  const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings,'Vergleicht Mails mit gelernten Ordnerprofilen. Schnell, braucht das Embedding-Modell.')
   const embedModel=field('Embedding-Modell',cfg.embedModel)
   const embedUrl=field('Adresse des lokalen Embedding-Servers',cfg.embedUrl)
   const list=document.createElement('datalist')
   list.id='local-models-list';model.setAttribute('list',list.id);embedModel.setAttribute('list',list.id)
   const check=document.createElement('button');check.type='button';check.textContent='Lokale Modelle laden'
   const save=document.createElement('button');save.type='button';save.textContent='KI-Einstellungen speichern'
+  const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen'
   const feedback=document.createElement('p');feedback.setAttribute('role','status')
-  section.append(list,check,save,feedback);container.append(section)
-  renderLearning(container,getTrainingFolders)
+  section.append(list,check,test,save,feedback);container.append(section)
+  learningContainer.append(learnSection)
+  renderLearning(learningContainer,getTrainingFolders)
+  test.onclick=async()=>{
+    test.disabled=true;feedback.textContent='Verbindung wird getestet …'
+    try{
+      const probe={...config(),enabled:on.checked,url:url.value.trim(),model:model.value.trim(),embedModel:embedModel.value.trim()}
+      const names=await native()<string[]>('ai_models',{url:probe.url})
+      const chat=await activeModel(probe)
+      const embed=names.some(n=>n===probe.embedModel||n.replace(/:latest$/,'')===probe.embedModel.replace(/:latest$/,''))
+      const started=performance.now()
+      await analyze(sampleMail,[],probe)
+      const seconds=((performance.now()-started)/1000).toLocaleString('de-DE',{maximumFractionDigits:1})
+      if(current(epoch))feedback.textContent='Outlook: verbunden · Sprachmodell: '+chat+' · Embedding-Modell '+probe.embedModel+': '+(embed?'vorhanden':'nicht gefunden')+' · Antwortzeit: '+seconds+' s'
+    }catch(error){if(current(epoch))feedback.textContent='Verbindung fehlgeschlagen: '+(error instanceof Error?error.message:String(error))}
+    finally{test.disabled=false}
+  }
   check.onclick=async()=>{
     check.disabled=true;feedback.textContent='Lokaler Modellserver wird geprüft …'
     try{

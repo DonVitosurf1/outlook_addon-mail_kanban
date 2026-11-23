@@ -472,3 +472,9 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .detail-bar button[aria-pressed=true] kbd { background: transparent; color: inherit; border-color: currentColor; }
 .detail-bar button:disabled { cursor: not-allowed; }
 .detail-bar [hidden] { display: none; }
+.settings-part { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .5rem; }
+.settings-part:first-of-type { border-top: 0; margin-top: .5rem; }
+.settings-part h3 { font-size: 1.05rem; margin: .2rem 0 0; }
+.settings-part h3:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.settings-jump { position: sticky; top: -1.35rem; z-index: 1; display: flex; flex-wrap: wrap; gap: .35rem; padding: .4rem 0; background: var(--surface); }
+.settings-jump[hidden] { display: none; }
