@@ -13,10 +13,10 @@ type Options = CleanupOptions & {
   getMails: () => readonly ViewMail[]
   isLive: () => boolean
   onPick: (id: string) => void
-  openUnanswered?: () => Promise<void>|void
   startTriage: () => void
   triageActive: () => boolean
   routines: () => Routine[]
+  openCalendar: () => void
   markRoutine: (id: string) => void
   showFocus: (key: 'today' | 'focus') => void
   showOverdue: () => void
@@ -207,7 +207,7 @@ export function initCockpit(options: Options) {
       const {counts} = weeklyCounts(options.isLive())
       body.append(element('h3','Diese Woche'),element('p',
         'Abgelegt: '+counts.filed+' · Nachgefasst: '+counts.followed_up+' · Wiedervorlage gesetzt: '+counts.snoozed))
-      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene')))
+      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene'),link('Wochenkalender',options.openCalendar)))
     } else {
       title.textContent = 'Start'
       const focusCount=options.getMails().filter(m=>isFocusCard(m,day)).length

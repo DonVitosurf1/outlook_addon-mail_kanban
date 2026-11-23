@@ -597,9 +597,9 @@ async function start() {
     },
     routines:loadRoutines,markRoutine:id=>markRoutine(id),runRoutine:r=>runRoutine(r.action||''),
     cases:()=>allCases(mails),toggleItem})
-  cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,openUnanswered:()=>correspondence.show(),
+  cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,
     startTriage:()=>triage?.start(),triageActive:()=>!!triage?.active,routines:loadRoutines,
-    markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),
+    openCalendar:()=>calendar.open(),markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),
     onStatus:(ids:string[],status:string)=>change(ids,{kind:'status',value:status}),
     onFolder:(ids:string[],target:string)=>change(ids,{kind:'move',value:target}),
     getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:undo,
