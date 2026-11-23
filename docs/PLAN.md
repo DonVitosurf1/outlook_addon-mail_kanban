@@ -49,13 +49,13 @@ Für alle Punkte gilt:
 
 ### K3 Hintergrund-Einbettung (Grundlage)
 
-- [ ] **Rust-Befehle**, die Vektoren im vorhandenen `VectorCache` halten statt sie an die Oberfläche zu geben:
+- [x] **Rust-Befehle**, die Vektoren im vorhandenen `VectorCache` halten statt sie an die Oberfläche zu geben:
   - `ai_embed(model, items:[{id,text}])` füllt den Cache.
   - `ai_rank(model, query, ids)` liefert Ähnlichkeiten.
   - `ai_groups(model, groups:[{name, ids}], ids)` liefert die beste Gruppe je Mail mit Abstand zur zweitbesten.
   - Den Text liefert `embedText()` aus `src/ai.ts`, der Cache-Schlüssel ist Modell plus Inhalts-Hash.
-- [ ] **Warteschlange** in `src/ai.ts`: nach `queueAnalyses` neue bzw. geänderte geladene Mails stapelweise (z. B. 16) einbetten, neueste zuerst. Abbruch bei Quellwechsel (`sourceEpoch`), Fortschritt in der KI-Statuszeile.
-- [ ] **Tests**: Rust-HTTP-Test für Stapel und Cache-Treffer (zweiter Lauf ohne Modellaufruf), Unit-Test für die Reihenfolge.
+- [x] **Warteschlange** in `src/ai.ts`: nach `queueAnalyses` neue bzw. geänderte geladene Mails stapelweise (z. B. 16) einbetten, neueste zuerst. Abbruch bei Quellwechsel (`sourceEpoch`), Fortschritt in der KI-Statuszeile.
+- [x] **Tests**: Rust-HTTP-Test für Stapel und Cache-Treffer (zweiter Lauf ohne Modellaufruf), Unit-Test für die Reihenfolge.
 
 ### K4 Vorgang-Vorschlag
 

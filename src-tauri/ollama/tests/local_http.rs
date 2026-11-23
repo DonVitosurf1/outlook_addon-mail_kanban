@@ -1,3 +1,4 @@
+use mailboard_ollama::index::{Group, Item};
 use mailboard_ollama::{Folder, Mail, Ollama};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -405,4 +406,142 @@ async fn lm_studio_lists_only_local_models_and_embeds_via_openai_api() {
     assert_eq!(scores[0].folder, "/Labor");
     let reqs = server.join().unwrap();
     assert!(reqs[6].contains("POST /v1/embeddings"));
+}
+
+fn items(texts: &[&str]) -> Vec<Item> {
+    texts
+        .iter()
+        .map(|t| Item {
+            id: format!("id-{t}"),
+            text: t.to_string(),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn background_embedding_batches_missing_items_and_reuses_cache() {
+    let info = json!({"model_info":{"general.architecture":"test"}});
+    let rows = |range: std::ops::Range<usize>| json!({"embeddings":range.map(|i|[i as f64+1.0,1.0]).collect::<Vec<_>>()});
+    let (url, server) = mock(vec![
+        ("200 OK", info.clone()),
+        ("200 OK", rows(0..16)),
+        ("200 OK", rows(16..20)),
+        ("200 OK", info),
+    ]);
+    let root = std::env::temp_dir().join(format!(
+        "mailboard-embed-test-{}-{}",
+        std::process::id(),
+        url.split(':').next_back().unwrap()
+    ));
+    let texts = (0..20).map(|i| format!("Mail-{i:02}")).collect::<Vec<_>>();
+    let list = items(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+    for expected in [20, 0] {
+        let client = Ollama::new(&url).unwrap().with_cache(root.clone());
+        assert_eq!(client.embed("test", &list).await.unwrap(), expected);
+    }
+    let calls = server.join().unwrap();
+    assert_eq!(calls.len(), 4);
+    assert!(calls[1].contains("POST /api/embed") && calls[1].contains("Mail-15"));
+    assert!(!calls[1].contains("Mail-16"));
+    assert!(calls[2].contains("Mail-16") && calls[2].contains("Mail-19"));
+    assert!(!calls[2].contains("Mail-15"));
+    assert!(calls[3].contains("POST /api/show") && !calls[3].contains("Mail-"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn rank_sorts_items_by_similarity_to_query() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"test"}}),
+        ),
+        ("200 OK", json!({"embeddings":[[1,0],[0,1],[1,0],[1,1]]})),
+    ]);
+    let ranked = Ollama::new(&url)
+        .unwrap()
+        .rank(
+            "test",
+            "Pipetten",
+            &items(&["Urlaub", "Pipettenspitzen", "Labor"]),
+        )
+        .await
+        .unwrap();
+    let ids = ranked.iter().map(|s| s.id.as_str()).collect::<Vec<_>>();
+    assert_eq!(ids, ["id-Pipettenspitzen", "id-Labor", "id-Urlaub"]);
+    assert!((ranked[0].score - 1.0).abs() < 1e-9 && ranked[2].score.abs() < 1e-9);
+    assert!(server.join().unwrap()[1].contains("Pipetten"));
+}
+
+#[tokio::test]
+async fn groups_return_best_group_with_margin_to_second() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"test"}}),
+        ),
+        (
+            "200 OK",
+            json!({"embeddings":[[1,0],[1,0.2],[0,1],[1,0.1],[0.2,1]]}),
+        ),
+    ]);
+    let groups = [
+        Group {
+            name: "Labor".into(),
+            items: items(&["Proben", "Messung"]),
+        },
+        Group {
+            name: "Leer".into(),
+            items: vec![],
+        },
+        Group {
+            name: "Personal".into(),
+            items: items(&["Urlaub"]),
+        },
+    ];
+    let matches = Ollama::new(&url)
+        .unwrap()
+        .groups("test", &groups, &items(&["Probenversand", "Urlaubsantrag"]))
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        (matches[0].id.as_str(), matches[0].best.as_str()),
+        ("id-Probenversand", "Labor")
+    );
+    assert_eq!(matches[1].best, "Personal");
+    for m in &matches {
+        assert!(m.margin > 0.5 && m.margin < m.score);
+    }
+    assert_eq!(server.join().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn embedding_index_refuses_cloud_and_remote_models() {
+    let list = items(&["Interne Nachfrage"]);
+    let group = [Group {
+        name: "Labor".into(),
+        items: list.clone(),
+    }];
+    let (url, server) = mock(vec![]);
+    let client = Ollama::new(&url).unwrap();
+    assert!(client.embed("embed:cloud", &list).await.is_err());
+    assert!(client.rank("embed:cloud", "Labor", &list).await.is_err());
+    assert!(client.groups("embed:cloud", &group, &list).await.is_err());
+    assert!(server.join().unwrap().is_empty());
+    let remote = json!({"model_info":{"general.architecture":"x"},"remote_host":"https://elsewhere.invalid"});
+    let (url, server) = mock(vec![
+        ("200 OK", remote.clone()),
+        ("200 OK", remote.clone()),
+        ("200 OK", remote),
+    ]);
+    let client = Ollama::new(&url).unwrap();
+    assert!(client.embed("alias", &list).await.is_err());
+    assert!(client.rank("alias", "Labor", &list).await.is_err());
+    assert!(client.groups("alias", &group, &list).await.is_err());
+    let calls = server.join().unwrap();
+    assert_eq!(calls.len(), 3);
+    for call in calls {
+        assert!(call.contains("POST /api/show") && !call.contains("Interne Nachfrage"));
+    }
 }

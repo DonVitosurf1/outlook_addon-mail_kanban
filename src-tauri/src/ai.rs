@@ -1,4 +1,5 @@
 use mailboard_ollama::cache::{Evaluation, EvaluationFolder, SampleIndex};
+use mailboard_ollama::index::{Group, GroupMatch, Item};
 use mailboard_ollama::{Analysis, Folder, Mail, Ollama, Sample, Score};
 use tauri::Manager;
 
@@ -49,6 +50,47 @@ pub async fn ai_centroid(
         vector,
         index: client.sample_index(&model, &samples, &description),
     })
+}
+
+#[tauri::command]
+pub async fn ai_embed(
+    app: tauri::AppHandle,
+    url: String,
+    model: String,
+    items: Vec<Item>,
+) -> Result<usize, String> {
+    Ollama::new(&url)?
+        .with_cache(vector_path(&app)?)
+        .embed(&model, &items)
+        .await
+}
+
+#[tauri::command]
+pub async fn ai_rank(
+    app: tauri::AppHandle,
+    url: String,
+    model: String,
+    query: String,
+    items: Vec<Item>,
+) -> Result<Vec<mailboard_ollama::index::Score>, String> {
+    Ollama::new(&url)?
+        .with_cache(vector_path(&app)?)
+        .rank(&model, &query, &items)
+        .await
+}
+
+#[tauri::command]
+pub async fn ai_groups(
+    app: tauri::AppHandle,
+    url: String,
+    model: String,
+    groups: Vec<Group>,
+    items: Vec<Item>,
+) -> Result<Vec<GroupMatch>, String> {
+    Ollama::new(&url)?
+        .with_cache(vector_path(&app)?)
+        .groups(&model, &groups, &items)
+        .await
 }
 
 #[derive(serde::Serialize)]

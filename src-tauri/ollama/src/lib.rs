@@ -1,4 +1,5 @@
 pub mod cache;
+pub mod index;
 mod structure;
 use reqwest::{redirect::Policy, Client, Url};
 use serde::{Deserialize, Serialize};

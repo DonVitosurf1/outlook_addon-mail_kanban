@@ -22,7 +22,7 @@ export function setAiLive(live:boolean,mode:'offline'|'demo'|'outlook'=live?'out
   if(mode===mailboxMode&&live===liveSource)return
   mailboxMode=mode;liveSource=live;sourceEpoch++
   if(typeof window!=='undefined')window.clearTimeout?.(learnTimer)
-  training=undefined;processing=false;retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
+  training=undefined;processing=false;embedding=false;embedded.clear();retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
   recent=undefined;legacyCache=undefined;importedCache.clear()
   refreshAiPanel?.()
   if(typeof document!=='undefined')document.dispatchEvent?.(new Event('mailboard:source-changed'))
@@ -447,8 +447,8 @@ function cache(){
   return recent
 }
 // Keep content-sensitive invalidation without retaining mail bodies in the analysis cache.
-function signature(mail:AiMail){
-  let hash=2166136261
+function signature(mail:AiMail,seed=2166136261){
+  let hash=seed
   for(const value of [mail.subject,mail.sender,mail.body,mail.received||'']){
     for(let i=0;i<value.length;i++)hash=Math.imul(hash^value.charCodeAt(i),16777619)
     hash=Math.imul(hash,16777619)
@@ -658,6 +658,11 @@ function reportQueue(text:string){queueStatus=text;const node=document.getElemen
 export async function queueAnalyses(){
   if(!liveSource)return
   const epoch=sourceEpoch
+  await analysisQueue()
+  if(current(epoch)&&!processing)await queueEmbeddings()
+}
+async function analysisQueue(){
+  const epoch=sourceEpoch
   scheduleLearning()
   const cfg=config()
   if(!cfg.enabled||!cfg.auto||processing||!readBoard)return
@@ -674,6 +679,77 @@ export async function queueAnalyses(){
     if(current(epoch))reportQueue('Hintergrundanalyse abgeschlossen.')
   }catch(error){if(current(epoch))reportQueue('Hintergrundanalyse angehalten. '+String(error))}
   finally{if(current(epoch))processing=false}
+}
+/** Stable across Outlook moves (new EntryID): two content hashes of subject, sender, body and receipt time. */
+export function embeddingId(mail:AiMail){return signature(mail)+'.'+signature(mail,0x5bd1e995)}
+/** Mails still to embed: newest first, each content only once, already embedded ones skipped. */
+export function pendingEmbeddings(mails:AiMail[],done:ReadonlySet<string>):AiMail[]{
+  const seen=new Set(done)
+  return mails.filter(m=>{const id=embeddingId(m);if(seen.has(id))return false;seen.add(id);return true})
+    .sort((a,b)=>(b.received||'').localeCompare(a.received||''))
+}
+const embedBatch=16
+let embedding=false, embeddedStamp=''
+const embedded=new Set<string>()
+function embeddingsOn(cfg:Config){return mailboxMode==='outlook'&&cfg.enabled&&cfg.embeddings}
+const embeddingStamp=(cfg:Config)=>JSON.stringify([cfg.embedUrl,cfg.embedModel,embeddingOptions()])
+/** Vectors live in the Rust cache; this only remembers which contents were sent for the current model and text options. */
+function embeddedFor(cfg:Config){
+  const stamp=embeddingStamp(cfg)
+  if(stamp!==embeddedStamp){embedded.clear();embeddedStamp=stamp}
+  return embedded
+}
+export async function queueEmbeddings(){
+  if(!liveSource)return
+  const epoch=sourceEpoch, cfg=config()
+  if(!embeddingsOn(cfg)||embedding||!readBoard)return
+  embedding=true
+  try{
+    const done=embeddedFor(cfg), pending=pendingEmbeddings(readBoard(),done)
+    if(!pending.length)return
+    const invoke=native(), stamp=embeddedStamp
+    for(let i=0;i<pending.length;i+=embedBatch){
+      if(!current(epoch)||!embeddingsOn(config())||embeddingStamp(config())!==stamp)return
+      const batch=pending.slice(i,i+embedBatch)
+      reportQueue('Einbettung '+(i+batch.length)+' von '+pending.length+' …')
+      await invoke<number>('ai_embed',{url:cfg.embedUrl,model:cfg.embedModel,items:batch.map(m=>({id:embeddingId(m),text:embedText(m)}))})
+      if(current(epoch)&&embeddedStamp===stamp)for(const m of batch)done.add(embeddingId(m))
+    }
+    if(current(epoch))reportQueue('Einbettung abgeschlossen.')
+  }catch(error){if(current(epoch))reportQueue('Einbettung angehalten. '+String(error))}
+  finally{if(current(epoch))embedding=false}
+}
+export type GroupMatch={id:string;best:string;score:number;margin:number}
+type IndexItem={id:string;text:string}
+/** Ids are `embeddingId(mail)` of loaded board mails; unknown ids are ignored. */
+function indexItems(ids:string[]):IndexItem[]{
+  const board=new Map((readBoard?.()||[]).map(m=>[embeddingId(m),m]))
+  return [...new Set(ids)].flatMap(id=>{const m=board.get(id);return m?[{id,text:embedText(m)}]:[]})
+}
+async function indexCall<T>(command:string,args:Record<string,unknown>,items:IndexItem[]):Promise<T>{
+  const invoke=native(), cfg=config()
+  if(!embeddingsOn(cfg))throw new Error('Bitte die lokale KI und Embeddings in den Einstellungen aktivieren.')
+  const done=embeddedFor(cfg), stamp=embeddedStamp
+  const result=await invoke<T>(command,{url:cfg.embedUrl,model:cfg.embedModel,...args})
+  if(embeddedStamp===stamp)for(const item of items)done.add(item.id)
+  return result
+}
+/** Similarity over the background embeddings; vectors stay in Rust, only scores come back. */
+export const embeddingIndex={
+  ready(ids:string[]):string[]{
+    const cfg=config()
+    if(!liveSource||!embeddingsOn(cfg))return []
+    const done=embeddedFor(cfg)
+    return ids.filter(id=>done.has(id))
+  },
+  rank(query:string,ids:string[]):Promise<{id:string;score:number}[]>{
+    const items=indexItems(ids)
+    return indexCall('ai_rank',{query,items},items)
+  },
+  groups(groups:{name:string;ids:string[]}[],ids:string[]):Promise<GroupMatch[]>{
+    const sets=groups.map(g=>({name:g.name,items:indexItems(g.ids)})), items=indexItems(ids)
+    return indexCall('ai_groups',{groups:sets,items},[...sets.flatMap(g=>g.items),...items])
+  },
 }
 export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   learningFolders=getTrainingFolders
@@ -722,7 +798,7 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   trainingState.textContent=lastTraining;learnSection.append(trainingState)
   const auto=bool('Geladene Outlook-Mails im Hintergrund analysieren',cfg.auto,'Analysiert geladene Mails nacheinander mit dem Sprachmodell. Belastet Rechner und Grafikkarte, solange sie läuft.')
   const queue=document.createElement('p');queue.id='aiQueueState';queue.setAttribute('role','status');queue.textContent=queueStatus;section.append(queue)
-  const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings,'Vergleicht Mails mit gelernten Ordnerprofilen. Schnell, braucht das Embedding-Modell.')
+  const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings,'Vergleicht Mails mit gelernten Ordnerprofilen und bettet geladene Mails im Hintergrund ein. Schnell, braucht das Embedding-Modell.')
   const embedModel=field('Embedding-Modell',cfg.embedModel)
   const embedUrl=field('Adresse des lokalen Embedding-Servers',cfg.embedUrl)
   const list=document.createElement('datalist')
