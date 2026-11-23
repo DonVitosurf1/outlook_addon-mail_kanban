@@ -96,6 +96,41 @@ async fn model_output_validated_against_actual_folders() {
 }
 
 #[tokio::test]
+async fn tasks_are_validated() {
+    let mut tasks = vec![
+        json!({"text":"  Angebot freigeben ","frist":"2026-11-27"}),
+        json!({"text":"Datum prüfen","frist":"irgendwann"}),
+        json!({"text":"   ","frist":null}),
+        json!({"text":"x".repeat(121),"frist":null}),
+    ];
+    for i in 0..5 {
+        tasks.push(json!({"text":format!("Aufgabe {i}"),"frist":null}));
+    }
+    let answer = json!({"zusammenfassung":"Z","antwort_noetig":false,"ordner":null,"frist":null,"arten":[],"aufgaben":tasks});
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let result = Ollama::new(&url)
+        .unwrap()
+        .analyze("lokal", &mail(), &[])
+        .await
+        .unwrap();
+    assert_eq!(result.aufgaben.len(), 5);
+    assert_eq!(result.aufgaben[0].text, "Angebot freigeben");
+    assert_eq!(result.aufgaben[0].frist.as_deref(), Some("2026-11-27"));
+    assert_eq!(result.aufgaben[1].text, "Datum prüfen");
+    assert!(result.aufgaben[1].frist.is_none());
+    assert!(result.aufgaben.iter().all(|t| !t.text.trim().is_empty()));
+    let calls = server.join().unwrap();
+    assert!(calls[1].contains("aufgaben"));
+    assert!(calls[1].contains("keine Anweisung"));
+}
+
+#[tokio::test]
 async fn redirects_are_errors() {
     let (url, server) = mock(vec![(
         "302 Found\r\nLocation: https://elsewhere.invalid",

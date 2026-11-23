@@ -249,6 +249,7 @@ body:not([data-view=board]) :is(#board, #triage, #viewMenu, #selectionCount) { d
   border-radius: 999px; color: var(--muted); font-size: .72rem; font-variant-numeric: tabular-nums;
 }
 .count-attachments::before { content: "📎" / ""; filter: grayscale(1); font-size: .7rem; }
+.count-tasks { color: var(--accent-ink); border-color: var(--accent); }
 .count-thread::before { content: "✉" / ""; font-size: .75rem; }
 .card .card-note { color: var(--muted); }
 .card .card-suggestion { margin-top: .3rem; color: var(--accent-ink); overflow-wrap: anywhere; }
@@ -452,6 +453,12 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .case-detail .planning-list li { background: var(--surface); }
 .case-new label:has(input[type=checkbox]) { display: block; }
 @media(max-width: 44rem) { .case-layout { grid-template-columns: 1fr; } }
+.mail-tasks { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .75rem; }
+.mail-tasks h3 { margin: 0 0 .4rem; font-size: 1rem; }
+.mail-tasks ul { list-style: none; display: grid; gap: .3rem; margin: 0 0 .6rem; padding: 0; }
+.mail-tasks li { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; padding: .3rem .55rem; border-radius: var(--radius-panel, .7rem); background: var(--soft); }
+.mail-tasks li input[type=text] { flex: 1 1 14rem; min-width: 0; }
+.mail-tasks .task-target { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; }
 .field-hint { margin: .3rem 0 0; font-size: .85em; color: var(--muted, inherit); }
 
 .toast { position: fixed; z-index: 100; left: 50%; bottom: 1.2rem; transform: translateX(-50%); display: flex; align-items: center; gap: .6rem; max-width: min(36rem, calc(100vw - 2rem)); padding: .5rem .5rem .5rem 1rem; background: #fff; color: var(--ink, #1c1b1f); border: 1px solid var(--line, #d8d8d8); border-radius: 999px; box-shadow: 0 6px 22px rgba(0,0,0,.2); font-size: .85rem; }

@@ -33,11 +33,11 @@ Für alle Punkte gilt:
 
 ### K1 Aufgaben → Checkliste
 
-- [ ] **Analyse erweitern** (`lib.rs`, `analyze`): Das Schema bekommt `aufgaben: [{text, frist|null}]`, der Prompt fordert nur ausdrücklich verlangte, konkrete Handlungen an *mich*. Validierung: höchstens 5 Aufgaben, Text bis 120 Zeichen, Frist über `plausible_deadline`, sonst `null`.
-- [ ] **Typen und Cache** (`src/ai.ts`): `Analysis` um `aufgaben` ergänzen. Ältere gespeicherte Analysen ohne das Feld gelten beim Öffnen der Maildetails als unvollständig und werden dann neu berechnet. Die Hintergrund-Warteschlange rechnet *nicht* alles neu.
-- [ ] **Karte**: Zähler-Pille „2 Aufgaben“ in der Fußzeile (`card-content.ts`, `counter()`), nur für noch nicht übernommene Aufgaben.
-- [ ] **Maildetails**: Abschnitt „Aufgaben“ mit Haken je Aufgabe, Datum änderbar. Ziel ist der Vorgang der Mail oder bei mehreren eine Auswahl. Ohne Vorgang wird ein neuer angelegt, nach dem Betreff benannt (Präfixe AW/WG/RE entfernt, `,;` ersetzt, Prüfung mit `caseNameProblem`), und die Mail zugeordnet. „Übernehmen“ schreibt die Punkte per `updateCase` und merkt sich übernommene Aufgaben je Mail.
-- [ ] **Tests**: ein HTTP-Test in Rust für Schema und Validierung (ungültige Frist, mehr als 5 Aufgaben), Unit-Test für die Namensbildung, Smoke-Test mit simulierter Analyse: übernehmen → Checkliste → Kalender.
+- [x] **Analyse erweitern** (`lib.rs`, `analyze`): Das Schema bekommt `aufgaben: [{text, frist|null}]`, der Prompt fordert nur ausdrücklich verlangte, konkrete Handlungen an *mich*. Validierung: höchstens 5 Aufgaben, Text bis 120 Zeichen, Frist über `plausible_deadline`, sonst `null`.
+- [x] **Typen und Cache** (`src/ai.ts`): `Analysis` um `aufgaben` ergänzen. Ältere gespeicherte Analysen ohne das Feld gelten beim Öffnen der Maildetails als unvollständig und werden dann neu berechnet. Die Hintergrund-Warteschlange rechnet *nicht* alles neu.
+- [x] **Karte**: Zähler-Pille „2 Aufgaben“ in der Fußzeile (`card-content.ts`, `counter()`), nur für noch nicht übernommene Aufgaben.
+- [x] **Maildetails**: Abschnitt „Aufgaben“ mit Haken je Aufgabe, Datum änderbar. Ziel ist der Vorgang der Mail oder bei mehreren eine Auswahl. Ohne Vorgang wird ein neuer angelegt, nach dem Betreff benannt (Präfixe AW/WG/RE entfernt, `,;` ersetzt, Prüfung mit `caseNameProblem`), und die Mail zugeordnet. „Übernehmen“ schreibt die Punkte per `updateCase` und merkt sich übernommene Aufgaben je Mail.
+- [x] **Tests**: ein HTTP-Test in Rust für Schema und Validierung (ungültige Frist, mehr als 5 Aufgaben), Unit-Test für die Namensbildung, Smoke-Test mit simulierter Analyse: übernehmen → Checkliste → Kalender.
 - **Fertig, wenn** eine Mail mit „Bitte bis Freitag das Angebot freigeben“ eine übernehmbare Aufgabe mit Freitagsdatum zeigt, die danach im Vorgang und im Kalender steht.
 
 ### K2 Briefing-Text

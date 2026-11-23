@@ -147,6 +147,19 @@ export function caseNameProblem(name:string,existing:readonly Case[]=[]){
   if(existing.some(c=>same(c.name,value)))return 'Einen Vorgang mit diesem Namen gibt es bereits.'
   return ''
 }
+/** Vorgangsname aus einem Betreff: Antwort-Präfixe weg, `,;` ersetzt, höchstens 60 Zeichen, bei Namensgleichheit „ (2)“ usw. */
+export function caseNameFromSubject(subject:string,existing:readonly Case[]=[]){
+  let base=subject.replace(/[,;]/g,' ').replace(/\s+/g,' ').trim()
+  for(let m=/^(aw|wg|re|fwd|fw)\s*:\s*/i.exec(base);m;m=/^(aw|wg|re|fwd|fw)\s*:\s*/i.exec(base))base=base.slice(m[0].length)
+  base=base.slice(0,60).trim()||'Neuer Vorgang'
+  let name=base
+  for(let n=2;caseNameProblem(name,existing);n++){
+    const suffix=' ('+n+')'
+    name=base.slice(0,60-suffix.length).trimEnd()+suffix
+    if(n>999)break
+  }
+  return name
+}
 export function caseMails<T extends ViewMail>(mails:readonly T[],name:string){
   return mails.filter(m=>caseNames(m).some(n=>same(n,name)))
 }
@@ -237,13 +250,14 @@ export function briefing<T extends ViewMail>(mails:readonly T[],options:{today?:
     focus:mails.filter(m=>isFocusCard(m,today)),
     routines:dueRoutines(options.routines||[],today),
     checklist:items,
+    openTasks:mails.reduce((sum,m)=>sum+((m as {aiTasks?:unknown[]}).aiTasks?.length||0),0),
   }
 }
 
 // ---------- Briefing-Text ----------
 type TextMail=ViewMail&{aiSummary?:string}
 const clip=(text:string,max:number)=>text.length>max?text.slice(0,max-1).trimEnd()+'…':text
-export function briefingText(b:{fresh:readonly unknown[];reply:readonly TextMail[];due:readonly TextMail[]},options:{since?:string;today?:string}={}){
+export function briefingText(b:{fresh:readonly unknown[];reply:readonly TextMail[];due:readonly TextMail[];openTasks?:number},options:{since?:string;today?:string}={}){
   const today=options.today||localDay(),n=b.fresh.length
   const parts=[(n?n+(n===1?' neue Mail':' neue Mails'):'Keine neuen Mails')+' '+(options.since||'in den letzten 24 Stunden')+'.']
   if(b.reply.length){
@@ -252,5 +266,6 @@ export function briefingText(b:{fresh:readonly unknown[];reply:readonly TextMail
   }
   const dl=b.due.filter(m=>(m.deadline||'').slice(0,10)===today&&dueReasons(m,today).includes('Frist')).slice(0,3)
   if(dl.length)parts.push('Frist heute: '+dl.map(m=>m.subject||'(ohne Betreff)').join(', ')+'.')
+  if(b.openTasks)parts.push(b.openTasks+(b.openTasks===1?' offene Aufgabe.':' offene Aufgaben.'))
   return parts.join(' ')
 }

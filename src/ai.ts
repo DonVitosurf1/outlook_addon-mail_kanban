@@ -1,10 +1,11 @@
 import { getLegacyConfig, getLegacyProfiles, getLegacyFile, updateConfig } from './data-settings'
 import type { Folder, Invoke } from './live'
+import { openTasks, type Task } from './tasks-taken'
 
-export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[]}
+export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
 export type Suggestion = {folder:string;reason:string}
 type FolderInfo = {key:string;profile:string}
-type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[]}
+type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[];aufgaben?:Task[]}
 type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;embedModel:string}
 const settingsKey='outlook-kanban-ai-settings-v1'
 const feedbackKey='outlook-kanban-filing-feedback-v1'
@@ -491,7 +492,8 @@ export async function localChatModel() {
 }
 async function analyze(m:AiMail, folders:FolderInfo[],cfg:Config) {
   const invoke=native(), model=await activeModel(cfg)
-  return invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
+  const result=await invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
+  return {...result,aufgaben:Array.isArray(result.aufgaben)?result.aufgaben:[]}
 }
 
 const cacheKey='outlook-kanban-ai-cache-v1'
@@ -566,7 +568,7 @@ function lookupAnalysis(mail:AiMail):Analysis|undefined {
     ordner:typeof old.folder==='string'?old.folder:null,arten:Array.isArray(old.types)?old.types.filter((v):v is string=>typeof v==='string'):[]}
 }
 function applyAnalysis(mail:AiMail,result:Analysis){
-  Object.assign(mail,{needsReply:result.antwort_noetig,deadline:result.frist||'',aiSummary:result.zusammenfassung,aiTypes:result.arten})
+  Object.assign(mail,{needsReply:result.antwort_noetig,deadline:result.frist||'',aiSummary:result.zusammenfassung,aiTypes:result.arten,aiTasks:openTasks(result.aufgaben,embeddingId(mail))})
 }
 function retainAnalysis(mail:AiMail,result:Analysis){
   const key=feedbackId(mail)
@@ -710,7 +712,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
   container.append(button,feedback,types)
   const cached=lookupAnalysis(mail)
   if(cached)show(cached)
-  button.onclick=async()=>{
+  const run=async()=>{
     if(!current(epoch))return
     button.disabled=true
     feedback.textContent='Lokale KI wertet die Mail aus …'
@@ -722,6 +724,9 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
     }catch(error){feedback.textContent=String(error)}
     finally{button.disabled=false}
   }
+  button.onclick=run
+  // Ältere Analysen kennen keine Aufgaben. Beim Öffnen der Details werden sie einmal neu berechnet.
+  if(cached&&!Array.isArray(cached.aufgaben))void run()
   if(openDraft){
     const generate=document.createElement('button');generate.type='button';generate.textContent='KI-Antwort entwerfen'
     const draft=document.createElement('textarea');draft.hidden=true;draft.rows=6;draft.setAttribute('aria-label','KI-Antwort vor dem Öffnen bearbeiten')

@@ -16,6 +16,7 @@ import { maybeIntro } from './intro'
 import { initTriage } from './triage'
 import { initRoutines, markRoutine } from './routines'
 import { initCalendar } from './calendar'
+import { renderMailTasks } from './mail-tasks'
 import { allCases, initCases, toggleCaseItem } from './cases'
 import { shortcutFor, type ShortcutAction } from './shortcuts'
 import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
@@ -252,6 +253,7 @@ function needsStatus(mail:Mail,value:string){
  * `failed` zusätzlich zur Meldungszeile den Fehlertext.
  */
 type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[];offBoard?:Mail[];moved?:(id:string)=>void;failed?:(text:string)=>void}
+const assignCase=(ids:string[],name:string,on:boolean)=>change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,caseTag(name),on)})
 async function change(ids:string[],action:Mutation) {
   if(action.offBoard&&!isLive())return
   await exclusive(()=>reporting(action.failed,async()=>{
@@ -451,6 +453,12 @@ function initDetailBar() {
     e.preventDefault()
   })
 }
+function showTasks(mail:Mail) {
+  renderMailTasks(el('tasks'),mail,{cases:()=>allCases(mails),canAssign:hasMailbox,confirm:(question,label)=>ask(dialog,question,label),
+    assign:async(m,name)=>{await assignCase([m.id],name,true)},undo:()=>void undo(),
+    refresh:()=>{for(const m of mails)restoreAnalysis(m);if(selected)selected=mails.find(m=>m.id===selected!.id)||selected;window.dispatchEvent(new Event('kanban-analysis'))}})
+}
+window.addEventListener('kanban-analysis',()=>{if(selected&&dialog.open)showTasks(selected)})
 function fillDetail(mail:Mail) {
   const version=++suggestionVersion
   correspondence?.detail(mail.id,el('detailActions'))
@@ -471,6 +479,7 @@ function fillDetail(mail:Mail) {
   const choices=learnerFolders().filter(f=>f.id!==(mail.folderId||mail.folder)).map(f=>f.path)
   renderAnalysis(el('analysis'),mail,choices,isLive()?async(text:string)=>{await draft(mail,'reply',text)}:undefined,
     async(tags:string[])=>{await change([mail.id],{kind:'tags',value:tags})})
+  showTasks(mail)
   const suggest=el<HTMLButtonElement>('suggestFolder')
   suggest.disabled=false
   currentSuggestion=async(apply:boolean)=>{
@@ -594,7 +603,7 @@ async function start() {
     assignCase:ids=>cases?.openAssign(ids)})
   let previousScope=''
   const overdueDays=()=>Number(getLegacyConfig().overdue_days??5)
-  const assign=(ids:string[],name:string,on:boolean)=>change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,caseTag(name),on)})
+  const assign=assignCase
   // Lokale Planungsdaten (Routinen, Vorgänge) ändern Banner, Seitenleiste und offene Dialoge.
   document.addEventListener('mailboard:planning',()=>render())
   const toggleItem=toggleCaseItem

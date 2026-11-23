@@ -1,0 +1,99 @@
+"""K1: Aufgaben aus der KI-Analyse als Pille, Übernahme in einen Vorgang, Checkliste im Tab Vorgänge, Eintrag im Kalender."""
+import datetime as dt
+import os
+import shutil
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from threading import Thread
+
+from playwright.sync_api import expect, sync_playwright
+
+
+class Quiet(SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
+LIVE = """
+localStorage.setItem('kanban-board-options-v1', JSON.stringify({poll_seconds:0}))
+localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,auto:true,model:'lokal'}))
+const folders=[{id:'01',name:'Posteingang',path:'',isInbox:true}]
+window.store=[
+  {id:'a1',folderId:'01',folder:'Posteingang',status:'Offen',subject:'AW: Angebot Zentrifuge, Freigabe',sender:'Anna',body:'Bitte gib das Angebot frei und melde dich beim Techniker.',received:'2026-11-20T08:00:00',tags:[],attachments:[]},
+]
+window.tagCalls=[];window.analyzed=0
+window.__TAURI__={core:{invoke:async(name,args={})=>{
+  if(name==='outlook_batch'){window.batchActive=args.active;return}
+  if(name==='outlook_categories')return '[]'
+  if(name==='outlook_folders')return JSON.stringify(folders)
+  if(name==='outlook_board')return JSON.stringify(window.store)
+  if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
+  if(name==='ai_models')return ['lokal']
+  if(name==='ai_analyze'){window.analyzed++;return {zusammenfassung:'Freigabe nötig',antwort_noetig:true,frist:null,ordner:null,arten:[],
+    aufgaben:[{text:'Angebot freigeben',frist:window.DUE},{text:'Techniker anrufen',frist:null}]}}
+  if(name==='outlook_tags'){
+    if(!window.batchActive)throw Error('Kategorien ohne Schreibstapel')
+    const mail=window.store.find(m=>m.id===args.id)
+    const previous=[...mail.tags];mail.tags=[...args.wanted]
+    window.tagCalls.push([args.id,[...args.wanted]])
+    return JSON.stringify({previous,tags:mail.tags})
+  }
+  throw Error('Unerwarteter Befehl: '+name)
+}}}
+"""
+
+
+def run(browser, base, due):
+    page = browser.new_page(viewport={'width': 1280, 'height': 900})
+    page.add_init_script("localStorage.setItem('board.layout.intro','1')")
+    page.add_init_script(f"window.DUE='{due}'")
+    page.add_init_script(LIVE)
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(base)
+    page.locator('#loadInbox').click()
+    card = page.locator('#mail-a1')
+    pill = card.locator('.count-tasks')
+    expect(pill).to_have_text('2 Aufgaben')
+
+    card.click()
+    tasks = page.get_by_role('region', name='Aufgaben')
+    expect(tasks).to_be_visible()
+    expect(tasks.get_by_role('checkbox')).to_have_count(2)
+    expect(tasks.get_by_role('checkbox').first).to_be_checked()
+    expect(tasks).to_contain_text('Neuer Vorgang: Angebot Zentrifuge Freigabe')
+    tasks.get_by_role('textbox', name='Text der Aufgabe').nth(1).fill('Techniker zurückrufen')
+    tasks.get_by_role('button', name='Übernehmen').click()
+    page.get_by_role('dialog', name='Vorgang „Angebot Zentrifuge Freigabe“ anlegen und diese Mail zuordnen? Dafür wird die Kategorie „Vorgang: Angebot Zentrifuge Freigabe“ in Outlook gesetzt.').get_by_role('button', name='Anlegen und zuordnen').click()
+    expect(page.locator('.toast')).to_contain_text('2 Punkte in „Angebot Zentrifuge Freigabe“ übernommen.')
+    assert page.evaluate('tagCalls') == [['a1', ['Vorgang: Angebot Zentrifuge Freigabe']]], page.evaluate('tagCalls')
+    assert page.evaluate("Object.keys(JSON.parse(localStorage.getItem('mailboard-tasks-taken-v1'))).length") == 1
+    expect(tasks).to_be_hidden()
+    page.keyboard.press('Escape')
+    expect(card.locator('.count-tasks')).to_have_count(0)
+
+    page.get_by_role('tab', name='Vorgänge').click()
+    cases = page.locator('#casesView')
+    cases.get_by_role('button', name='Angebot Zentrifuge Freigabe · 1 Mails').click()
+    expect(cases.get_by_text('Angebot freigeben')).to_be_visible()
+    expect(cases.get_by_text('Techniker zurückrufen')).to_be_visible()
+    page.get_by_role('tab', name='Kalender').click()
+    expect(page.locator('#calendarView')).to_contain_text('Angebot freigeben')
+    assert page.evaluate('analyzed') == 1
+    assert not errors, errors
+    page.close()
+
+
+if __name__ == '__main__':
+    root = Path(__file__).resolve().parents[1]
+    due = dt.date.today().isoformat()
+    with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist')) as server:
+        Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(executable_path=os.getenv('CHROMIUM') or shutil.which('chromium'))
+                run(browser, f'http://127.0.0.1:{server.server_port}/', due)
+                browser.close()
+        finally:
+            server.shutdown()

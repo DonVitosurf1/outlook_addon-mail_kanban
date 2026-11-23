@@ -2,7 +2,7 @@ import {categoryColor} from './category-colors'
 import {dateHint} from './date-terms'
 import {dueReasons, FOCUS_TAG, localDay, matchesSplit, type ViewMail} from './views-logic'
 
-type Mail = ViewMail & {aiSummary?:string;hasStatus?:boolean}
+type Mail = ViewMail & {aiSummary?:string;hasStatus?:boolean;aiTasks?:readonly unknown[]}
 /** Fortschritt eines Vorgangs mit Checkliste, zu dem die Mail gehört. */
 export type CaseState = {name:string;tag:string;done:number;total:number}
 const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
@@ -159,5 +159,10 @@ export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<str
     const label=mail.attachments.length===1?'Ein Anhang':mail.attachments.length+' Anhänge'
     const pill=counter(String(mail.attachments.length),label+': '+mail.attachments.join(', '),'attachments')
     cardRow(card,'counters').append(pill)
+  }
+  const open=mail.aiTasks?.length||0
+  if(open){
+    const label=open===1?'1 Aufgabe':open+' Aufgaben'
+    cardRow(card,'counters').append(counter(label,label+' aus der KI-Analyse, noch nicht übernommen','tasks'))
   }
 }

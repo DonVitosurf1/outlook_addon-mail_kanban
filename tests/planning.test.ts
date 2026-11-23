@@ -1,7 +1,7 @@
 import {strict as assert} from 'node:assert'
 import test from 'node:test'
 import {
-  addDays, briefing, briefingText, calendarEntries, caseMails, caseNameProblem, caseNames, caseTag, describeRhythm, dueRoutines, focusTarget,
+  addDays, briefing, briefingText, calendarEntries, caseMails, caseNameFromSubject, caseNameProblem, caseNames, caseTag, describeRhythm, dueRoutines, focusTarget,
   hasFocus, inTriageStep, isFocusCard, isoWeek, isoWeekday, knownCases, lastOccurrence, newSince, normalizeCase, normalizeRoutine,
   plannedField, routineDue, weekDays, weekStart, withTag, type Case, type Routine,
 } from '../src/planning-logic'
@@ -144,4 +144,26 @@ test('Briefing-Text: Antwort nötig mit drei bzw. fünf Mails, Kürzung und Fris
   assert.ok(briefingText(briefing(long,{today}),{today}).includes('('+'x'.repeat(59)+'…)'))
   const dl=[{...mail,id:'a',subject:'Bestellung',deadline:today},{...mail,id:'b',subject:'Alt',deadline:'2026-11-10'},{...mail,id:'c',subject:'Später',deadline:'2026-11-25'}]
   assert.equal(briefingText(briefing(dl,{today}),{today}),'Keine neuen Mails in den letzten 24 Stunden. Frist heute: Bestellung.')
+})
+
+test('Briefing-Text: offene Aufgaben der geladenen Mails',()=>{
+  const row=(i:number,n:number)=>({...mail,id:String(i),aiTasks:Array.from({length:n},()=>({text:'t',frist:null}))}) as ViewMail
+  assert.equal(briefingText(briefing([row(1,2),row(2,1),row(3,0)],{today}),{today}),'Keine neuen Mails in den letzten 24 Stunden. 3 offene Aufgaben.')
+  assert.equal(briefingText(briefing([row(1,1)],{today}),{today}),'Keine neuen Mails in den letzten 24 Stunden. 1 offene Aufgabe.')
+  assert.equal(briefingText(briefing([row(1,0)],{today}),{today}),'Keine neuen Mails in den letzten 24 Stunden.')
+})
+
+test('Vorgangsname aus dem Betreff',()=>{
+  assert.equal(caseNameFromSubject('AW: WG: Re: Angebot Weber, Pos. 2; Rest'),'Angebot Weber Pos. 2 Rest')
+  assert.equal(caseNameFromSubject('FWD: Fw: Umzug'),'Umzug')
+  assert.equal(caseNameFromSubject('Revision'),'Revision')
+  assert.equal(caseNameFromSubject('x'.repeat(80)).length,60)
+  assert.equal(caseNameFromSubject('RE:  '),'Neuer Vorgang')
+  const mk=(name:string):Case=>({name,created:today,items:[]})
+  assert.equal(caseNameFromSubject('AW: Umzug',[mk('umzug')]),'Umzug (2)')
+  assert.equal(caseNameFromSubject('Umzug',[mk('Umzug'),mk('Umzug (2)')]),'Umzug (3)')
+  const long='y'.repeat(70)
+  const name=caseNameFromSubject(long,[mk('y'.repeat(60))])
+  assert.equal(name.length,60);assert.ok(name.endsWith(' (2)'))
+  assert.equal(caseNameProblem(name),'')
 })
