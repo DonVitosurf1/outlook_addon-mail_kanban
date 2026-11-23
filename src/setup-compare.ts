@@ -21,7 +21,7 @@ function table(caption:string,first:string,rows:CompareRow[]){
   for(const row of rows){
     const tr=body.insertRow(),title=make('th',row.name);title.scope='row';tr.append(title)
     if(row.worse)tr.className='setup-worse'
-    for(const value of [percent(row.before),percent(row.after),diffText(row.diff),row.worse?'schlechter':''])tr.insertCell().textContent=value
+    for(const value of [percent(row.before),percent(row.after),diffText(row.diff),row.hint])tr.insertCell().textContent=value
   }
   return node
 }

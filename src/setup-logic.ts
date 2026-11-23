@@ -130,11 +130,12 @@ type Rate={shown:number;correct:number}
 /** Trefferquote in ganzen Prozent, `null` ohne Vorschläge. */
 export function ratePercent(tally?:Rate|null):number|null{return tally?.shown?Math.round(100*tally.correct/tally.shown):null}
 /** Eine Zeile des Vergleichs. `diff` in Prozentpunkten (jetzt minus Ausgangswert), `worse` bei weniger Treffern als vorher. */
-export type CompareRow={name:string;before:number|null;after:number|null;diff:number|null;worse:boolean}
+export type CompareRow={name:string;before:number|null;after:number|null;diff:number|null;worse:boolean;hint:string}
 function compareRow(name:string,before:Rate|null|undefined,after:Rate|null|undefined,tested=false):CompareRow{
   const a=ratePercent(before),b=ratePercent(after),diff=a==null||b==null?null:b-a
   // Wer vorher Vorschläge hatte und jetzt keine mehr (bei weiterhin getesteter Quelle), ist ebenfalls schlechter.
-  return {name,before:a,after:b,diff,worse:diff!=null?diff<0:a!=null&&tested}
+  const worse=diff!=null?diff<0:a!=null&&tested
+  return {name,before:a,after:b,diff,worse,hint:worse?(diff==null?'schlechter: keine Vorschläge mehr':'schlechter'):''}
 }
 /**
  * E6: Vergleich zweier Messungen je Quelle (Gesamtergebnis, Regeln, Bayes, Embeddings, endgültige Quelle) und je Ordner.

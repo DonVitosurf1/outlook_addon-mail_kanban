@@ -231,7 +231,7 @@ body:not([data-view=board]) :is(#board, #triage, #viewMenu, #selectionCount) { d
 .card-flag, .card .arrival-mark {
   display: inline-block; padding: .05rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 600; line-height: 1.45; margin: 0;
 }
-.flag-due { color: #8a3a0d; background: #fde4d3; }
+.flag-due, .setup-compare tr.setup-worse :is(th,td) { color: #8a3a0d; background: #fde4d3; }
 .flag-reply { color: #164f86; background: #dceafa; }
 .flag-focus { color: #075a54; background: #d3f1ec; }
 .flag-vip { color: #5a2c86; background: #ede2fb; }
@@ -555,8 +555,5 @@ button.setup-go:hover:not(:disabled) { color: var(--sun-ink); background: var(--
 .setup-compare { border-collapse: collapse; width: 100%; max-width: 60rem; margin-top: .6rem; background: var(--surface); }
 .setup-compare caption { text-align: left; font-weight: 600; padding: .3rem 0; }
 .setup-compare :is(th,td) { padding: .3rem .55rem; border-bottom: 1px solid var(--line); text-align: left; overflow-wrap: anywhere; }
-.setup-compare tr.setup-worse th, .setup-compare { border-collapse: collapse; width: 100%; max-width: 60rem; margin-top: .6rem; background: var(--surface); }
-.setup-compare caption { text-align: left; font-weight: 600; padding: .3rem 0; }
-.setup-compare :is(th,td) { padding: .3rem .55rem; border-bottom: 1px solid var(--line); text-align: left; overflow-wrap: anywhere; }
-.setup-compare tr.setup-worse td { color: #8a3a0d; background: #fde4d3; font-weight: 600; }
+.setup-compare tr.setup-worse :is(th,td) { font-weight: 600; }
 .setup-compare td:not(:last-child) { text-align: right; }

@@ -38,9 +38,18 @@ registerStep('E5',ctx=>{
   ctx.body.append(start,cancel)
   if(progress)ctx.status(progress)
 
+  async function redo(item:Item){
+    if(running)return
+    running=true
+    try{
+      try{item.text=await draftProfile(item.id,item.key);item.state='Entwurf';errors.delete(item.key)}
+      catch(e){errors.set(item.key,errorText(e))}
+    }finally{running=false}
+    if(latest?.active())latest.refresh(item.state==='Entwurf'?'Entwurf für „'+item.key+'“ fertig.':'Erneut fehlgeschlagen: '+errors.get(item.key))
+  }
   async function draftAll(){
     if(running)return
-    running=true;stop=false
+    running=true;stop=false;start.disabled=true;start.textContent='Entwurf läuft …';cancel.hidden=false
     const queue=[...todo]
     try{
       for(const [index,folder] of queue.entries()){
@@ -49,7 +58,7 @@ registerStep('E5',ctx=>{
         if(latest?.active())latest.status('Entwurf '+progress+' …')
         try{items.set(folder.path,{id:folder.id,key:folder.path,text:await draftProfile(folder.id,folder.path),state:'Entwurf'})}
         catch(e){items.set(folder.path,{id:folder.id,key:folder.path,text:'',state:'Fehler'});errors.set(folder.path,errorText(e))}
-        if(latest?.active())latest.refresh('Entwurf '+(index+1)+' von '+queue.length+' fertig.')
+        if(!stop&&index<queue.length-1&&latest?.active())latest.refresh('Entwurf '+(index+1)+' von '+queue.length+' fertig.')
       }
     }finally{running=false;progress=''}
     const left=queue.filter(f=>!items.has(f.path)).length
@@ -73,7 +82,9 @@ registerStep('E5',ctx=>{
         ctx.refresh('Steckbrief für „'+item.key+'“ gespeichert.')
       },'Übernehmen: '+item.key)
       const drop=button('Verwerfen',()=>{item.state='Verworfen';ctx.refresh('Entwurf für „'+item.key+'“ verworfen.')},'Verwerfen: '+item.key)
-      actions.append(accept,drop);row.append(field,actions)
+      actions.append(accept,drop)
+      if(item.state==='Fehler'){const again=button('Erneut entwerfen',()=>void redo(item),'Erneut entwerfen: '+item.key);again.disabled=running||!ctx.ai;actions.append(again)}
+      row.append(field,actions)
     }
     list.append(row)
   }

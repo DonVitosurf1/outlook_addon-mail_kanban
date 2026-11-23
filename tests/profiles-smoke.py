@@ -48,7 +48,8 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_training')return JSON.stringify(window.training[args.folder]||[])
   if(name==='ai_profile'){
-    if(args.key==='Reisen')throw Error('Modell antwortet nicht')
+    if(window.gate)await window.gate()
+    if(args.key==='Reisen'&&!window.reisenOk)throw Error('Modell antwortet nicht')
     return '## Zweck\\nEntwurf für '+args.key
   }
   throw Error('Unerwarteter Befehl: '+name)
@@ -82,11 +83,22 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
 
             # E5: „Wartung“ hat schon einen Steckbrief, die anderen drei bekommen nacheinander einen Entwurf.
             expect(view.locator('.setup-body > p').first).to_have_text('3 Lernordner ohne Steckbrief.')
+            # Abbrechen: der laufende Entwurf wird fertig, danach kein weiterer Aufruf, nichts gespeichert.
+            page.evaluate("(()=>{window.gate=()=>new Promise(r=>{window.release=()=>{window.gate=null;r()}})})()")
+            view.get_by_role('button', name='Steckbriefe entwerfen').click()
+            expect(view.get_by_role('button', name='Abbrechen')).to_be_visible()
+            view.get_by_role('button', name='Abbrechen').click()
+            page.evaluate("window.release()")
+            expect(view.locator('.setup-status')).to_have_text('Angehalten. 2 Ordner noch ohne Entwurf.')
+            assert [c[1]['key'] for c in calls('ai_profile')] == ['Einkauf'], calls('ai_profile')
+            page.wait_for_timeout(300)
+            assert len(calls('ai_profile')) == 1
+            assert profiles() == {'Wartung': '## Zweck\nGeräte warten'}, profiles()
             view.get_by_role('button', name='Steckbriefe entwerfen').click()
             drafts = view.get_by_role('list', name='Steckbrief-Entwürfe')
             expect(drafts.locator('li')).to_have_count(3)
             assert [c[1]['key'] for c in calls('ai_profile')] == ['Einkauf', 'Labor', 'Reisen'], calls('ai_profile')
-            expect(view.locator('.setup-status')).to_have_text('Entwurf 3 von 3 fertig.')
+            expect(view.locator('.setup-status')).to_have_text('Alle Entwürfe sind fertig. Prüfe sie unten.')
             expect(drafts.locator('li').nth(2)).to_contain_text('Fehler: Modell antwortet nicht')
             expect(drafts.get_by_label('Steckbrief-Entwurf: Einkauf')).to_have_value('## Zweck\nEntwurf für Einkauf')
             assert profiles() == {'Wartung': '## Zweck\nGeräte warten'}, profiles()
@@ -101,6 +113,13 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert 'folder: Einkauf' in saved['Einkauf'] and 'Bestellungen und Rechnungen' in saved['Einkauf'], saved
             expect(drafts.locator('li').nth(0)).to_contain_text('Übernommen')
             expect(drafts.locator('li').nth(1)).to_contain_text('Verworfen')
+
+            # Fehlgeschlagener Entwurf lässt sich einzeln erneut entwerfen.
+            page.evaluate("window.reisenOk=true")
+            drafts.get_by_role('button', name='Erneut entwerfen: Reisen').click()
+            expect(drafts.get_by_label('Steckbrief-Entwurf: Reisen')).to_have_value('## Zweck\nEntwurf für Reisen')
+            assert [c[1]['key'] for c in calls('ai_profile')] == ['Einkauf', 'Labor', 'Reisen', 'Reisen']
+            drafts.get_by_role('button', name='Verwerfen: Reisen').click()
 
             # E6: Labor-Mails ähneln jetzt den Einkaufsmails, Labor wird schlechter.
             page.evaluate("training['03']=training['02'].map(m=>({...m,id:'x'+m.id}))")
