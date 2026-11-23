@@ -75,25 +75,29 @@ export type Scopes={board:string[];learn:string[];archive:string}
 const sent=/^(gesendet|sent\b)/i
 // Outlook-Standardordner ohne Ablagebedeutung. Sie sind nie Lernziele.
 const system=/^(entwürfe|gelöschte elemente|junk-e-mail|postausgang|drafts|deleted items|junk e-?mail|outbox)$/i
-const hiddenPath=(path:string)=>path.split(/[\\/]/).some(part=>part.startsWith('_'))
+const parts=(path:string)=>path.split(/[\\/]/).filter(Boolean)
+const hiddenPath=(path:string)=>parts(path).some(part=>part.startsWith('_'))
+/** Gesendet oder Outlook-Standardordner irgendwo im Pfad, also auch deren Unterordner. */
+const servicePath=(path:string)=>parts(path).some(part=>sent.test(part)||system.test(part))
+const within=(path:string,parent:string)=>!!parent&&(path===parent||path.startsWith(parent+'/'))
 /**
  * Vorbelegung für E1: Archiv ist der erste Ordner mit „Archiv“ im Namen. Lernziele sind alle Ordner außer Posteingang,
- * Gesendet, Outlook-Standardordnern, Ordnern mit `_` im Pfad und dem Archiv selbst. Das Board bekommt keine Vorbelegung.
+ * Gesendet, Outlook-Standardordnern, Ordnern mit `_` im Pfad und dem Archiv, jeweils samt Unterordnern.
+ * Das Board bekommt keine Vorbelegung.
  */
 export function defaultScopes(folders:readonly ScopeFolder[]):Scopes{
   const usable=folders.filter(f=>!f.isInbox&&f.path)
-  const archive=usable.find(f=>/archiv/i.test(f.name)&&!hiddenPath(f.path))?.path??''
-  const learn=usable.filter(f=>!sent.test(f.name)&&!system.test(f.name)&&!hiddenPath(f.path)&&f.path!==archive).map(f=>f.path)
+  const archive=usable.find(f=>/archiv/i.test(f.name)&&!hiddenPath(f.path)&&!servicePath(f.path))?.path??''
+  const learn=usable.filter(f=>!servicePath(f.path)&&!hiddenPath(f.path)&&!within(f.path,archive)).map(f=>f.path)
   return {board:[],learn,archive}
 }
 /**
  * Startauswahl in E1: gespeicherte Ziele, wo vorhanden, sonst die Vorbelegung. Leere Lernziele gelten als nicht gesetzt.
- * Gespeicherte Pfade ohne geladenen Ordner bleiben erhalten, damit Speichern nichts stillschweigend entfernt.
+ * Gespeicherte Pfade ohne geladenen Ordner bleiben erhalten, auch das Archiv, damit Speichern nichts stillschweigend entfernt.
  */
 export function initialScopes(folders:readonly ScopeFolder[],current:{board:string[];learn:string[]|null;archive:string}):Scopes{
-  const fallback=defaultScopes(folders),known=new Set(folders.map(f=>f.path))
-  return {board:[...current.board],learn:current.learn?.length?[...current.learn]:fallback.learn,
-    archive:current.archive&&known.has(current.archive)?current.archive:fallback.archive}
+  const fallback=defaultScopes(folders)
+  return {board:[...current.board],learn:current.learn?.length?[...current.learn]:fallback.learn,archive:current.archive||fallback.archive}
 }
 /** U3: Hinweis „Einrichtung starten“ nur mit Outlook, ohne Lernziele, solange die Einrichtung offen ist und nicht vertagt wurde. */
 export function shouldOfferSetup(input:{mailbox:'outlook'|'demo'|'offline';learning:string[]|null;state:SetupState;later:boolean}){

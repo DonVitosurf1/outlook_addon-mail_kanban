@@ -4,14 +4,18 @@
  *
  * Schritte registrieren (E3–E7 folgen in eigenen Modulen, die board.ts importiert):
  *
- *   registerStep('E3', ctx => {
- *     ctx.body.append(…)                           // leerer Inhaltsbereich unter Titel und Beschreibung
+ *   registerStep('E3', async ctx => {
  *     const folders=ctx.host.learnerFolders()      // aktuelle Lernordner
- *     await ctx.host.service()?.writeBatch(…)      // Postfachänderungen nur nach Bestätigung (ctx.host.confirm)
+ *     const list=document.createElement('ul')
+ *     ctx.body.append(list)                        // leerer Inhaltsbereich unter Titel und Beschreibung
+ *     if(!await ctx.host.confirm('„Rechnung 4711“ nach „Einkauf“ verschieben?','Verschieben'))return  // Bestätigung mit Zielliste
+ *     await ctx.host.service()?.writeBatch(async()=>{ … })  // Postfachänderungen als Undo-Schritt im Schreibstapel
  *     if(!ctx.active())return                      // nach jedem await: Ansicht inzwischen neu gezeichnet?
- *     ctx.save(state=>{state.outliers[key]={folder,decision:'stay'}})
+ *     ctx.save(state=>{state.outliers['mail-id']={folder:folders[0].path,decision:'stay'}})
  *     ctx.done()                                   // Schritt erledigt, weiter zum nächsten offenen
  *   })
+ *
+ * Fehler aus `render` (auch asynchron geworfene) zeigt der Rahmen in der Statuszeile des Schritts.
  *
  * Die Render-Funktion läuft bei jedem Anzeigen des Schritts neu, auch nach Pausieren und Fortsetzen. Titel, Beschreibung,
  * KI-Hinweis (`stepInfo[id].needsAi` ohne lokale KI) und die Knöpfe „Überspringen“, „Pausieren“ und „Weiter“ stellt der Rahmen.
@@ -231,13 +235,20 @@ registerStep('E1',ctx=>{
     finally{create.disabled=false}
   }
   const save=button('Speichern und weiter',()=>{
-    updateConfig({project_folders:[...board],suggestion_folders:[...learn],archive_folder:archive})
-    window.dispatchEvent(new Event('mailboard:foldersChanged'))
-    ctx.done()
+    try{
+      updateConfig({project_folders:[...board],suggestion_folders:[...learn],archive_folder:archive})
+      window.dispatchEvent(new Event('mailboard:foldersChanged'))
+      ctx.done()
+    }catch(e){ctx.status('Die Auswahl konnte nicht gespeichert werden: '+errorText(e))}
   })
   save.className='primary'
   draw()
-  ctx.body.append(make('p','Vorbelegt: Lernziele sind alle Ordner außer Posteingang, Gesendet, Outlook-Standardordnern und Ordnern mit „_“. Als Archiv ist der erste Ordner mit „Archiv“ im Namen gewählt.'),
+  // Ein gespeichertes Archiv ohne geladenen Ordner bleibt beim Speichern erhalten. Der Hinweis macht das sichtbar.
+  if(archive&&!folders.some(f=>f.path===archive)){
+    const kept=make('p','Gespeichertes Archiv „'+archive+'“ ist gerade nicht in der Ordnerliste und bleibt erhalten. Wähle einen anderen Ordner, um es zu ersetzen.')
+    kept.className='setup-note';ctx.body.append(kept)
+  }
+  ctx.body.append(make('p','Vorbelegt: Lernziele sind alle Ordner außer Posteingang, Gesendet, Outlook-Standardordnern und Ordnern mit „_“. Ihre Unterordner und das Archiv samt Unterordnern sind ebenfalls ausgenommen. Als Archiv ist der erste Ordner mit „Archiv“ im Namen gewählt.'),
     wrap,none,create,save)
 })
 

@@ -28,12 +28,27 @@ test('Vorbelegung ohne Archivordner lässt das Archiv leer',()=>{
   assert.deepEqual(scopes.learn,['Einkauf','Einkauf/Angebote','/Labor'])
 })
 
+test('Vorbelegung schließt Unterordner von Gesendet, Standardordnern und Archiv aus',()=>{
+  const nested=[...folders,
+    {name:'Altprojekt',path:'/Gelöschte Elemente/Altprojekt'},
+    {name:'Kunde A',path:'/Gesendete Elemente/Kunde A'},
+    {name:'2023',path:'/Archiv 2024/2023'},
+    {name:'Archivierte Angebote',path:'/Gelöschte Elemente/Archivierte Angebote'},
+    {name:'Archivbelege',path:'/Labor/Archivbelege'},
+  ]
+  const scopes=defaultScopes(nested)
+  assert.equal(scopes.archive,'/Archiv 2024')
+  assert.deepEqual(scopes.learn,['Einkauf','Einkauf/Angebote','/Archiv','/Labor','/Labor/Archivbelege'])
+})
+
 test('Startauswahl übernimmt gespeicherte Ziele und nutzt die Vorbelegung nur für fehlende',()=>{
   const kept=initialScopes(folders,{board:['Einkauf','Weg'],learn:['/Labor'],archive:'/Archiv'})
   assert.deepEqual(kept,{board:['Einkauf','Weg'],learn:['/Labor'],archive:'/Archiv'})
   const empty=initialScopes(folders,{board:[],learn:[],archive:''})
   assert.deepEqual(empty,defaultScopes(folders))
-  assert.deepEqual(initialScopes(folders,{board:[],learn:null,archive:'/Gibt es nicht'}).archive,'/Archiv 2024')
+  // Ein gespeichertes Archiv bleibt erhalten, auch wenn sein Ordner gerade nicht geladen ist.
+  assert.equal(initialScopes(folders,{board:[],learn:null,archive:'/Nicht geladen'}).archive,'/Nicht geladen')
+  assert.equal(initialScopes(folders,{board:[],learn:null,archive:''}).archive,'/Archiv 2024')
 })
 
 test('Hinweis nur mit Outlook, ohne Lernziele, vor Abschluss und ohne „Später“',()=>{
