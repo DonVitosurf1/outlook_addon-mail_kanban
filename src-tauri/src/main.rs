@@ -310,6 +310,7 @@ fn main() {
             ai::ai_analyze,
             ai::ai_suggest,
             ai::ai_subfolders,
+            ai::ai_folder_name,
             ai::ai_reply,
             ai::ai_profile,
             ai::ai_centroid,

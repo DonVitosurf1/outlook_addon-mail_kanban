@@ -129,13 +129,20 @@ internal sealed class BoardCommands
                 string key = isInbox ? "" : relative == null ? full :
                     (relative.Length == 0 ? name : relative + "/" + name);
                 result.Add(new { id, name, path = key, isInbox,
-                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID });
+                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID, count = ItemCount((object)sub) });
                 if (depth < 8) ChildFolders(sub, full, isInbox || relative != null ? key : null, depth+1, result);
             } catch (COMException ex) {
                 // A delegated folder may be visible in the tree without read access.
                 if (ex.ErrorCode != unchecked((int)0x80070005)) throw;
             }
         }
+    }
+
+    // Number of items in the folder for the setup (E1, E4). Null if Outlook cannot count it.
+    private static int? ItemCount(object folder)
+    {
+        try { return (int)((dynamic)folder).Items.Count; }
+        catch (COMException) { return null; }
     }
 
     private dynamic Mail(string id, string expected)

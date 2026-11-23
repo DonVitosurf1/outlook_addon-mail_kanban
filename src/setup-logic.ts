@@ -14,11 +14,13 @@ export type OutlierDecision={folder:string;decision:'moved'|'stay'|'exclude';tar
  * - `step`: der zuletzt geöffnete Schritt, dort setzt „Einrichtung fortsetzen“ an,
  * - `status`: offen, erledigt oder übersprungen je Schritt,
  * - `measurements.baseline`: Ausgangswert aus E2, `measurements.after`: Messung nach dem neuen Lernen (E6),
+ *   `report.confusion` zählt Verwechslungen je Ordnerpaar (richtig → vorgeschlagen) für Überschneidungen in E4,
  * - `outliers`: Entscheidungen aus E3, Schlüssel ist die inhaltsbasierte Kennung `embeddingId(mail)` (bleibt beim Verschieben gleich).
  * - `confirmed`: Kennungen (`embeddingId`) der Mails mit „Bleibt hier“ aus E3. Sie gelten als sicher richtig und werden nie wieder gemeldet.
  * - `outlierFolders`: Lernordner mit mehr als 25 % Ausreißern beim letzten Prüflauf von E3 (`{folder, outliers, total}`),
  *   Kandidaten für Unterteilen oder Zusammenlegen in E4. Jeder Prüflauf ersetzt die Liste.
  * - `data`: freier Platz je Schritt für spätere Schritte (z. B. Seitenstand beim Posteingang). Nur JSON-Werte.
+ *   E4 legt hier `{dismissed:string[]}` ab: verworfene Vorschläge (`refine.ts`, `proposalKey`).
  */
 export type SetupState={
   version:1
@@ -58,7 +60,18 @@ export function parseState(raw:unknown):SetupState{
   }
   if(isObject(raw.measurements))for(const key of ['baseline','after'] as const){
     const m=raw.measurements[key]
-    if(isObject(m)&&isObject(m.report)&&isObject(m.samples))state.measurements[key]=m as unknown as Measurement
+    if(isObject(m)&&isObject(m.report)&&isObject(m.samples)){
+      const report:Record<string,unknown>={...m.report}
+      // Verwechslungen (E2, für E4): nur positive ganze Zahlen, Ordner auf sich selbst zählt nicht. Ältere Messungen haben keine.
+      if('confusion' in report){
+        const confusion=isObject(report.confusion)?Object.fromEntries(Object.entries(report.confusion).flatMap(([truth,guesses])=>{
+          const valid=isObject(guesses)?Object.entries(guesses).filter(([guess,n])=>guess!==truth&&Number.isInteger(n)&&(n as number)>0):[]
+          return valid.length?[[truth,Object.fromEntries(valid)]]:[]
+        })):{}
+        report.confusion=confusion
+      }
+      state.measurements[key]={...m,report} as unknown as Measurement
+    }
   }
   if(isObject(raw.outliers))for(const [key,value] of Object.entries(raw.outliers)){
     if(isObject(value)&&typeof value.folder==='string'&&['moved','stay','exclude'].includes(String(value.decision)))

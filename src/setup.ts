@@ -55,6 +55,13 @@ export type SetupHost={
    * Ohne Bestätigung passiert nichts. Liefert einen Fehlertext (beschäftigtes Board, fehlgeschlagene Verschiebungen), sonst ''.
    */
   moveMails(mails:OffBoardMail[],target:string,moved?:(id:string)=>void):Promise<string>
+  /**
+   * Führt eine Ordneränderung (Zusammenlegen, Umbenennen) aus, während das Board gesperrt ist, und lädt danach die Ordner neu.
+   * Liefert einen Fehlertext (beschäftigtes Board, geworfener Fehler), sonst ''.
+   */
+  exclusive(action:()=>Promise<void>):Promise<string>
+  /** Nimmt die letzte Änderung zurück wie Strg+Z, etwa aus der Rückmeldung. */
+  undo():void
 }
 /** Mail außerhalb des Boards mit Outlook-ID und Quellordner-ID. */
 export type OffBoardMail=AiMail&{id:string;folderId:string}

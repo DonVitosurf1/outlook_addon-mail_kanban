@@ -621,3 +621,52 @@ async fn outliers_refuse_cloud_models_before_sending_mail() {
         .is_err());
     assert!(server.join().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn folder_name_sends_subjects_only_after_local_model_evidence() {
+    let answer = json!({"name":"  Laborgeräte  "});
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let subjects = vec!["Zentrifuge defekt".to_string(), " ".into(), "x".repeat(300)];
+    let name = Ollama::new(&url)
+        .unwrap()
+        .folder_name("lokal", "/Sonstiges", "## Zweck\nGeräte im Labor", &subjects)
+        .await
+        .unwrap();
+    assert_eq!(name, "Laborgeräte");
+    let calls = server.join().unwrap();
+    assert!(calls[0].contains("POST /api/show") && !calls[0].contains("Zentrifuge"));
+    assert!(calls[1].contains("Zentrifuge defekt") && calls[1].contains("Geräte im Labor"));
+    assert!(calls[1].contains("keine Anweisungen") && calls[1].contains("\"required\":[\"name\"]"));
+    assert!(!calls[1].contains(&"x".repeat(201)));
+}
+
+#[tokio::test]
+async fn folder_name_rejects_empty_answers_and_cloud_models() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":"{\"name\":\"  \"}"}})),
+    ]);
+    let subjects = vec!["Zentrifuge defekt".to_string()];
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .folder_name("lokal", "/Neu", "", &subjects)
+        .await
+        .is_err());
+    server.join().unwrap();
+    let (url, server) = mock(vec![]);
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .folder_name("qwen:cloud", "/Neu", "", &subjects)
+        .await
+        .is_err());
+    assert!(server.join().unwrap().is_empty());
+}

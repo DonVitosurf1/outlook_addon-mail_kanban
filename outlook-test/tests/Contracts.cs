@@ -43,6 +43,7 @@ internal static class Contracts
         public List<FakeMail> values=new List<FakeMail>();
         private int index;
         public bool Descending;
+        public int Count { get { return values.Count; } }
         public FakeItems Restrict(string query) { return this; }
         public void Sort(string field,bool descending)
         {
@@ -154,6 +155,7 @@ internal static class Contracts
         Func<string[],object> call=args=>commands.Execute(args,s=>s.Split('|'));
         var folders=(List<object>)call(new[]{"--folders"});
         Check(folders.Select(f=>(string)((dynamic)f).path).SequenceEqual(new[]{"","Projekt","/Ablage","/Gesendet"}),"Ordnerpfade");
+        Check(folders.Select(f=>(int?)((dynamic)f).count).SequenceEqual(new int?[]{1,0,0,0}),"Mailanzahl je Ordner");
         var cards=(List<object>)call(new[]{"--inbox"});
         dynamic card=cards.Single();
         Check(card.folderId=="01" && card.body=="intern" && card.status=="Warten","Karte");

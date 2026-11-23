@@ -10,6 +10,8 @@ export function cleanFolderName(input:string) {
     .slice(0,40).join('').trim()
 }
 const key = (s:string)=>s.normalize('NFKC').toLocaleLowerCase('de').replace(/ß/g,'ss')
+/** Ob `name` unter den vorhandenen Namen schon vorkommt (ohne Groß- und Kleinschreibung, wie beim Anlegen). */
+export function nameTaken(name:string, existing:string[]) {return existing.some(e=>key(e)===key(name))}
 export function structureChoices(raw:Proposal[], existing:string[]) {
   const seen=new Set(existing.map(key))
   const result:Proposal[]=[]

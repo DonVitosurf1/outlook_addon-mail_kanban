@@ -23,6 +23,7 @@ import { loadRoutines, useSamplePlanning } from './planning-store'
 import { initTabs } from './tabs'
 import { initSetup, type SetupFolder } from './setup'
 import './setup-outliers'
+import './setup-refine'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -598,7 +599,14 @@ async function start() {
       await change(list.map(m=>m.id),{kind:'move',value:target,moved,failed:text=>{problem=text},
         offBoard:list.map(m=>({...m,folder:folders.find(f=>f.id===m.folderId)?.name??'',status:'Offen',tags:[],attachments:[]}))})
       return problem
-    }})
+    },
+    exclusive:async action=>{
+      if(busy)return 'Das Board ist gerade beschäftigt. Bitte gleich noch einmal versuchen.'
+      let problem=''
+      await exclusive(()=>action().catch(e=>{problem=errorText(e);throw e}))
+      return problem
+    },
+    undo:()=>void undo()})
   el('setupOpen').onclick=()=>setup?.open()
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,

@@ -168,6 +168,25 @@ function dropTrainingRows(drop:(row:LearnRow)=>boolean){
   const state=stored(trainingKey),rows=history(trainingKey),kept=rows.filter(r=>!drop(r))
   if(kept.length!==rows.length)localStorage.setItem(trainingKey,JSON.stringify({...state,rows:kept}))
 }
+const rowKey=(r:LearnRow)=>JSON.stringify([r.id??'',r.received??'',r.features])
+/**
+ * Hängt die gespeicherten Lernbeispiele (Lernlauf und Ablagen) von Ordner `from` an Ordner `to` um, etwa beim Zusammenlegen (E4).
+ * Mit `only` nur die Beispiele mit diesen Kennungen. Liefert die Kennungen der umgehängten Beispiele für die Rücknahme.
+ */
+export function relabelLearning(from:string,to:string,only?:ReadonlySet<string>):string[]{
+  const moved:string[]=[]
+  if(!from||!to||from===to)return moved
+  for(const key of [trainingKey,feedbackKey]){
+    const state=stored(key),rows=history(key)
+    let changed=false
+    const next=rows.map(r=>{
+      if(r.folder!==from||(only&&!only.has(rowKey(r))))return r
+      changed=true;moved.push(rowKey(r));return {...r,folder:to}
+    })
+    try{if(changed)localStorage.setItem(key,JSON.stringify({...state,rows:next}))}catch{ /* Lernbeispiele sind nur ein Zwischenstand, E6 lernt neu. */ }
+  }
+  return moved
+}
 const excludedKey='mailboard-learn-excluded-v1'
 /** Kennungen (`embeddingId`) der Mails, die nach „Nicht lernen“ (E3) kein Lernbeispiel und kein Teil eines Ordnerprofils mehr sind. */
 export function learnExcluded():Set<string>{
@@ -285,9 +304,14 @@ type Tally={shown:number;correct:number}
 type Source='Regel'|'Bayes'|'Hybrid'|'Embedding'
 type Prediction={truth:string;id:string;folder:string;gap:number}
 type SemanticEvaluation={tested:number;missing:number;profiled:Tally;plain:Tally;predictions:Prediction[]}
-/** `byFolder` zählt das Gesamtergebnis je Ordner der zurückgehaltenen Mails (`tested` = Testmails des Ordners). */
+/**
+ * `byFolder` zählt das Gesamtergebnis je Ordner der zurückgehaltenen Mails (`tested` = Testmails des Ordners).
+ * `confusion` zählt falsche Gesamtvorschläge als `confusion[richtiger Ordner][vorgeschlagener Ordner]`, Grundlage für
+ * Überschneidungen in E4. Ältere gespeicherte Messungen haben das Feld nicht.
+ */
 export type EvaluationResult={tested:number;folders:number;combined:Tally;bayes:Tally;rule:Tally;sources:Partial<Record<Source,Tally>>;
-  embedding:Tally|null;plain:Tally|null;semanticTested:number;missing:number;byFolder:Record<string,Tally&{tested:number}>}
+  embedding:Tally|null;plain:Tally|null;semanticTested:number;missing:number;byFolder:Record<string,Tally&{tested:number}>;
+  confusion?:Record<string,Record<string,number>>}
 const tally=():Tally=>({shown:0,correct:0})
 function count(target:Tally,guess:string|undefined,truth:string){
   if(!guess)return
@@ -308,7 +332,7 @@ export function evaluateHoldout(rows:LearnRow[],targets:string[],configuredRules
   const evidence=new Map(semantics?.predictions.map(p=>[JSON.stringify([p.truth,p.id]),p]))
   const result:EvaluationResult={tested:test.length,folders:new Set(test.map(r=>r.folder)).size,
     combined:tally(),bayes:tally(),rule:tally(),sources:{},embedding:semantics?.profiled??null,plain:semantics?.plain??null,
-    semanticTested:semantics?.tested??0,missing:semantics?.missing??0,byFolder:{}}
+    semanticTested:semantics?.tested??0,missing:semantics?.missing??0,byFolder:{},confusion:{}}
   for(const row of test){
     const own=result.byFolder[row.folder]??={tested:0,...tally()}
     own.tested++
@@ -322,6 +346,7 @@ export function evaluateHoldout(rows:LearnRow[],targets:string[],configuredRules
     if(!final||hidden.includes(final.source))continue
     count(result.combined,final.folder,row.folder)
     count(own,final.folder,row.folder)
+    if(final.folder!==row.folder){const wrong=result.confusion![row.folder]??={};wrong[final.folder]=(wrong[final.folder]||0)+1}
     count(result.sources[final.source]??=tally(),final.folder,row.folder)
   }
   return result
@@ -838,6 +863,31 @@ export async function embeddingOutliers(groups:{key:string;mails:AiMail[]}[],mar
   if(!embeddingsOn(cfg))throw new Error('Bitte die lokale KI und Embeddings in den Einstellungen aktivieren.')
   return invoke<Outlier[]>('ai_outliers',{url:cfg.embedUrl,model:cfg.embedModel,threshold:Number(getLegacyConfig().embedding_threshold??0.78),margin,
     folders:groups.map(g=>({key:g.key,items:g.mails.map(m=>({id:embeddingId(m),text:embedText(m)}))}))})
+}
+/**
+ * Gespeicherte Ordnerprofile (Zentroiden aus dem Lernlauf) der Ordner `keys`, nur passend zum aktuellen Embedding-Modell
+ * und nur mit eingeschalteten Embeddings. Grundlage für ähnliche Ordner in E4, ohne neuen Modellaufruf.
+ */
+export function profileVectors(keys:string[]):Record<string,number[]>{
+  const cfg=config()
+  if(!liveSource||!embeddingsOn(cfg))return {}
+  const state=stored(centersKey) as Centers,options=JSON.stringify(embeddingOptions())
+  return Object.fromEntries(keys.flatMap(key=>{
+    const c=state[key]
+    return c&&Array.isArray(c.vector)&&c.url===cfg.embedUrl&&c.model===cfg.embedModel&&c.options===options?[[key,c.vector]]:[]
+  }))
+}
+/**
+ * Namensvorschlag der lokalen KI für einen Ordner mit unklarem Namen (E4, `ai_folder_name`) aus Steckbrief und bis zu
+ * 20 Beispielbetreffs. Der Aufrufer prüft das Ergebnis mit `cleanFolderName` und auf Dubletten.
+ */
+export async function suggestFolderName(folder:Folder){
+  const invoke=native(),cfg=config(),model=await activeModel(cfg)
+  const mails:AiMail[]=JSON.parse(await invoke<string>('outlook_training',{folder:folder.id,limit:20,days:0}))
+  const subjects=mails.map(m=>(m.subject||'').slice(0,200)).filter(s=>s.trim())
+  if(!subjects.length)throw new Error('Im Ordner „'+(folder.path||folder.name)+'“ fehlen Mails für einen Namensvorschlag.')
+  const profile=folderInfo([folder.path])[0]?.profile??''
+  return invoke<string>('ai_folder_name',{url:cfg.url,model,key:folder.path,profile,subjects})
 }
 export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   learningFolders=getTrainingFolders

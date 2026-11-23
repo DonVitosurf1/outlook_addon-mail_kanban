@@ -169,3 +169,17 @@ pub async fn ai_subfolders(
         .subfolders(&model, &area, &examples, &existing)
         .await
 }
+
+/// Namensvorschlag für einen Ordner mit unklarem Namen (E4).
+#[tauri::command]
+pub async fn ai_folder_name(
+    url: String,
+    model: String,
+    key: String,
+    profile: String,
+    subjects: Vec<String>,
+) -> Result<String, String> {
+    Ollama::new(&url)?
+        .folder_name(&model, &key, &profile, &subjects)
+        .await
+}

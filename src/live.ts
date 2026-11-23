@@ -88,6 +88,8 @@ export class LiveBoard {
       }
     }
   }
+  /** Neue Outlook-ID einer Mail, die außerhalb des Stapels verschoben wurde (Zusammenlegen in `projects.ts`). Ältere Schritte folgen ihr. */
+  remapMail(oldId:string,newId:string){if(oldId!==newId)this.updateIdentity(oldId,newId)}
   private updateIdentity(oldId:string,newId:string) {
     for(const batch of this.batches)
       for(const step of batch) if(step.id===oldId) step.id=newId
