@@ -690,7 +690,7 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const cfg=config()
   const section=document.createElement('fieldset')
   section.className='ai-section'
-  const legend=document.createElement('legend');legend.textContent='Lokale KI · Ollama oder llama.cpp'
+  const legend=document.createElement('legend');legend.textContent='Lokale KI · Ollama, llama.cpp oder LM Studio'
   section.append(legend)
   const bool=(title:string,v:boolean)=>{
     const label=document.createElement('label'),input=document.createElement('input')

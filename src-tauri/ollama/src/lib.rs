@@ -30,10 +30,20 @@ pub fn loopback_url(raw: &str) -> Result<Url> {
     Ok(url)
 }
 
+/// Lokaler Modellserver, dessen Modelle nachweislich lokale Gewichte haben.
+/// Ollama spricht seine eigene API, llama.cpp und LM Studio die OpenAI-kompatible.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+enum Backend {
+    Ollama = 0,
+    LlamaCpp = 1,
+    LmStudio = 2,
+}
+
 pub struct Ollama {
     url: Url,
     http: Client,
-    llama: std::sync::atomic::AtomicBool,
+    backend: std::sync::atomic::AtomicU8,
     cache: Option<cache::VectorCache>,
 }
 
@@ -41,7 +51,7 @@ impl Ollama {
     pub fn new(url: &str) -> Result<Self> {
         Ok(Self {
             url: loopback_url(url)?,
-            llama: std::sync::atomic::AtomicBool::new(false),
+            backend: std::sync::atomic::AtomicU8::new(Backend::Ollama as u8),
             cache: None,
             http: Client::builder()
                 .no_proxy()
@@ -85,12 +95,24 @@ impl Ollama {
         }
     }
 
+    fn backend(&self) -> Backend {
+        match self.backend.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => Backend::LlamaCpp,
+            2 => Backend::LmStudio,
+            _ => Backend::Ollama,
+        }
+    }
+
     async fn request(&self, path: &str, body: Option<Value>) -> Result<Value> {
-        if self.llama.load(std::sync::atomic::Ordering::Relaxed) {
+        let backend = self.backend();
+        if backend != Backend::Ollama {
             if let Some(payload) = &body {
                 if path == "/api/chat" {
+                    // LM Studio kennt kein freies JSON-Objekt als Antwortformat, nur ein Schema.
                     let format = if payload["format"].is_object() {
                         json!({"type":"json_schema","json_schema":{"name":"mailboard","schema":payload["format"]}})
+                    } else if backend == Backend::LmStudio {
+                        json!({"type":"json_schema","json_schema":{"name":"mailboard","schema":{"type":"object"}}})
                     } else {
                         json!({"type":"json_object"})
                     };
@@ -149,13 +171,22 @@ impl Ollama {
             }
             bytes.extend_from_slice(&chunk);
         }
-        serde_json::from_slice(&bytes).map_err(|_| "Ollama hat ungültiges JSON geliefert.".into())
+        let value: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| "Ollama hat ungültiges JSON geliefert.".to_string())?;
+        // LM Studio beantwortet unbekannte Endpunkte mit HTTP 200 und einer Fehlermeldung.
+        if value["error"]
+            .as_str()
+            .is_some_and(|e| e.starts_with("Unexpected endpoint or method"))
+        {
+            return Err("Der lokale Server kennt diesen Endpunkt nicht: HTTP 404.".into());
+        }
+        Ok(value)
     }
 
     pub async fn models(&self) -> Result<Vec<String>> {
         let tags = match self.request("/api/tags", None).await {
             Ok(tags) => tags,
-            Err(err) if endpoint_missing(&err) => return self.llama_models().await,
+            Err(err) if endpoint_missing(&err) => return Ok(self.local_models().await?.1),
             Err(err) => return Err(err),
         };
         let list = tags["models"].as_array().ok_or("Die Modellliste fehlt.")?;
@@ -167,10 +198,19 @@ impl Ollama {
             .collect())
     }
 
+    /// OpenAI-kompatible Server werden nur mit einem Nachweis lokaler Gewichte genutzt.
+    /// Eine reine Modellliste genügt nicht, weil ein Proxy sie ebenso liefern könnte.
+    async fn local_models(&self) -> Result<(Backend, Vec<String>)> {
+        match self.http_json("/props", None).await {
+            Ok(props) => Ok((Backend::LlamaCpp, self.llama_models(&props).await?)),
+            Err(err) if endpoint_missing(&err) => Ok((Backend::LmStudio, self.lm_studio_models().await?)),
+            Err(err) => Err(err),
+        }
+    }
+
     // llama.cpp's /props describes its loaded local GGUF. A generic API proxy's
     // model list alone does not establish that it performs inference locally.
-    async fn llama_models(&self) -> Result<Vec<String>> {
-        let props = self.http_json("/props", None).await?;
+    async fn llama_models(&self, props: &Value) -> Result<Vec<String>> {
         let path = props["model_path"].as_str().unwrap_or("");
         if !path.to_ascii_lowercase().ends_with(".gguf")
             || path.contains("://")
@@ -188,6 +228,31 @@ impl Ollama {
             .collect())
     }
 
+    // LM Studio's native REST API reports the weight format of every model it hosts.
+    // Only GGUF and MLX files on this computer count as local.
+    async fn lm_studio_models(&self) -> Result<Vec<String>> {
+        let missing = "Der lokale Server meldet weder ein llama.cpp-GGUF- noch ein lokales LM-Studio-Modell.";
+        let listing = match self.http_json("/api/v0/models", None).await {
+            Ok(listing) => listing,
+            Err(err) if endpoint_missing(&err) => return Err(missing.into()),
+            Err(err) => return Err(err),
+        };
+        let models: Vec<String> = listing["data"]
+            .as_array()
+            .ok_or(missing)?
+            .iter()
+            .filter(|m| matches!(m["compatibility_type"].as_str(), Some("gguf" | "mlx")))
+            .filter(|m| matches!(m["type"].as_str(), Some("llm" | "vlm" | "embeddings")))
+            .filter_map(|m| m["id"].as_str())
+            .filter(|m| !is_cloud_name(m))
+            .map(str::to_owned)
+            .collect();
+        if models.is_empty() {
+            return Err(missing.into());
+        }
+        Ok(models)
+    }
+
     async fn check_local_model(&self, model: &str) -> Result<()> {
         if model.trim().is_empty() || is_cloud_name(model) {
             return Err("Bitte ein lokal installiertes Modell wählen.".into());
@@ -199,10 +264,16 @@ impl Ollama {
         {
             Ok(metadata) => metadata,
             Err(err) if endpoint_missing(&err) => {
-                if !self.llama_models().await?.iter().any(|m| m == model) {
-                    return Err("Modell ist im lokalen llama.cpp nicht geladen.".into());
+                let (backend, models) = self.local_models().await?;
+                if !models.iter().any(|m| m == model) {
+                    return Err(match backend {
+                        Backend::LmStudio => "Modell ist in LM Studio nicht als lokales Modell vorhanden.",
+                        _ => "Modell ist im lokalen llama.cpp nicht geladen.",
+                    }
+                    .into());
                 }
-                self.llama.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.backend
+                    .store(backend as u8, std::sync::atomic::Ordering::Relaxed);
                 return Ok(());
             }
             Err(err) => return Err(err),

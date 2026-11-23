@@ -314,3 +314,95 @@ fn semantic_holdout_excludes_all_held_out_examples_before_ranking() {
     assert!(cache.load("../outside").is_none());
     std::fs::remove_dir_all(root).unwrap();
 }
+
+fn unexpected(endpoint: &str) -> Value {
+    json!({ "error": format!("Unexpected endpoint or method. ({endpoint})") })
+}
+
+#[tokio::test]
+async fn lm_studio_only_receives_draft_after_local_model_evidence() {
+    let (url, server) = mock(vec![
+        ("200 OK", unexpected("POST /api/show")),
+        ("200 OK", unexpected("GET /props")),
+        (
+            "200 OK",
+            json!({"data":[
+                {"id":"qwen2.5-7b-instruct","type":"llm","compatibility_type":"gguf","state":"not-loaded"},
+                {"id":"gpt-remote","type":"llm","compatibility_type":"api"}
+            ]}),
+        ),
+        (
+            "200 OK",
+            json!({"choices":[{"message":{"content":"{\"antwort\":\"Ich prüfe das.\"}"}}]}),
+        ),
+    ]);
+    assert_eq!(
+        Ollama::new(&url)
+            .unwrap()
+            .reply("qwen2.5-7b-instruct", &mail(), "")
+            .await
+            .unwrap(),
+        "Ich prüfe das."
+    );
+    let reqs = server.join().unwrap();
+    for req in &reqs[..3] {
+        assert!(!req.contains("Interne Nachfrage"));
+    }
+    assert!(reqs[2].contains("GET /api/v0/models"));
+    assert!(reqs[3].contains("POST /v1/chat/completions") && reqs[3].contains("Interne Nachfrage"));
+    // LM Studio verlangt ein Schema statt eines freien JSON-Objekts.
+    assert!(reqs[3].contains("json_schema") && !reqs[3].contains("json_object"));
+}
+
+#[tokio::test]
+async fn lm_studio_models_without_local_weights_do_not_receive_mail() {
+    let (url, server) = mock(vec![
+        ("200 OK", unexpected("POST /api/show")),
+        ("200 OK", unexpected("GET /props")),
+        (
+            "200 OK",
+            json!({"data":[{"id":"gpt-remote","type":"llm","compatibility_type":"api"}]}),
+        ),
+    ]);
+    let err = Ollama::new(&url)
+        .unwrap()
+        .reply("gpt-remote", &mail(), "")
+        .await
+        .unwrap_err();
+    assert!(err.contains("LM-Studio"));
+    for req in server.join().unwrap() {
+        assert!(!req.contains("Interne Nachfrage"));
+    }
+}
+
+#[tokio::test]
+async fn lm_studio_lists_only_local_models_and_embeds_via_openai_api() {
+    let listing = json!({"data":[
+        {"id":"nomic-embed-text-v1.5","type":"embeddings","compatibility_type":"gguf"},
+        {"id":"mlx-chat","type":"llm","compatibility_type":"mlx"},
+        {"id":"lokal:cloud","type":"llm","compatibility_type":"gguf"}
+    ]});
+    let (url, server) = mock(vec![
+        ("200 OK", unexpected("GET /api/tags")),
+        ("200 OK", unexpected("GET /props")),
+        ("200 OK", listing.clone()),
+        ("200 OK", unexpected("POST /api/show")),
+        ("200 OK", unexpected("GET /props")),
+        ("200 OK", listing),
+        ("200 OK", json!({"data":[{"index":0,"embedding":[1,0]}]})),
+        ("200 OK", json!({"data":[{"index":1,"embedding":[1,0]},{"index":0,"embedding":[0,1]}]})),
+    ]);
+    let client = Ollama::new(&url).unwrap();
+    assert_eq!(client.models().await.unwrap(), vec!["nomic-embed-text-v1.5", "mlx-chat"]);
+    let folders = ["/Orga", "/Labor"].map(|s| Folder {
+        key: s.into(),
+        profile: String::new(),
+    });
+    let scores = client
+        .scores("nomic-embed-text-v1.5", "Labor", &folders, &Default::default())
+        .await
+        .unwrap();
+    assert_eq!(scores[0].folder, "/Labor");
+    let reqs = server.join().unwrap();
+    assert!(reqs[6].contains("POST /v1/embeddings"));
+}
