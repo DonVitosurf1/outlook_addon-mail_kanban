@@ -256,3 +256,69 @@ impl Ollama {
         Ok(result)
     }
 }
+
+/// Gruppe thematisch ähnlicher Mails (E4, neue Ordner aus dem Posteingang).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct Cluster {
+    pub ids: Vec<String>,
+}
+
+impl Ollama {
+    /// Greedy-Gruppierung auf den Cache-Vektoren: Die erste noch freie Mail beginnt eine Gruppe, danach kommen in
+    /// Eingabereihenfolge alle freien Mails mit Kosinus >= `threshold` zum laufenden Gruppenmittel dazu.
+    /// Gruppen unter `min_size` entfallen. Deterministisch: nach Größe absteigend, bei Gleichstand nach Eingabereihenfolge.
+    pub async fn clusters(
+        &self,
+        model: &str,
+        items: &[Item],
+        min_size: usize,
+        threshold: f64,
+    ) -> Result<Vec<Cluster>> {
+        self.check_local_model(model).await?;
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let texts = items.iter().map(|i| i.text.clone()).collect::<Vec<_>>();
+        let (vectors, _) = self.embedded(model, &texts).await?;
+        let dim = vectors[0].len();
+        if vectors.iter().any(|v| v.len() != dim) {
+            return Err("Dimensionen der Embeddings stimmen nicht überein.".into());
+        }
+        let mut taken = vec![false; items.len()];
+        let mut groups: Vec<Vec<usize>> = Vec::new();
+        for seed in 0..items.len() {
+            if taken[seed] {
+                continue;
+            }
+            taken[seed] = true;
+            let mut members = vec![seed];
+            let mut sum = vectors[seed].clone();
+            for other in seed + 1..items.len() {
+                if taken[other] {
+                    continue;
+                }
+                let near = unit(sum.clone())
+                    .ok()
+                    .and_then(|c| cosine(&vectors[other], &c))
+                    .is_some_and(|s| s >= threshold);
+                if near {
+                    taken[other] = true;
+                    members.push(other);
+                    for (s, x) in sum.iter_mut().zip(&vectors[other]) {
+                        *s += x;
+                    }
+                }
+            }
+            if members.len() >= min_size.max(1) {
+                groups.push(members);
+            }
+        }
+        groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
+        Ok(groups
+            .into_iter()
+            .map(|g| Cluster {
+                ids: g.into_iter().map(|i| items[i].id.clone()).collect(),
+            })
+            .collect())
+    }
+}

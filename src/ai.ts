@@ -864,6 +864,31 @@ export async function embeddingOutliers(groups:{key:string;mails:AiMail[]}[],mar
   return invoke<Outlier[]>('ai_outliers',{url:cfg.embedUrl,model:cfg.embedModel,threshold:Number(getLegacyConfig().embedding_threshold??0.78),margin,
     folders:groups.map(g=>({key:g.key,items:g.mails.map(m=>({id:embeddingId(m),text:embedText(m)}))}))})
 }
+/** Start der Gruppierung: Mails mit Kosinus ab diesem Wert zum Gruppenmittel gehören zusammen. */
+export const CLUSTER_THRESHOLD=0.82
+/** Gruppen mit weniger Mails entfallen. */
+export const CLUSTER_MIN=5
+/**
+ * Gruppen ähnlicher Mails über den Vektor-Cache (`ai_clusters`), größte zuerst (E4, neue Ordner aus dem Posteingang).
+ * Mails mit gleichem Einbettungstext zählen als eine Anfrage und landen zusammen in einer Gruppe.
+ */
+export async function embeddingClusters<T extends AiMail>(mails:T[],minSize=CLUSTER_MIN,threshold=CLUSTER_THRESHOLD):Promise<T[][]>{
+  const invoke=native(),cfg=config()
+  if(!embeddingsOn(cfg))throw new Error('Bitte die lokale KI und Embeddings in den Einstellungen aktivieren.')
+  const byId=new Map<string,T[]>()
+  for(const m of mails){const id=embeddingId(m);byId.set(id,[...(byId.get(id)??[]),m])}
+  const items=[...byId.keys()].map(id=>({id,text:embedText(byId.get(id)![0])}))
+  const found=await invoke<{ids:string[]}[]>('ai_clusters',{url:cfg.embedUrl,model:cfg.embedModel,items,minSize,threshold})
+  return found.map(c=>c.ids.flatMap(id=>byId.get(id)??[])).filter(g=>g.length>=minSize)
+}
+/**
+ * Namensvorschlag der lokalen KI für eine Gruppe von Posteingangsmails (E4, `ai_cluster_name`) aus bis zu 20 Betreffs.
+ * Der Aufrufer prüft das Ergebnis mit `cleanFolderName` und auf Dubletten.
+ */
+export async function suggestClusterName(subjects:string[]){
+  const invoke=native(),cfg=config(),model=await activeModel(cfg)
+  return invoke<string>('ai_cluster_name',{url:cfg.url,model,subjects:subjects.map(s=>s.slice(0,200)).filter(s=>s.trim()).slice(0,20)})
+}
 /**
  * Gespeicherte Ordnerprofile (Zentroiden aus dem Lernlauf) der Ordner `keys`, nur passend zum aktuellen Embedding-Modell
  * und nur mit eingeschalteten Embeddings. Grundlage für ähnliche Ordner in E4, ohne neuen Modellaufruf.

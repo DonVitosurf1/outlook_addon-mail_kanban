@@ -21,7 +21,7 @@ import { shortcutFor, type ShortcutAction } from './shortcuts'
 import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
 import { loadRoutines, useSamplePlanning } from './planning-store'
 import { initTabs } from './tabs'
-import { initSetup, type SetupFolder } from './setup'
+import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
 import './setup-outliers'
 import './setup-refine'
 
@@ -596,7 +596,7 @@ async function start() {
   document.addEventListener('mailboard:planning',()=>render())
   const toggleItem=toggleCaseItem
   initTabs()
-  setup=initSetup({mailbox:()=>mailbox,folders:()=>isLive()?folders as SetupFolder[]:[],learnerFolders,service:()=>isLive()?service:undefined,
+  setup=initSetup({mailbox:()=>mailbox,folders:()=>isLive()?folders as SetupFolder[]:[],learnerFolders,inbox:()=>isLive()?mails.filter(m=>m.id&&m.folderId&&isInInbox(m)) as OffBoardMail[]:[],service:()=>isLive()?service:undefined,
     confirm:(question,label)=>ask(document.body,question,label),
     moveMails:async(list,target,moved)=>{
       if(busy)return 'Das Board ist gerade beschäftigt. Bitte gleich noch einmal versuchen.'

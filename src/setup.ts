@@ -44,6 +44,8 @@ export type SetupHost={
   folders():SetupFolder[]
   /** Aktuelle Lernordner nach der gespeicherten Auswahl. */
   learnerFolders():Folder[]
+  /** Geladene Mails im Posteingang (nur Outlook-Modus). */
+  inbox():OffBoardMail[]
   /** Schreibzugriff auf Outlook (writeBatch, move, Undo-Stapel). Nur im Outlook-Modus. */
   service():LiveBoard|undefined
   /** Bestätigung mit Zielliste vor jeder Postfachänderung. */

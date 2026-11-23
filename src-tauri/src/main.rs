@@ -318,7 +318,9 @@ fn main() {
             ai::ai_embed,
             ai::ai_rank,
             ai::ai_groups,
-            ai::ai_outliers
+            ai::ai_outliers,
+            ai::ai_clusters,
+            ai::ai_cluster_name
         ])
         .run(tauri::generate_context!())
         .expect("Das Mail-Board konnte nicht gestartet werden");

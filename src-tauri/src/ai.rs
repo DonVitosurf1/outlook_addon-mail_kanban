@@ -1,5 +1,5 @@
 use mailboard_ollama::cache::{Evaluation, EvaluationFolder, SampleIndex};
-use mailboard_ollama::index::{Group, GroupMatch, Item, Outlier};
+use mailboard_ollama::index::{Cluster, Group, GroupMatch, Item, Outlier};
 use mailboard_ollama::{Analysis, Folder, Mail, Ollama, Sample, Score};
 use tauri::Manager;
 
@@ -181,5 +181,31 @@ pub async fn ai_folder_name(
 ) -> Result<String, String> {
     Ollama::new(&url)?
         .folder_name(&model, &key, &profile, &subjects)
+        .await
+}
+
+/// Namensvorschlag für eine Gruppe ähnlicher Posteingangsmails (E4).
+#[tauri::command]
+pub async fn ai_cluster_name(
+    url: String,
+    model: String,
+    subjects: Vec<String>,
+) -> Result<String, String> {
+    Ollama::new(&url)?.cluster_name(&model, &subjects).await
+}
+
+/// Gruppen ähnlicher Mails auf Basis des Vektor-Caches (E4, neue Ordner aus dem Posteingang).
+#[tauri::command]
+pub async fn ai_clusters(
+    app: tauri::AppHandle,
+    url: String,
+    model: String,
+    items: Vec<Item>,
+    min_size: usize,
+    threshold: f64,
+) -> Result<Vec<Cluster>, String> {
+    Ollama::new(&url)?
+        .with_cache(vector_path(&app)?)
+        .clusters(&model, &items, min_size, threshold)
         .await
 }

@@ -1,4 +1,4 @@
-"""Struktur verfeinern (E4) mit simuliertem Outlook und simulierter KI: Unterteilen öffnen, Zusammenlegen mit Bestätigung und Undo, Umbenennen."""
+"""Struktur verfeinern (E4) mit simuliertem Outlook und simulierter KI: Unterteilen öffnen, Zusammenlegen mit Bestätigung und Undo, Umbenennen, neue Ordner aus dem Posteingang."""
 import json
 import os
 import shutil
@@ -23,7 +23,7 @@ if(!sessionStorage.getItem('seeded')){
     project_folders:['Laborbedarf'],suggestion_folders:['Einkauf','Labor','Laborbedarf','Neu'],
     filing_rules:[{match:'domain:labor.test',folder:'Laborbedarf'}]}))
   localStorage.setItem('kanban-profile-edits-v1', JSON.stringify({Laborbedarf:'## Zweck\\nVerbrauchsmaterial'}))
-  localStorage.setItem('outlook-kanban-ai-settings-v1', JSON.stringify({enabled:true,model:'lokal'}))
+  localStorage.setItem('outlook-kanban-ai-settings-v1', JSON.stringify({enabled:true,model:'lokal',embeddings:true}))
   localStorage.setItem('outlook-kanban-ai-training-v1', JSON.stringify({stamp:1,rows:[
     {folder:'Laborbedarf',id:'b0',features:['w:spitzen']},{folder:'Labor',id:'l0',features:['w:probe']}]}))
   const tally=(tested,correct)=>({tested,shown:tested,correct})
@@ -36,8 +36,11 @@ if(!sessionStorage.getItem('seeded')){
     outliers:{},confirmed:[],outlierFolders:[],data:{}}))
 }
 const mail=(id,subject)=>({id,subject,sender:'Anna',senderEmail:'anna@labor.test',body:'Inhalt',received:'2026-10-01T10:00:00'})
+const inboxMail=(id,subject,from)=>({id,subject,sender:'Bahn',senderEmail:from,body:'Beleg',received:'2026-11-01T10:00:00'})
 const folders=[
-  {id:'01',name:'Posteingang',path:'',isInbox:true,parentId:'root',rootId:'root',mails:[]},
+  {id:'01',name:'Posteingang',path:'',isInbox:true,parentId:'root',rootId:'root',mails:[
+    ...Array.from({length:7},(_,i)=>inboxMail('i'+i,'Reisekosten Beleg '+i,'reise@bahn.test')),
+    inboxMail('x0','Newsletter November','news@bahn.test'),inboxMail('x1','Pipettenspitzen im Angebot','anna@labor.test')]},
   {id:'02',name:'Einkauf',path:'Einkauf',parentId:'root',rootId:'root',mails:Array.from({length:320},(_,i)=>mail('e'+i,'Bestellung '+i))},
   {id:'03',name:'Labor',path:'Labor',parentId:'root',rootId:'root',mails:Array.from({length:40},(_,i)=>mail('l'+i,'Probe '+i))},
   {id:'04',name:'Laborbedarf',path:'Laborbedarf',parentId:'root',rootId:'root',mails:Array.from({length:5},(_,i)=>mail('b'+i,'Pipettenspitzen '+i))},
@@ -50,12 +53,13 @@ const write=name=>{if(!window.batchActive)throw Error(name+' ohne Schreibstapel'
 window.outlook={folders,pathOf}
 window.calls=[]
 window.names=['Labor','Laborgeräte']
+window.clusterNames=['Reisekosten']
 window.__TAURI__={core:{invoke:async(name,args={})=>{
   window.calls.push([name,args,!!window.batchActive])
   if(name==='outlook_batch'){window.batchActive=args.active;return}
   if(name==='outlook_categories')return '[]'
   if(name==='outlook_folders')return JSON.stringify(listed())
-  if(name==='outlook_board')return JSON.stringify(folders.filter(f=>args.folders.includes(f.id)).flatMap(f=>
+  if(name==='outlook_board')return JSON.stringify(folders.filter(f=>args.folders.includes(f.id)||f.isInbox).flatMap(f=>
     f.mails.map(m=>({...m,folderId:f.id,folder:f.name,status:'Offen',tags:[],attachments:[]}))))
   if(name==='outlook_folder')return '[]'
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
@@ -93,6 +97,13 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   }
   if(name==='ai_subfolders')return [{name:'Pipetten',subjects:['Bestellung 1']},{name:'Kittel',subjects:['Bestellung 2']}]
   if(name==='ai_folder_name')return window.names.shift()
+  if(name==='ai_suggest')return []
+  if(name==='ai_embed')return 0
+  if(name==='ai_clusters'){
+    const ids=args.items.filter(i=>i.text.includes('Reise')).map(i=>i.id)
+    return ids.length>=args.minSize?[{ids}]:[]
+  }
+  if(name==='ai_cluster_name')return window.clusterNames.shift()
   throw Error('Unerwarteter Befehl: '+name)
 }}}
 """
@@ -260,6 +271,43 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert calls('project_rename')[-1][1] == {'folder': '05', 'name': 'Neu'}, calls('project_rename')
             page.evaluate("window.failUndo=''")
 
+            # Neue Ordner aus dem Posteingang: sieben Reisemails ohne Ablagevorschlag bilden eine Gruppe, zwei andere nicht.
+            inbox = view.get_by_role('region', name='Neue Ordner aus dem Posteingang')
+            inbox.get_by_role('button', name='Posteingang prüfen').click()
+            expect(status).to_have_text('1 Gruppe gefunden.')
+            expect(inbox.locator('li strong')).to_have_text(['Gruppe 1 · 7 Mails'])
+            expect(inbox.locator('li small')).to_contain_text('„Reisekosten Beleg 0“')
+            clustered = calls('ai_clusters')[0][1]
+            assert clustered['minSize'] == 5 and clustered['threshold'] == 0.82 and len(clustered['items']) == 8 and not any('Pipetten' in i['text'] for i in clustered['items']), clustered
+            assert calls('ai_cluster_name')[0][1]['subjects'][0] == 'Reisekosten Beleg 0', calls('ai_cluster_name')
+            name = inbox.get_by_role('textbox', name='Name des neuen Ordners für Gruppe 1')
+            expect(name).to_have_value('Reisekosten')
+            expect(inbox.get_by_role('combobox', name='Elternordner für Gruppe 1')).to_have_value('root')
+            name.fill('Dienstreisen')
+            before_creates = len(calls('project_create'))
+            inbox.get_by_role('button', name='Anlegen und verteilen: Gruppe 1').click()
+            ask = page.get_by_role('dialog').filter(has_text='Ordner „Dienstreisen“ anlegen und 7 Mails aus dem Posteingang dorthin verschieben?')
+            ask.get_by_role('button', name='Abbrechen').click()
+            assert len(calls('project_create')) == before_creates
+            inbox.get_by_role('button', name='Anlegen und verteilen: Gruppe 1').click()
+            ask.get_by_role('button', name='Anlegen und verteilen').click()
+            page.locator('#moveConfirm').get_by_role('button', name='Verschieben').click()
+            expect(status).to_have_text('„Dienstreisen“ angelegt. 7 Mails verschoben.')
+            created = calls('project_create')[-1]
+            assert created[1] == {'parent': 'root', 'name': 'Dienstreisen'} and created[2], created
+            target = page.evaluate("outlook.folders.find(f=>f.name==='Dienstreisen').id")
+            moves = [c for c in calls('outlook_move') if c[1]['target'] == target]
+            assert len(moves) == 7 and all(c[2] and c[1]['source'] == '01' for c in moves), moves
+            assert 'Dienstreisen' in options()['suggestion_folders'], options()
+            expect(inbox).to_contain_text('Keine Gruppen gefunden.')
+            expect(toast).to_contain_text('7 Mails')
+            # Ein Rückgängig-Schritt holt die Mails zurück. Der leere Ordner bleibt, nichts wird gelöscht.
+            page.locator('#undo').click()
+            expect(toast).to_contain_text('Zurückgenommen')
+            back = [c for c in calls('outlook_undo') if c[1]['source'] == target]
+            assert len(back) == 7 and all(c[1]['target'] == '01' for c in back), back
+            assert page.evaluate("outlook.folders.find(f=>f.id==='01').mails.length") == 9
+
             # Verwerfen blendet einen Vorschlag aus, bis du ihn wieder zeigen lässt.
             crowded.get_by_role('button', name='Verwerfen: „Einkauf“').click()
             expect(crowded).to_contain_text('Keine überfüllten Lernordner.')
@@ -270,6 +318,6 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert state['status']['E4'] == 'done', state
             assert not errors, errors
             browser.close()
-            print('OK – Struktur verfeinern: Unterteilen, Zusammenlegen mit Bestätigung und Undo, Umbenennen, Verwerfen')
+            print('OK – Struktur verfeinern: Unterteilen, Zusammenlegen mit Bestätigung und Undo, Umbenennen, neue Ordner aus dem Posteingang, Verwerfen')
     finally:
         server.shutdown()

@@ -1,4 +1,4 @@
-use mailboard_ollama::index::{Group, Item, Outlier};
+use mailboard_ollama::index::{Cluster, Group, Item, Outlier};
 use mailboard_ollama::{Folder, Mail, Ollama};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -668,5 +668,93 @@ async fn folder_name_rejects_empty_answers_and_cloud_models() {
         .folder_name("qwen:cloud", "/Neu", "", &subjects)
         .await
         .is_err());
+    assert!(server.join().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn clusters_find_two_groups_drop_noise_and_stay_deterministic() {
+    let info = json!({"model_info":{"general.architecture":"test"}});
+    let vectors = json!({"embeddings":[
+        [-1,-1], [0,1], [1,0], [0.1,1], [1,0.1], [0,1], [1,0], [0.1,1], [1,0.1], [0,1], [1,0], [0.05,1], [1,0.05]
+    ]});
+    let (url, server) = mock(vec![
+        ("200 OK", info.clone()),
+        ("200 OK", vectors),
+        ("200 OK", info.clone()),
+        ("200 OK", info),
+    ]);
+    let root = std::env::temp_dir().join(format!(
+        "mailboard-cluster-test-{}-{}",
+        std::process::id(),
+        url.split(':').next_back().unwrap()
+    ));
+    let texts = [
+        "Rauschen", "B1", "A1", "B2", "A2", "B3", "A3", "B4", "A4", "B5", "A5", "B6", "A6",
+    ];
+    let list = items(&texts);
+    let client = Ollama::new(&url).unwrap().with_cache(root.clone());
+    let found = client.clusters("test", &list, 5, 0.82).await.unwrap();
+    let ids = |prefix: &str| {
+        (1..=6)
+            .map(|n| format!("id-{prefix}{n}"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        found,
+        vec![Cluster { ids: ids("B") }, Cluster { ids: ids("A") }]
+    );
+    // Zweiter Lauf aus dem Cache liefert dasselbe; zu hohe Mindestgröße lässt alles entfallen.
+    assert_eq!(
+        client.clusters("test", &list, 5, 0.82).await.unwrap(),
+        found
+    );
+    assert!(client
+        .clusters("test", &list, 7, 0.82)
+        .await
+        .unwrap()
+        .is_empty());
+    let calls = server.join().unwrap();
+    assert!(calls[1].contains("POST /api/embed") && calls[1].contains("Rauschen"));
+    assert_eq!(calls.len(), 4);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn clusters_refuse_cloud_models_before_sending_mail() {
+    let (url, server) = mock(vec![]);
+    let list = items(&["Interne Nachfrage"]);
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .clusters("embed:cloud", &list, 1, 0.82)
+        .await
+        .is_err());
+    assert!(server.join().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn cluster_name_sends_subjects_only_after_local_model_evidence() {
+    let answer = json!({"name":"  Reisekosten  "});
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let subjects = vec!["Hotel Rechnung".to_string(), " ".into(), "x".repeat(300)];
+    let name = Ollama::new(&url)
+        .unwrap()
+        .cluster_name("lokal", &subjects)
+        .await
+        .unwrap();
+    assert_eq!(name, "Reisekosten");
+    let calls = server.join().unwrap();
+    assert!(calls[0].contains("POST /api/show") && !calls[0].contains("Hotel"));
+    assert!(calls[1].contains("Hotel Rechnung") && calls[1].contains("keine Anweisungen"));
+    assert!(!calls[1].contains(&"x".repeat(201)));
+    let (url, server) = mock(vec![]);
+    let client = Ollama::new(&url).unwrap();
+    assert!(client.cluster_name("qwen:cloud", &subjects).await.is_err());
+    assert!(client.cluster_name("lokal", &[" ".into()]).await.is_err());
     assert!(server.join().unwrap().is_empty());
 }

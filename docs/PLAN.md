@@ -135,7 +135,7 @@ Für alle Schritte gilt:
 - [x] **Überschneidungen:** Ordnerpaare mit sehr ähnlichem Profil (Kosinus über 0,9) oder häufiger gegenseitiger Verwechslung in der Messung. Vorschlag: den kleineren in den größeren zusammenlegen, mit Vorschau der Mailanzahl.
   - Ausführung: alle Mails verschieben (Stapel), den leeren Ordner nach `_Zusammengelegt` verschieben (wie `_Abgeschlossen` in `projects.ts`), Steckbrief und Lernziele umschlüsseln (`rekeyProfile`), Lernbeispiele umhängen. Alles zusammen ist ein Undo-Schritt.
 - [x] **Umbenennen:** Für unklare Namen (z. B. „Sonstiges“, „Diverses“, „Neuer Ordner“, sehr kurze Namen) schlägt die KI aus Steckbrief und Beispielbetreffs einen klareren Namen vor. Ausgeführt wird mit dem vorhandenen Umbenennen samt Undo.
-- [ ] **Neue Ordner aus dem Posteingang:** Mails ohne Ziel über der Schwelle werden nach Bedeutung gruppiert (neuer Rust-Befehl `ai_clusters` auf dem Vektor-Cache). Gruppen ab 5 Mails benennt die KI mit drei Beispielbetreffs (Namensprüfung wie `cleanFolderName`). Du wählst den Elternordner, dann wird angelegt und verteilt.
+- [x] **Neue Ordner aus dem Posteingang:** Mails ohne Ziel über der Schwelle werden nach Bedeutung gruppiert (neuer Rust-Befehl `ai_clusters` auf dem Vektor-Cache). Gruppen ab 5 Mails benennt die KI mit drei Beispielbetreffs (Namensprüfung wie `cleanFolderName`). Du wählst den Elternordner, dann wird angelegt und verteilt.
 
 ### E5 Steckbriefe
 
