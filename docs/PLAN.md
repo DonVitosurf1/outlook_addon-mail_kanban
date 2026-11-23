@@ -201,7 +201,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
 - [ ] **U5 Aktionsleiste in den Maildetails.** Eine Knopfleiste unter dem Betreff mit Antworten, Allen antworten, Weiterleiten, Wiedervorlage (W), Nachfassen (N), Notiz (K), Fokus (F) und Vorgang, jeweils mit Tastenkürzel.
   - Genutzt werden dieselben Aktionen wie im Kontextmenü (`BoardActions` in `src/views.ts`).
   - Nicht verfügbare Aktionen, etwa Antworten im Beispielpostfach, sind deaktiviert und haben einen Tooltip, warum.
-- [ ] **U6 Kontextmenü gruppiert.** Ein echtes Menü an der Mausposition (`role=menu`, Pfeiltasten, Escape) ersetzt den heutigen Dialog (`editSelection`).
+- [x] **U6 Kontextmenü gruppiert.** Ein echtes Menü an der Mausposition (`role=menu`, Pfeiltasten, Escape) ersetzt den heutigen Dialog (`editSelection`).
   - Die Tastatur öffnet es mit Umschalt+F10 oder der Menütaste an der Karte.
   - Gruppen: **Status** (1–4), **Antworten** (R, Umschalt+R), **Planen** (W, N, K, F), **Ordnen** (Kategorien, Vorgang, Ablagevorschlag).
   - Tastenkürzel stehen rechts. Bei mehreren markierten Karten nennt der Kopf die Anzahl.

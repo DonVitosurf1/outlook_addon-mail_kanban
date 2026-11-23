@@ -1,6 +1,8 @@
 import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderCards} from './views-logic'
 import {BoardLayout} from './views-layout'
 import {cardRow, counter} from './card-content'
+import {shortcutFor} from './shortcuts'
+import type {ShortcutAction} from './shortcuts'
 import {dateTerms} from './date-terms'
 import {getLegacyConfig, textSnippets,updateConfig} from './data-settings'
 import type {Focus, Group, Sort, Split, ViewMail} from './views-logic'
@@ -103,7 +105,7 @@ export class BoardViews {
     for(const [name,select] of [['sort',this.sort],['group',this.group]] as const){
       const value=remembered(name);if(Array.from(select.options).some(o=>o.value===value))select.value=value
     }
-    const edit=button('Kartenaktionen',()=>this.editSelection())
+    const edit=button('Kartenaktionen',()=>this.openMenu(edit,edit))
     edit.title='Status, Kategorie, Nachfassen, Wiedervorlage oder Notiz ändern'
     const controls=document.getElementById('viewControls')
     for(const select of [this.split,this.tag,this.sort,this.group]){
@@ -278,7 +280,7 @@ export class BoardViews {
       if(e.ctrlKey||e.metaKey||e.shiftKey){e.preventDefault();e.stopImmediatePropagation();this.pick(id,e.shiftKey,e.ctrlKey||e.metaKey)}
       else this.pick(id,false,false)
     },true)
-    card.addEventListener('contextmenu',e=>{e.preventDefault();if(!this.selected.has(id))this.pick(id,false,false); this.editSelection()})
+    card.addEventListener('contextmenu',e=>{e.preventDefault();if(!this.selected.has(id))this.pick(id,false,false);this.openMenu(e.clientX||e.clientY?{x:e.clientX,y:e.clientY}:card,card)})
     card.addEventListener('dragstart',()=>{if(!this.selected.has(id))this.pick(id,false,false)},true)
   }
   selectedIds(fallbackId:string) {return this.selected.has(fallbackId)?[...this.selected]:[fallbackId]}
@@ -341,33 +343,91 @@ export class BoardViews {
   private async perform(action:()=>AsyncAction){
     try{await action()}catch(error){announce('Aktion fehlgeschlagen: '+String(error))}
   }
-  private editSelection(){
+  private menu?:HTMLElement
+  private menuBack?:HTMLElement
+  private closeMenu(restore=true){
+    const menu=this.menu;if(!menu)return
+    this.menu=undefined;menu.remove()
+    document.removeEventListener('pointerdown',this.menuOutside,true)
+    const back=this.menuBack;this.menuBack=undefined
+    if(restore&&back){
+      const card=back.dataset.viewId&&document.querySelector<HTMLElement>('[data-view-id="'+CSS.escape(back.dataset.viewId)+'"]')
+      ;(card||back).focus()
+    }
+  }
+  private menuOutside=(e:Event)=>{if(this.menu&&!this.menu.contains(e.target as Node))this.closeMenu(false)}
+  /** Kontextmenü der markierten Karten; `at` ist die Mausposition oder der Anker (Karte, Knopf). */
+  private openMenu(at:{x:number,y:number}|HTMLElement,backTo?:HTMLElement){
+    this.closeMenu(false)
     const ids=[...this.selected],first=this.byId.get(ids[0])
     if(!first){announce('Bitte zuerst eine Karte markieren. Strg+Klick markiert mehrere.');return}
-    const {dialog,form,actions,save}=formDialog(ids.length===1?first.subject:ids.length+' markierte Mails')
-    save.remove();actions.firstElementChild!.textContent='Schließen'
-    const run=(label:string,task:()=>AsyncAction)=>form.append(button(label,()=>{dialog.close();void this.perform(task)}))
-    for(const state of statuses)run('Status: '+state,()=>this.api.changeStatus(ids,state))
-    if(ids.length===1){
-      run('Details',()=>this.api.open(first.id))
-      if(this.api.openOriginal)run('In Outlook öffnen',()=>this.api.openOriginal!(first.id))
+    type Entry={label:string,key?:ShortcutAction,run:()=>AsyncAction}
+    const groups:[string,Entry[]][]=[['Status',[]],['Antworten',[]],['Planen',[]],['Ordnen',[]]]
+    const add=(group:string,label:string,run:()=>AsyncAction,key?:ShortcutAction)=>groups.find(g=>g[0]===group)![1].push({label,key,run})
+    const statusKeys:ShortcutAction[]=['status-open','status-progress','status-waiting','status-done']
+    statuses.forEach((state,i)=>add('Status',state,()=>this.api.changeStatus(ids,state),statusKeys[i]))
+    const one=ids.length===1
+    if(one){
+      add('Antworten','Details',()=>this.api.open(first.id),'details')
+      if(this.api.openOriginal)add('Antworten','In Outlook öffnen',()=>this.api.openOriginal!(first.id),'open')
       if(this.api.reply){
-        run('Antworten',()=>this.api.reply!(first.id,false))
-        run('Allen antworten',()=>this.api.reply!(first.id,true))
+        add('Antworten','Antworten',()=>this.api.reply!(first.id,false),'reply')
+        add('Antworten','Allen antworten',()=>this.api.reply!(first.id,true),'reply-all')
       }
-      if(first.replyEvidence)run('Warten abschließen',()=>{document.dispatchEvent(new CustomEvent('kanban-resolve-reply',{detail:first.id}))})
-      if(first.replyEvidence)run('Eingegangene Antwort öffnen',()=>{document.dispatchEvent(new CustomEvent('kanban-show-reply',{detail:first.id}))})
+      if(first.replyEvidence){
+        add('Antworten','Eingegangene Antwort öffnen',()=>{document.dispatchEvent(new CustomEvent('kanban-show-reply',{detail:first.id}))})
+        add('Antworten','Warten abschließen',()=>{document.dispatchEvent(new CustomEvent('kanban-resolve-reply',{detail:first.id}))})
+      }
       if(this.fieldsEnabled()){
-        for(const key of ['followUp','snoozeUntil','note'] as const){
-          if(key==='followUp'&&first.status!=='Warten')continue
-          run(fields[key],()=>this.editField(first,key))
-        }
+        add('Planen',fields.snoozeUntil,()=>this.editField(first,'snoozeUntil'),'snooze')
+        if(first.status==='Warten')add('Planen',fields.followUp,()=>this.editField(first,'followUp'),'follow-up')
+        add('Planen',fields.note,()=>this.editField(first,'note'),'note')
       }
-      if(this.api.setTags)run('Kategorien bearbeiten',()=>this.editField(first,'tags'))
+      if(this.api.setTags)add('Ordnen','Kategorien bearbeiten',()=>this.editField(first,'tags'))
     }
-    if(this.api.toggleFocus)run('Fokus umschalten (F)',()=>this.api.toggleFocus!(ids))
-    if(this.api.assignCase)run('Vorgang zuordnen …',()=>this.api.assignCase!(ids))
-    form.append(actions);dialog.showModal()
+    if(this.api.toggleFocus)add('Planen','Fokus umschalten',()=>this.api.toggleFocus!(ids),'focus')
+    if(this.api.assignCase)add('Ordnen','Vorgang zuordnen …',()=>this.api.assignCase!(ids))
+    if(one&&this.api.acceptSuggestion)add('Ordnen','Ablagevorschlag prüfen',()=>this.api.acceptSuggestion!(first.id),'accept-suggestion')
+    const menu=element('div');menu.className='card-menu';menu.setAttribute('role','menu')
+    const title=one?first.subject:ids.length+' markierte Mails'
+    menu.setAttribute('aria-label',title);this.menuBack=backTo
+    const head=element('p',title);head.className='card-menu-head';menu.append(head)
+    const items:HTMLButtonElement[]=[]
+    groups.forEach(([name,entries],index)=>{
+      if(!entries.length)return
+      const group=element('div');group.className='card-menu-group';group.setAttribute('role','group')
+      const label=element('p',name);label.className='card-menu-label';label.id='card-menu-'+index;group.setAttribute('aria-labelledby',label.id)
+      group.append(label)
+      for(const entry of entries){
+        const item=element('button');item.type='button';item.className='card-menu-item';item.tabIndex=-1;item.setAttribute('role','menuitem')
+        item.append(element('span',entry.label))
+        const hint=entry.key&&shortcutFor(entry.key)
+        if(hint){const kbd=element('kbd',hint);item.append(kbd)}
+        item.onclick=()=>{this.closeMenu(true);void this.perform(entry.run)}
+        group.append(item);items.push(item)
+      }
+      menu.append(group)
+    })
+    menu.addEventListener('keydown',e=>{
+      const at=items.indexOf(document.activeElement as HTMLButtonElement)
+      let next=-1
+      if(e.key==='ArrowDown')next=(at+1)%items.length
+      else if(e.key==='ArrowUp')next=(at<=0?items.length:at)-1
+      else if(e.key==='Home')next=0
+      else if(e.key==='End')next=items.length-1
+      else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();this.closeMenu();return}
+      else if(e.key==='Tab'){e.preventDefault();this.closeMenu();return}
+      else{e.stopPropagation();return}
+      e.preventDefault();e.stopPropagation();items[next]?.focus()
+    })
+    document.body.append(menu);this.menu=menu
+    document.addEventListener('pointerdown',this.menuOutside,true)
+    const box=menu.getBoundingClientRect()
+    let x:number,y:number
+    if(at instanceof HTMLElement){const r=at.getBoundingClientRect();x=r.left+8;y=r.bottom}else{x=at.x;y=at.y}
+    menu.style.left=Math.max(4,Math.min(x,window.innerWidth-box.width-4))+'px'
+    menu.style.top=Math.max(4,Math.min(y,window.innerHeight-box.height-4))+'px'
+    items[0]?.focus()
   }
   private fieldsEnabled(){return !!this.api.setField && (!this.api.canSetFields || this.api.canSetFields())}
   private editField(mail:ViewMail,field:Field|'tags'){
@@ -467,6 +527,10 @@ export class BoardViews {
     }
     if(!node)return
     const id=node.dataset.viewId!, ids=this.selectedIds(id)
+    if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){
+      if(!this.selected.has(id))this.pick(id,false,false)
+      this.openMenu(node,node);e.preventDefault();return
+    }
     if(e.key.startsWith('Arrow')){
       const nodes=this.cardNodes(), lane=node.closest('.lane')
       if(!lane)return

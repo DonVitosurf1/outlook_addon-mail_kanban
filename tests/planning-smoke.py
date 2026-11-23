@@ -92,7 +92,7 @@ def check_routine(page):
 
 def check_case_and_calendar(page, today, next_monday):
     page.locator('#mail-DEMO0003').click(button='right')
-    page.locator('.view-dialog[open]').get_by_role('button', name='Vorgang zuordnen …').click()
+    page.get_by_role('menu').get_by_role('menuitem', name='Vorgang zuordnen …').click()
     picker = page.get_by_role('dialog', name='Vorgang zuordnen')
     picker.get_by_label('Name des neuen Vorgangs').fill('Wartung, Zentrifuge')
     picker.get_by_role('button', name='Zuordnen').click()
