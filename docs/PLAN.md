@@ -42,9 +42,9 @@ Für alle Punkte gilt:
 
 ### K2 Briefing-Text
 
-- [ ] **Reine Funktion** `briefingText(briefing)` in `src/planning-logic.ts`. Sie nutzt nur vorhandene Felder (`aiSummary`, `needsReply`, `deadline`, später `aufgaben`) und erzeugt Sätze wie „6 neue Mails seit gestern 17:40. Antwort nötig: Angebot Weber (Preis klären), Raumplanung Krüger. Frist heute: Bestellung 2026-118. 3 offene Aufgaben.“ Bei mehr als drei Einträgen kommt „und N weitere“ dazu.
-- [ ] **Anzeige** als erster Absatz im Triage-Briefing (`src/triage.ts`). Ohne Analysen erscheint nur die Anzahl, ohne Fehlermeldung.
-- [ ] **Tests**: Unit-Tests für leere, einfache und lange Listen sowie für Mails ohne Analyse.
+- [x] **Reine Funktion** `briefingText(briefing)` in `src/planning-logic.ts`. Sie nutzt nur vorhandene Felder (`aiSummary`, `needsReply`, `deadline`, später `aufgaben`) und erzeugt Sätze wie „6 neue Mails seit gestern 17:40. Antwort nötig: Angebot Weber (Preis klären), Raumplanung Krüger. Frist heute: Bestellung 2026-118. 3 offene Aufgaben.“ Bei mehr als drei Einträgen kommt „und N weitere“ dazu.
+- [x] **Anzeige** als erster Absatz im Triage-Briefing (`src/triage.ts`). Ohne Analysen erscheint nur die Anzahl, ohne Fehlermeldung.
+- [x] **Tests**: Unit-Tests für leere, einfache und lange Listen sowie für Mails ohne Analyse.
 - **Fertig, wenn** das Briefing ohne Wartezeit einen Absatz zeigt, der nur Inhalte aus vorhandenen Analysen nennt.
 
 ### K3 Hintergrund-Einbettung (Grundlage)

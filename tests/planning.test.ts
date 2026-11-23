@@ -1,7 +1,7 @@
 import {strict as assert} from 'node:assert'
 import test from 'node:test'
 import {
-  addDays, briefing, calendarEntries, caseMails, caseNameProblem, caseNames, caseTag, describeRhythm, dueRoutines, focusTarget,
+  addDays, briefing, briefingText, calendarEntries, caseMails, caseNameProblem, caseNames, caseTag, describeRhythm, dueRoutines, focusTarget,
   hasFocus, inTriageStep, isFocusCard, isoWeek, isoWeekday, knownCases, lastOccurrence, newSince, normalizeCase, normalizeRoutine,
   plannedField, routineDue, weekDays, weekStart, withTag, type Case, type Routine,
 } from '../src/planning-logic'
@@ -126,4 +126,22 @@ test('Briefing bündelt Zahlen, Neues, Fokus, Routinen und fällige Checklistenp
   assert.deepEqual(result.due.map(m=>m.id),['D'])
   assert.equal(result.routines.length,1)
   assert.deepEqual(result.checklist.map(c=>c.item.text),['a'])
+})
+
+test('Briefing-Text: ohne Analysen nur Satz 1, nur neue Mails',()=>{
+  const fresh=[{...mail,id:'1',received:'2026-11-20T06:00:00'}]
+  assert.equal(briefingText(briefing(fresh,{today,now:Date.parse('2026-11-20T08:00:00'),since:Date.parse('2026-11-19T18:00:00')}),{today,since:'seit Do 17:40'}),'1 neue Mail seit Do 17:40.')
+  assert.equal(briefingText(briefing([],{today}),{today}),'Keine neuen Mails in den letzten 24 Stunden.')
+})
+
+test('Briefing-Text: Antwort nötig mit drei bzw. fünf Mails, Kürzung und Frist heute',()=>{
+  const row=(i:number,x:object={})=>({...mail,id:String(i),subject:'M'+i,needsReply:true,...x}) as ViewMail
+  const three=[row(1,{aiSummary:'Preis klären'}),row(2),row(3)]
+  assert.equal(briefingText(briefing(three,{today}),{today}),'Keine neuen Mails in den letzten 24 Stunden. Antwort nötig: M1 (Preis klären), M2, M3.')
+  const five=[1,2,3,4,5].map(i=>row(i))
+  assert.match(briefingText(briefing(five,{today}),{today}),/Antwort nötig: M1, M2, M3 und 2 weitere\.$/)
+  const long=[row(1,{aiSummary:'x'.repeat(100)})]
+  assert.ok(briefingText(briefing(long,{today}),{today}).includes('('+'x'.repeat(59)+'…)'))
+  const dl=[{...mail,id:'a',subject:'Bestellung',deadline:today},{...mail,id:'b',subject:'Alt',deadline:'2026-11-10'},{...mail,id:'c',subject:'Später',deadline:'2026-11-25'}]
+  assert.equal(briefingText(briefing(dl,{today}),{today}),'Keine neuen Mails in den letzten 24 Stunden. Frist heute: Bestellung.')
 })

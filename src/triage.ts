@@ -1,5 +1,5 @@
 /** Morgen-Triage direkt auf dem Board: Ein Banner führt durch drei Schritte, das Board zeigt nur die Karten des Schritts. */
-import {briefing, inTriageStep, triageSteps, type Case, type Routine} from './planning-logic'
+import {briefing, briefingText, inTriageStep, triageSteps, type Case, type Routine} from './planning-logic'
 import {lastTriage, rememberTriage} from './planning-store'
 import type {ViewState} from './views'
 import {showView} from './tabs'
@@ -24,9 +24,10 @@ type Options = {
 
 function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
 function button(label:string,run:()=>void){const node=make('button',label);node.type='button';node.onclick=run;return node}
+function stampText(stamp:number){return new Date(stamp).toLocaleString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function when(stamp:number|undefined){
   if(!stamp)return 'Neu in den letzten 24 Stunden'
-  return 'Neu seit der letzten Triage ('+new Date(stamp).toLocaleString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+')'
+  return 'Neu seit der letzten Triage ('+stampText(stamp)+')'
 }
 
 export function initTriage(options:Options){
@@ -89,7 +90,8 @@ export function initTriage(options:Options){
     details.ontoggle=()=>{briefingOpen=details.open}
     const body=make('div');body.className='triage-briefing-body'
     details.append(make('summary','Briefing'),body)
-    body.append(make('p',[b.due.length+' heute dran',b.late.length+' Nachfassen fällig',b.undated.length+' Warten ohne Frist',
+    const text=make('p',briefingText(b,{since:since?'seit '+stampText(since):undefined}));text.className='triage-briefing-text'
+    body.append(text,make('p',[b.due.length+' heute dran',b.late.length+' Nachfassen fällig',b.undated.length+' Warten ohne Frist',
       b.reply.length+' Antwort nötig',b.focus.length+' im Fokus',b.snoozed+' auf Wiedervorlage'].join(' · ')))
     const column=(title:string)=>{const box=make('div');box.className='triage-column';box.append(make('h3',title));body.append(box);return box}
     const fresh=column(when(since)+' · '+b.fresh.length)

@@ -239,3 +239,18 @@ export function briefing<T extends ViewMail>(mails:readonly T[],options:{today?:
     checklist:items,
   }
 }
+
+// ---------- Briefing-Text ----------
+type TextMail=ViewMail&{aiSummary?:string}
+const clip=(text:string,max:number)=>text.length>max?text.slice(0,max-1).trimEnd()+'…':text
+export function briefingText(b:{fresh:readonly unknown[];reply:readonly TextMail[];due:readonly TextMail[]},options:{since?:string;today?:string}={}){
+  const today=options.today||localDay(),n=b.fresh.length
+  const parts=[(n?n+(n===1?' neue Mail':' neue Mails'):'Keine neuen Mails')+' '+(options.since||'in den letzten 24 Stunden')+'.']
+  if(b.reply.length){
+    const names=b.reply.slice(0,3).map(m=>{const s=(m.aiSummary||'').trim(),t=m.subject||'(ohne Betreff)';return s?t+' ('+clip(s,60)+')':t})
+    parts.push('Antwort nötig: '+names.join(', ')+(b.reply.length>3?' und '+(b.reply.length-3)+' weitere':'')+'.')
+  }
+  const dl=b.due.filter(m=>(m.deadline||'').slice(0,10)===today&&dueReasons(m,today).includes('Frist')).slice(0,3)
+  if(dl.length)parts.push('Frist heute: '+dl.map(m=>m.subject||'(ohne Betreff)').join(', ')+'.')
+  return parts.join(' ')
+}
