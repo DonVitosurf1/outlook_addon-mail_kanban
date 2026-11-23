@@ -72,6 +72,16 @@
     <form method="dialog" class="dialog-tools"><button class="close" aria-label="Maildetails schließen">×</button></form>
     <small class="dialog-label">Maildetails</small>
     <h2 id="subject"></h2><p id="from"></p>
+    <div id="detailBar" class="detail-bar" role="toolbar" aria-label="Aktionen für diese Mail">
+      <button type="button" data-draft="reply" data-key="reply">Antworten</button>
+      <button type="button" data-draft="reply-all" data-key="reply-all">Allen antworten</button>
+      <button type="button" data-draft="forward">Weiterleiten</button>
+      <button type="button" data-act="snoozeUntil" data-key="snooze">Wiedervorlage</button>
+      <button type="button" data-act="followUp" data-key="follow-up" hidden>Nachfassen</button>
+      <button type="button" data-act="note" data-key="note">Notiz</button>
+      <button type="button" data-act="focus" data-key="focus" aria-pressed="false">Fokus</button>
+      <button type="button" data-act="case">Vorgang zuordnen …</button>
+    </div>
     <article id="body"></article><p id="attachments"></p>
     <button hidden id="openOriginal">In Outlook öffnen</button><p id="openError" role="status"></p>
     <div class="fields">
@@ -79,11 +89,6 @@
       <label>Ordner<select id="folder"></select></label>
     </div>
     <div id="replyActions" hidden>
-      <div class="reply-buttons">
-        <button data-draft="reply">Antworten</button>
-        <button data-draft="reply-all">Allen antworten</button>
-        <button data-draft="forward">Weiterleiten</button>
-      </div>
       <div class="followup-row">
         <label>Textbaustein<select id="draftSnippet"></select></label>
         <button data-draft="follow-up">Nachfassentwurf öffnen</button>

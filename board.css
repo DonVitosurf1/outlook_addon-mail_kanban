@@ -310,7 +310,7 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .shortcut-table td:first-child { white-space: nowrap; }
 #cockpit-dialog { max-height: 90vh; overflow: auto; }
 #replyActions,.data-settings h3 { margin-top: 1rem; }
-.reply-buttons,.followup-row { display: flex; flex-wrap: wrap; align-items:end; gap:.35rem; margin-block:.5rem; }
+.followup-row { display: flex; flex-wrap: wrap; align-items:end; gap:.35rem; margin-block:.5rem; }
 .followup-row label,.view-dialog label,.data-settings label { display:grid; min-width:0; gap:.2rem; margin-block:.4rem; }
 .data-settings h3 { font-size: 1rem; }
 .data-settings > button,.view-dialog form > button { margin: .25rem .25rem .25rem 0; }
@@ -463,3 +463,9 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .card-menu-label { padding: .2rem .5rem; font-size: .72rem; color: var(--muted, #5f5f66); text-transform: uppercase; letter-spacing: .04em; }
 .card-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; width: 100%; padding: .3rem .5rem; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .card-menu-item:hover, .card-menu-item:focus-visible { background: var(--soft); outline-offset: -2px; }
+.detail-bar { display: flex; flex-wrap: wrap; gap: .35rem; margin-block: .6rem; }
+.detail-bar button { display: inline-flex; align-items: center; gap: .35rem; }
+.detail-bar button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); }
+.detail-bar button[aria-pressed=true] kbd { background: transparent; color: inherit; border-color: currentColor; }
+.detail-bar button:disabled { cursor: not-allowed; }
+.detail-bar [hidden] { display: none; }

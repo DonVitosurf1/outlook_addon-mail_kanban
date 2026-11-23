@@ -430,7 +430,14 @@ export class BoardViews {
     items[0]?.focus()
   }
   private fieldsEnabled(){return !!this.api.setField && (!this.api.canSetFields || this.api.canSetFields())}
-  private editField(mail:ViewMail,field:Field|'tags'){
+  /** Bearbeitungsdialog für die Aktionsleiste der Maildetails; gibt `false` zurück, wenn die Aktion nicht möglich ist. */
+  editDetailField(id:string,field:Field,returnTo?:HTMLElement):boolean{
+    const mail=this.byId.get(id)
+    if(!mail||!this.fieldsEnabled()||(field==='followUp'&&mail.status!=='Warten'))return false
+    this.editField(mail,field,returnTo)
+    return true
+  }
+  private editField(mail:ViewMail,field:Field|'tags',returnTo?:HTMLElement){
     const {dialog,form,actions,save}=formDialog(field==='tags'?'Kategorien bearbeiten':fields[field])
     const label=element('label',field==='tags'?'Eine Kategorie pro Zeile':field==='note'?'Notiz':'Datum')
     const isDate=field==='followUp'||field==='snoozeUntil'
@@ -484,6 +491,7 @@ export class BoardViews {
         dialog.close()
       }catch(error){err.textContent=String(error)}finally{save.disabled=false}
     }
+    if(returnTo)dialog.addEventListener('close',()=>returnTo.focus(),{once:true})
     dialog.showModal();input.focus()
   }
   editVip(){

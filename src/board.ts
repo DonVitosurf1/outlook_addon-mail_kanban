@@ -16,7 +16,8 @@ import { initTriage } from './triage'
 import { initRoutines, markRoutine } from './routines'
 import { initCalendar } from './calendar'
 import { allCases, initCases, toggleCaseItem } from './cases'
-import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, withTag, type RoutineAction } from './planning-logic'
+import { shortcutFor, type ShortcutAction } from './shortcuts'
+import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
 import { loadRoutines, useSamplePlanning } from './planning-store'
 import { initTabs } from './tabs'
 
@@ -379,6 +380,52 @@ function dropZone(node:HTMLElement,action:(ids:string[])=>void) {
     if(mail){e.preventDefault();action(views.selectedIds(mail.id))}
   }
 }
+function toggleFocus(ids:string[]) {
+  const rows=mails.filter(m=>ids.includes(m.id)),on=focusTarget(rows)
+  return change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,FOCUS_TAG,on)})
+}
+const draftOnly='Entwürfe gibt es nur im Outlook-Postfach.'
+function fillDetailBar(mail:Mail) {
+  for(const b of document.querySelectorAll<HTMLButtonElement>('#detailBar [data-draft]')) {
+    b.disabled=!isLive();b.title=isLive()?'':draftOnly
+  }
+  const follow=el('detailBar').querySelector<HTMLButtonElement>('[data-act=followUp]')!
+  follow.hidden=mail.status!=='Warten'
+  const focus=el('detailBar').querySelector<HTMLButtonElement>('[data-act=focus]')!
+  focus.setAttribute('aria-pressed',String(hasFocus(mail)))
+}
+function initDetailBar() {
+  const bar=el('detailBar')
+  for(const b of bar.querySelectorAll<HTMLButtonElement>('button[data-key]')) {
+    const keys=shortcutFor(b.dataset.key as ShortcutAction)
+    if(!keys)continue
+    b.setAttribute('aria-keyshortcuts',keys.replace('Umschalt','Shift'))
+    const hint=tag('kbd',keys);b.append(' ',hint)
+  }
+  const edit=(field:'snoozeUntil'|'followUp'|'note',from?:HTMLElement)=>{if(selected)views.editDetailField(selected.id,field,from)}
+  const act=(name:string,from?:HTMLElement)=>{
+    if(!selected)return
+    if(name==='focus')void toggleFocus([selected.id]).catch(e=>notify('Aktion fehlgeschlagen: '+errorText(e)))
+    else if(name==='case')cases?.openAssign([selected.id])
+    else edit(name as 'snoozeUntil'|'followUp'|'note',from)
+  }
+  for(const b of bar.querySelectorAll<HTMLButtonElement>('button[data-act]'))b.onclick=()=>act(b.dataset.act!,b)
+  dialog.addEventListener('keydown',e=>{
+    const t=e.target as HTMLElement
+    if(e.ctrlKey||e.altKey||e.metaKey||e.defaultPrevented||!selected||t.closest('input,textarea,select,[contenteditable]'))return
+    const key=e.key.toLowerCase()
+    if(key==='r'){
+      const b=bar.querySelector<HTMLButtonElement>('[data-draft='+(e.shiftKey?'reply-all':'reply')+']')
+      if(b&&!b.disabled)b.click()
+    }else{
+      const name=({w:'snoozeUntil',n:'followUp',k:'note',f:'focus'} as Record<string,string>)[key]
+      const b=name&&bar.querySelector<HTMLButtonElement>('[data-act='+name+']')
+      if(!b||b.hidden||e.shiftKey)return
+      act(name,b)
+    }
+    e.preventDefault()
+  })
+}
 function fillDetail(mail:Mail) {
   const version=++suggestionVersion
   correspondence?.detail(mail.id,el('detailActions'))
@@ -391,6 +438,7 @@ function fillDetail(mail:Mail) {
   el<HTMLSelectElement>('status').value=mail.status
   el<HTMLSelectElement>('folder').value=mail.folderId||mail.folder
   el('replyActions').hidden=!isLive()
+  fillDetailBar(mail)
   fillOptions(el('draftSnippet'),[{id:'',label:'Ohne Textbaustein'},...textSnippets('follow_up').map(s=>({id:s.body,label:s.label}))])
   el('rejectSuggestion')?.remove()
   const result=el('suggestionResult'), accept=el<HTMLButtonElement>('applySuggestion')
@@ -516,10 +564,7 @@ async function start() {
     acceptSuggestion:async id=>{pick(id);await currentSuggestion?.(true)},
     reply:async(id,all)=>{const mail=mails.find(m=>m.id===id);if(mail)await draft(mail,all?'reply-all':'reply','')},
     setField:(id,field,value)=>change([id],{kind:field,value}),setTags:(id,_previous,value)=>change([id],{kind:'tags',value}),
-    toggleFocus:ids=>{
-      const rows=mails.filter(m=>ids.includes(m.id)),on=focusTarget(rows)
-      return change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,FOCUS_TAG,on)})
-    },
+    toggleFocus,
     assignCase:ids=>cases?.openAssign(ids)})
   let previousScope=''
   const overdueDays=()=>Number(getLegacyConfig().overdue_days??5)
@@ -620,6 +665,7 @@ async function start() {
     const label=tag('label','');label.append(input,' '+caption);el('aiSettings').append(label)
   }
   const vipButton=tag('button','VIP-Liste bearbeiten …');vipButton.type='button';vipButton.id='editVip';vipButton.onclick=()=>views.editVip();el('aiSettings').append(vipButton)
+  initDetailBar()
   dialog.onclose=()=>{suggestionVersion++;if(selected)document.getElementById('mail-'+selected.id)?.focus()}
   search.oninput=render
   undoButton.onclick=()=>void undo()
