@@ -1,4 +1,5 @@
 """Projektabschluss und Rücknahme mit geänderten Ordner-IDs im Board prüfen."""
+import re
 import os
 import shutil
 from functools import partial
@@ -61,7 +62,7 @@ with ThreadingHTTPServer(("127.0.0.1",0), partial(SimpleHTTPRequestHandler,
             card=page.get_by_role("button",name="Testmail im Unterordner",exact=False).first
             card.click()
             page.locator("#status").select_option("In Bearbeitung")
-            expect(page.locator("#message")).to_contain_text("1 von 1")
+            expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
             page.locator("#moreTools summary").click()
             page.locator("#projectTools").click()
             dialog=page.locator(".project-tools")
@@ -93,7 +94,7 @@ with ThreadingHTTPServer(("127.0.0.1",0), partial(SimpleHTTPRequestHandler,
             expect(page.locator("#undo")).to_be_enabled()
             page.evaluate("window.orphan=false")
             page.locator("#undo").click()
-            expect(page.locator("#message")).to_contain_text("rückgängig")
+            expect(page.locator(".toast")).to_contain_text(re.compile("Zurückgenommen|rückgängig"))
             if not page.locator("#backDemo").is_visible():page.locator("#moreTools summary").click()
             page.locator("#backDemo").click()
             calls=page.evaluate("calls.length")

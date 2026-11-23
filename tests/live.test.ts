@@ -162,3 +162,13 @@ test('Ablagestatistik zählt nur erfolgreiche Ablagen und deren erfolgreiche Rü
   assert.equal(dates.length,2)
   assert.equal(dates[0],dates[1])
 })
+
+test('Undo-Stapel behalten ihre Beschriftung',async()=>{
+  const {board}=fixture()
+  assert.equal(board.latestLabel,undefined)
+  await board.status(board.begin('Erste'),'11','01','Erledigt')
+  await board.status(board.begin('Zweite'),'22','01','Offen')
+  assert.equal(board.latestLabel,'Zweite')
+  await board.undo()
+  assert.equal(board.latestLabel,'Erste')
+})

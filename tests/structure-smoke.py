@@ -1,4 +1,5 @@
 """Ordnerunterteilung mit Fake-Outlook und Fake-Ollama nach npm run build prüfen."""
+import re
 import os
 import shutil
 from functools import partial
@@ -132,7 +133,7 @@ if __name__ == "__main__":
                 page.locator(".project-tools").get_by_role("button", name="Schließen",exact=True).click()
                 expect(page.locator("#undo")).to_be_enabled()
                 page.keyboard.press("Control+z")
-                expect(page.locator("#message")).to_contain_text("rückgängig")
+                expect(page.locator(".toast")).to_contain_text(re.compile("Zurückgenommen|rückgängig"))
                 assert page.evaluate("JSON.parse(localStorage.getItem('outlook-kanban-activity-live')).filed") == 5
                 page.locator("#moreTools summary").click()
                 page.locator("#projectTools").click()

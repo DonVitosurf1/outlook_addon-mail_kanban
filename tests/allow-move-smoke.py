@@ -1,4 +1,5 @@
 """Mit installiertem Playwright und Chromium nach npm run build ausführen."""
+import re
 import os
 import shutil
 from functools import partial
@@ -84,14 +85,14 @@ try:
         page.locator("#suggestFolder").click()
         accept.click()
         page.locator('#moveConfirm button[value="confirm"]').click()
-        expect(page.locator("#message")).to_contain_text("1 von 1")
+        expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
         assert page.evaluate("currentMail.folderId==='02'")
         assert page.evaluate("JSON.parse(localStorage.getItem('kanban-board-options-v1')).allow_move===true")
         assert page.evaluate("document.querySelector('#allowMove').checked")
         expect(page.locator("#moveConfirmOk")).to_have_text("Verschieben")
         # Danach fragt der Dialog wie gewohnt ohne Freigabetext.
         page.keyboard.press("Control+z")
-        expect(page.locator("#message")).to_contain_text("rückgängig")
+        expect(page.locator(".toast")).to_contain_text(re.compile("Zurückgenommen|rückgängig"))
         card.click()
         page.locator("#suggestFolder").click()
         accept.click()

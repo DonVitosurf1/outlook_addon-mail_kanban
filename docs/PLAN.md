@@ -205,7 +205,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
   - Die Tastatur öffnet es mit Umschalt+F10 oder der Menütaste an der Karte.
   - Gruppen: **Status** (1–4), **Antworten** (R, Umschalt+R), **Planen** (W, N, K, F), **Ordnen** (Kategorien, Vorgang, Ablagevorschlag).
   - Tastenkürzel stehen rechts. Bei mehreren markierten Karten nennt der Kopf die Anzahl.
-- [ ] **U7 Rückmeldung mit Rückgängig.** Nach jeder Aktion erscheint für etwa 8 Sekunden eine Meldung wie „Nach Einkauf verschoben · Rückgängig“, mit `role=status`.
+- [x] **U7 Rückmeldung mit Rückgängig.** Nach jeder Aktion erscheint für etwa 8 Sekunden eine Meldung wie „Nach Einkauf verschoben · Rückgängig“, mit `role=status`.
   - Der Knopf „Rückgängig“ oben zeigt im Tooltip, was er zurücknimmt.
   - Dafür bekommen Undo-Schritte eine Beschriftung, in `LiveBoard.batches` und `demoUndo` in `src/board.ts`. `notify()` bleibt für Fehler und Hinweise.
 - [ ] **U8 Tastenkürzel-Übersicht.** Die Taste `?` öffnet eine Hilfeseite „Tastenkürzel“, gruppiert nach Karte, Board, Ansichten, Triage und Dialogen.

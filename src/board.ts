@@ -1,4 +1,6 @@
 import {undoLimit} from './undo-limit'
+import {describeChange, undoTooltip} from './change-label'
+import {showToast, hideToast} from './toast'
 import './shell'
 import {renderCardContent, type CaseState} from './card-content'
 import {colorSettings,applyLaneColor} from './category-colors'
@@ -14,7 +16,7 @@ import { initTriage } from './triage'
 import { initRoutines, markRoutine } from './routines'
 import { initCalendar } from './calendar'
 import { allCases, initCases, toggleCaseItem } from './cases'
-import { caseProgress, caseTag, focusTarget, FOCUS_TAG, withTag, type RoutineAction } from './planning-logic'
+import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, withTag, type RoutineAction } from './planning-logic'
 import { loadRoutines, useSamplePlanning } from './planning-store'
 import { initTabs } from './tabs'
 
@@ -34,7 +36,7 @@ const core=window.__TAURI__?.core
 const service=core && new LiveBoard((command,args)=>core.invoke(command,args),(delta,occurredAt)=>recordWeekly(true,'filed',delta,occurredAt))
 function mayMove(){return getLegacyConfig().allow_move===true}
 const storageKey='outlook-kanban-demo-positions-v1'
-const demoUndo:{mails:Mail[],events:Counter[]}[]=[]
+const demoUndo:{mails:Mail[],events:Counter[],label?:string}[]=[]
 let demoMails:Mail[]=[]
 let mails:Mail[]=[]
 let folders:Folder[]=[]
@@ -82,8 +84,16 @@ function controls() {
   inboxButton.disabled=el<HTMLButtonElement>('connectOutlook').disabled=busy||!!connection
   back.disabled=busy
   undoButton.disabled=busy||!(isLive()?(service?.canUndo||projectUndoLatest()):demoUndo.length)
+  undoButton.title=undoTooltip(latestUndoLabel())
   for(const id of ['folder','status','suggestFolder','applySuggestion','openOriginal'])
     el<HTMLButtonElement>(id).disabled=busy
+}
+/** Beschriftung des Schritts, den Rückgängig gerade zurücknimmt. Bei Projektänderungen unbekannt. */
+function latestUndoLabel() {
+  if(!hasMailbox())return undefined
+  if(!isLive())return demoUndo.at(-1)?.label
+  if(projectUndoLatest()>=(service?.latest||0))return undefined
+  return service?.latestLabel
 }
 function saveDemo() {
   try {
@@ -107,11 +117,11 @@ function loadDemo() {
     }
   } catch {notify('Das Demo-Postfach startet mit den Beispieldaten.')}
 }
-function changeDemo(action:()=>void,events:Counter[]=[]) {
+function changeDemo(action:()=>void,events:Counter[]=[],label?:string) {
   if(mailbox!=='demo')return
   const before=structuredClone(demoMails)
   action()
-  demoUndo.push({mails:before,events})
+  demoUndo.push({mails:before,events,label})
   if(demoUndo.length>undoLimit)demoUndo.shift()
   for(const event of events)cockpit.record(event)
   saveDemo()
@@ -127,6 +137,7 @@ function hydrate(rows:Mail[],items:Folder[]){
 function sourceUpdated(rows:Mail[],source:Mailbox,items:Folder[],key:string) {
   const outlook=source==='outlook'
   if(source!==mailbox)search.value=''
+  if(source==='offline')hideToast()
   if(dialog.open)dialog.close()
   suggestionVersion++
   mailbox=source;mails=rows;folders=items;scope=key;selected=undefined
@@ -239,11 +250,18 @@ async function change(ids:string[],action:Mutation) {
       return m[field]!==value
     })
     if(!todo.length) return
+    const added:string[]=[],removed:string[]=[]
+    if(field==='tags')for(const m of todo){
+      const next=wanted(m).map(t=>t.toLowerCase()),prev=m.tags.map(t=>t.toLowerCase())
+      added.push(...wanted(m).filter(t=>!prev.includes(t.toLowerCase())))
+      removed.push(...m.tags.filter(t=>!next.includes(t.toLowerCase())))
+    }
     const dest=folders.find(f=>f.id===value)
     if(field==='move'&&!dest)throw new Error('Zielordner nicht verfügbar.')
     const moving=field==='move'?todo.filter(m=>(m.folderId||m.folder)!==value):[]
     const archive=field==='status' && value==='Erledigt'?archiveFolder(false):undefined
     const archiving=archive?todo.filter(isInInbox):[]
+    const summary=describeChange({kind:field,value:action.value,count:todo.length,folder:field==='move'?(dest!.name):undefined,added,removed},FOCUS_TAG,CASE_PREFIX)
     const label=todo.length===1?'„'+todo[0].subject+'“':todo.length+' Mails'
     let question=''
     if(moving.length)question=label+' nach „'+(dest!.path||dest!.name)+'“ verschieben'+(action.status?' und auf „'+action.status+'“ setzen':'')+'?'
@@ -267,13 +285,14 @@ async function change(ids:string[],action:Mutation) {
         if(field==='move'){m.folder=value;if(action.status)m.status=action.status}
         else if(field==='tags')m.tags=[...wanted(m)]
         else m[field]=value
-      }},events)
+      }},events,summary)
+      showToast(summary,()=>void undo())
       if(selected)fillDetail(selected)
       return
     }
     mutationVersion++
     await service!.writeBatch(async()=>{
-      const batch=service!.begin()
+      const batch=service!.begin(summary)
       const errors:string[]=[]
       let succeeded=0
       for(const m of todo) {
@@ -316,16 +335,19 @@ async function change(ids:string[],action:Mutation) {
       if(dialog.open)dialog.close()
       render()
       try {await refresh()} catch(e) {errors.push('Aktualisieren: '+errorText(e))}
-      notify(succeeded+' von '+todo.length+' geändert.'+(errors.length?' '+errors.join(' · '):''))
+      if(errors.length)notify(succeeded+' von '+todo.length+' geändert. '+errors.join(' · '))
+      else{notify('');showToast(summary,()=>void undo())}
     })
   })
 }
 async function undo() {
   if(!hasMailbox())return
   await exclusive(async()=>{
+    const label=latestUndoLabel()
+    const done=()=>showToast(label?'Zurückgenommen: '+label:'Änderung rückgängig gemacht.')
     if(isLive()) {
       await service!.writeBatch(async()=>{
-        if(await undoProjectIfLatest(service?.latest||0))return
+        if(await undoProjectIfLatest(service?.latest||0)){done();return}
         if(!service?.canUndo)return
         try {await service.undo(step=>{
           if(step.kind==='field'&&step.value&&step.field==='followUp')cockpit.record('followed_up',-1)
@@ -336,14 +358,14 @@ async function undo() {
           notify(skip?'Rückgängig-Schritt übersprungen.':'Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
           return
         } finally {await refresh()}
-        notify('Änderung rückgängig gemacht.')
+        done()
       })
     } else {
       const old=demoUndo.pop()
       if(!old)return
       for(const event of old.events)cockpit.record(event,-1)
       demoMails=old.mails;sourceUpdated(demoMails,'demo',demoFolders,scope);saveDemo()
-      notify('Änderung rückgängig gemacht.')
+      done()
     }
   })
 }

@@ -21,7 +21,10 @@ export class UndoConflict extends Error {
 export class LiveBoard {
   private batches:Step[][]=[]
   private times=new WeakMap<Step[],number>()
+  private labels=new WeakMap<Step[],string>()
   get latest() {const batch=this.batches.at(-1);return batch?(this.times.get(batch)||0):0}
+  /** Beschriftung des obersten Undo-Stapels, falls bekannt. */
+  get latestLabel() {const batch=this.batches.at(-1);return batch?this.labels.get(batch):undefined}
   constructor(readonly invoke:Invoke, private readonly onFiled?:(delta:number, occurredAt:Date)=>void) {}
 
   async writeBatch(action:()=>Promise<void>) {
@@ -39,7 +42,7 @@ export class LiveBoard {
     }
   }
   get canUndo() {return this.batches.length>0}
-  begin():Step[] {return []}
+  begin(label?:string):Step[] {const batch:Step[]=[];if(label)this.labels.set(batch,label);return batch}
   private record(batch:Step[],step:Step){
     if(!batch.length){
       const stamp=rememberUndo(()=>{this.batches=this.batches.filter(b=>b!==batch)})

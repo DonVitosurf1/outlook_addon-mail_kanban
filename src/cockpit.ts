@@ -35,7 +35,7 @@ const help = [
   ['Was zeigt der Wochenkalender?', 'Der Tab „Kalender“ zeigt Nachfasstermine, Wiedervorlagen, KI-Fristen, Routinen und Checklistenpunkte einer Woche, Überfälliges gesammelt vorn. Ziehst du eine Mail auf einen Tag, erhält eine wartende Mail dort ihren Nachfasstermin und jede andere eine Wiedervorlage.'],
   ['Was ist ein Vorgang?', 'Ein Vorgang bündelt zusammengehörige Mails über die Outlook-Kategorie „Vorgang: Name“ und führt eine lokale Checkliste mit optionalen Terminen. Zuordnen lässt sich über das Kontextmenü einer Karte, Strg+K oder den Tab „Vorgänge“.'],
   ['Wie lese ich eine Nachricht?', 'Öffne eine Karte und wähle „In Outlook öffnen“. Outlook zeigt dir das Original und die Anhänge. Die Anwendung sendet keine Mails.'],
-  ['Wie lege ich eine Mail ab?', 'Prüfe den vorgeschlagenen Zielordner und bestätige die Ablage. Mit Strg+Z kannst du die letzte erfolgreiche Aktion in dieser Sitzung zurücknehmen.'],
+  ['Wie lege ich eine Mail ab?', 'Prüfe den vorgeschlagenen Zielordner und bestätige die Ablage. Mit Strg+Z kannst du die letzte erfolgreiche Aktion in dieser Sitzung zurücknehmen. Nach jeder Änderung erscheint kurz eine Meldung mit dem Knopf „Rückgängig“.'],
   ['Was passiert bei fehlender KI?', 'Die lokale KI ist optional. Du kannst dein Board auch bei ausgeschaltetem oder langsamem Modell weiter bedienen.'],
   ['Warum fehlen Zahlen im Wochenblick?', 'Der Wochenblick zählt die aktuell geladenen Karten. Die Aktivitätszahlen sammeln erfolgreich im Board ausgeführte Aktionen der laufenden Woche lokal.'],
 ]
