@@ -208,7 +208,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
 - [x] **U7 Rückmeldung mit Rückgängig.** Nach jeder Aktion erscheint für etwa 8 Sekunden eine Meldung wie „Nach Einkauf verschoben · Rückgängig“, mit `role=status`.
   - Der Knopf „Rückgängig“ oben zeigt im Tooltip, was er zurücknimmt.
   - Dafür bekommen Undo-Schritte eine Beschriftung, in `LiveBoard.batches` und `demoUndo` in `src/board.ts`. `notify()` bleibt für Fehler und Hinweise.
-- [ ] **U8 Tastenkürzel-Übersicht.** Die Taste `?` öffnet eine Hilfeseite „Tastenkürzel“, gruppiert nach Karte, Board, Ansichten, Triage und Dialogen.
+- [x] **U8 Tastenkürzel-Übersicht.** Die Taste `?` öffnet eine Hilfeseite „Tastenkürzel“, gruppiert nach Karte, Board, Ansichten, Triage und Dialogen.
   - Die Daten kommen aus einer gemeinsamen Liste, damit Hilfe, Kontextmenü und Aktionsleiste dieselben Kürzel zeigen.
 
 ### Orientierung und Begriffe

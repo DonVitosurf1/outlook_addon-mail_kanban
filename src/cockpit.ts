@@ -4,6 +4,7 @@ import {renderLearningDashboard} from './ai'
 import { getLegacyConfig } from './data-settings'
 import { initCleanup, type CleanupOptions } from './cleanup'
 import { dueRoutines, isFocusCard, snapshot, type Routine } from './planning-logic'
+import { shortcuts, shortcutGroups } from './shortcuts'
 import { dueReasons, localDay, type ViewMail } from './views-logic'
 export { snapshot }
 
@@ -20,11 +21,12 @@ type Options = CleanupOptions & {
   openCalendar: () => void
   openCases: () => void
 }
-export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning'
+export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning' | 'shortcuts'
 
 const states = ['Offen', 'In Bearbeitung', 'Warten', 'Erledigt']
 const help = [
   ['Wo finde ich meine echten Mails?', 'Unter Windows lädt das Board beim Start automatisch dein klassisches Outlook-Profil. Bei einem Verbindungsfehler kannst du Outlook öffnen und es erneut versuchen. Über Werkzeuge → Beispielpostfach öffnen kannst du mit Beispieldaten arbeiten.'],
+  ['Welche Tastenkürzel gibt es?', 'Die Taste ? zeigt alle Tastenkürzel, gruppiert nach Karte, Board, Ansichten, Triage und Dialogen. Du erreichst die Übersicht auch über den Knopf „Tastenkürzel anzeigen“ in dieser Hilfe.'],
   ['Wie finde ich eine Mail?', 'Strg+F setzt den Fokus in die Suche. Mit dem Ordnerfilter schränkst du die Anzeige ein. Öffne die gewünschte Karte für die Maildetails.'],
   ['Was zeigt „Heute dran“?', 'Hier stehen fällige Wiedervorlagen, wartende Mails mit Antwort, heutige oder überfällige Nachfassfristen und fällige KI-Fristen. Eine Mail kann aus mehreren Gründen fällig sein.'],
   ['Wie funktioniert die Morgen-Triage?', 'Strg+T oder Start → „Morgen-Triage starten“ blendet über dem Board ein Banner mit Briefing ein. Das Board zeigt nacheinander „Heute dran“, „Offen durchgehen“ und „Rest parken“. Du arbeitest mit den gewohnten Kartenaktionen. Eine Karte verlässt den Schritt, sobald sich ihr Status, ihre Wiedervorlage oder ihr Ordner ändert. Beenden oder Abbrechen stellt deine vorherige Ansicht wieder her.'],
@@ -102,7 +104,7 @@ export function initCockpit(options: Options) {
   dialog.append(close, title, body)
   document.body.append(dialog)
   const open = (next: Page) => {
-    page = !options.hasMailbox()&&next!=='help'?'start':next
+    page = !options.hasMailbox()&&next!=='help'&&next!=='shortcuts'?'start':next
     render()
     if (!dialog.open) dialog.showModal()
   }
@@ -146,11 +148,37 @@ export function initCockpit(options: Options) {
     }
     input.oninput = filter
     filter()
-    body.append(input,found)
+    body.append(input,found,button('Tastenkürzel anzeigen',()=>open('shortcuts')))
+  }
+  function renderShortcuts() {
+    title.textContent = 'Tastenkürzel'
+    body.append(element('p','Mit ? öffnest du diese Übersicht jederzeit außerhalb von Eingabefeldern.'))
+    for (const group of shortcutGroups) {
+      const table = element('table')
+      table.className = 'shortcut-table'
+      table.append(element('caption',group))
+      const head = element('tr')
+      for (const label of ['Taste','Wirkung']) { const th = element('th',label); th.scope = 'col'; head.append(th) }
+      const thead = element('thead'); thead.append(head)
+      const tbody = element('tbody')
+      for (const entry of shortcuts.filter(item => item.group === group)) {
+        const row = element('tr'), keys = element('td')
+        entry.keys.split('+').forEach((part,i) => {
+          if (i) keys.append('+')
+          keys.append(element('kbd',part))
+        })
+        row.append(keys,element('td',entry.action))
+        tbody.append(row)
+      }
+      table.append(thead,tbody)
+      body.append(table)
+    }
+    body.append(go('Zur Hilfe','help'))
   }
   function render() {
     body.replaceChildren()
     if(page==='help'){renderHelp();return}
+    if(page==='shortcuts'){renderShortcuts();return}
     if(!options.hasMailbox()){
       title.textContent='Start'
       body.append(element('p','Es ist kein Postfach geöffnet. Verbinde Outlook oder öffne die Beispieldaten zum Ausprobieren.'),go('Hilfe','help'))
@@ -228,6 +256,14 @@ export function initCockpit(options: Options) {
   document.getElementById('cockpit-start')?.addEventListener('click',()=>open('start'))
   document.getElementById('cockpit-help')?.addEventListener('click',()=>open('help'))
   document.addEventListener('keydown',event=>{
+    if(event.key!=='?'||event.defaultPrevented||event.ctrlKey||event.metaKey||event.altKey)return
+    if(event.target instanceof Element&&event.target.closest('input,textarea,select,[contenteditable=true]'))return
+    const openDialog=document.querySelector('dialog[open]')
+    if(openDialog&&!(openDialog===dialog&&page==='help'))return
+    event.preventDefault()
+    open('shortcuts')
+  })
+  document.addEventListener('keydown',event=>{
     if(event.key!=='F1')return
     event.preventDefault()
     const active=(event.target instanceof Element?event.target.closest('dialog[open]'):null)
@@ -240,7 +276,7 @@ export function initCockpit(options: Options) {
   })
   if(preference(launchKey))queueMicrotask(()=>open('start'))
   return {
-    refresh(){if(dialog.open && page!=='help')render()},
+    refresh(){if(dialog.open && page!=='help' && page!=='shortcuts')render()},
     openStart:()=>open('start'),
     openHelp:()=>open('help'),
     openPage:(next:Page)=>open(next),
