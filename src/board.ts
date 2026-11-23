@@ -244,12 +244,13 @@ function needsStatus(mail:Mail,value:string){
 /**
  * `tagsFor` berechnet die Kategorien je Mail, etwa beim Umschalten des Fokus für eine gemischte Auswahl.
  * `offBoard` (nur Outlook): Mails, die nicht auf dem Board stehen, etwa Lernbeispiele aus der Ausreißerprüfung (E3).
- * Sie laufen mit derselben Bestätigung, demselben Undo-Schritt und derselben Rückmeldung. `moved` meldet jede verschobene Mail (bisherige ID).
+ * Sie laufen mit derselben Bestätigung, demselben Undo-Schritt und derselben Rückmeldung. `moved` meldet jede verschobene Mail (bisherige ID),
+ * `failed` zusätzlich zur Meldungszeile den Fehlertext.
  */
-type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[];offBoard?:Mail[];moved?:(id:string)=>void}
+type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[];offBoard?:Mail[];moved?:(id:string)=>void;failed?:(text:string)=>void}
 async function change(ids:string[],action:Mutation) {
   if(action.offBoard&&!isLive())return
-  await exclusive(async()=>{
+  await exclusive(()=>reporting(action.failed,async()=>{
     const rows=action.offBoard?.filter(m=>ids.includes(m.id))??mails.filter(m=>ids.includes(m.id))
     const field=action.kind
     const value=action.value as string
@@ -347,10 +348,14 @@ async function change(ids:string[],action:Mutation) {
       if(dialog.open)dialog.close()
       render()
       try {await refresh()} catch(e) {errors.push('Aktualisieren: '+errorText(e))}
-      if(errors.length)notify(succeeded+' von '+todo.length+' geändert. '+errors.join(' · '))
+      if(errors.length){const text=succeeded+' von '+todo.length+' geändert. '+errors.join(' · ');notify(text);action.failed?.(text)}
       else{notify('');showToast(summary,()=>void undo())}
     })
-  })
+  }))
+}
+/** Gibt einen Fehler zusätzlich an `failed` weiter, bevor `exclusive` ihn in der Meldungszeile zeigt. */
+function reporting(failed:((text:string)=>void)|undefined,action:()=>Promise<void>){
+  return failed?action().catch(e=>{failed(errorText(e));throw e}):action()
 }
 async function undo() {
   if(!hasMailbox())return
@@ -587,8 +592,13 @@ async function start() {
   initTabs()
   setup=initSetup({mailbox:()=>mailbox,folders:()=>isLive()?folders as SetupFolder[]:[],learnerFolders,service:()=>isLive()?service:undefined,
     confirm:(question,label)=>ask(document.body,question,label),
-    moveMails:(list,target,moved)=>change(list.map(m=>m.id),{kind:'move',value:target,moved,
-      offBoard:list.map(m=>({...m,folder:folders.find(f=>f.id===m.folderId)?.name??'',status:'Offen',tags:[],attachments:[]}))})})
+    moveMails:async(list,target,moved)=>{
+      if(busy)return 'Das Board ist gerade beschäftigt. Bitte gleich noch einmal versuchen.'
+      let problem=''
+      await change(list.map(m=>m.id),{kind:'move',value:target,moved,failed:text=>{problem=text},
+        offBoard:list.map(m=>({...m,folder:folders.find(f=>f.id===m.folderId)?.name??'',status:'Offen',tags:[],attachments:[]}))})
+      return problem
+    }})
   el('setupOpen').onclick=()=>setup?.open()
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,

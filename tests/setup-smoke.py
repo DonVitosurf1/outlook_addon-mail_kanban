@@ -113,10 +113,16 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert state['measurements']['baseline']['report']['byFolder']['Labor']['tested'] == 10, state
             trained = [c[1]['folder'] for c in page.evaluate("calls") if c[0] == 'outlook_training']
             assert sorted(trained) == ['02', '03', '07'], trained
-            # Weiter zu E3: ohne KI mit Hinweis überspringbar.
+            # Weiter zu E3: arbeitet ohne KI mit Bayes, also ohne KI-Hinweis.
             view.get_by_role('button', name='Weiter', exact=True).click()
             expect(view.get_by_role('heading', name='Schritt 3 · Ausreißer prüfen')).to_be_focused()
+            expect(view).to_contain_text('Ohne Embeddings prüft das Board mit Bayes')
+            expect(view).not_to_contain_text('braucht die lokale KI')
+            # E4 braucht die KI weiterhin.
+            view.locator('.setup-steps button').nth(3).click()
             expect(view).to_contain_text('braucht die lokale KI')
+            view.locator('.setup-steps button').nth(2).click()
+            expect(view.get_by_role('heading', name='Schritt 3 · Ausreißer prüfen')).to_be_visible()
             # Pausieren: zurück zum Board, der Hinweis bleibt weg (Lernziele gesetzt), Start zeigt den Fortschritt.
             view.get_by_role('button', name='Pausieren').click()
             expect(page.locator('#board')).to_be_visible()

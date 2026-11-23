@@ -52,9 +52,9 @@ export type SetupHost={
    * Verschiebt Mails, die nicht auf dem Board stehen (z. B. Lernmails aus `trainingMails`), auf dem Move-Weg des Boards:
    * Bestätigung mit Ziel, Undo-Schritt im Schreibstapel, Rückmeldung mit Rückgängig, danach `recordFiling` (Lernbeispiel umhängen).
    * `target` ist die Outlook-Ordner-ID. `moved` läuft je erfolgreich verschobener Mail mit ihrer bisherigen ID.
-   * Ohne Bestätigung oder bei beschäftigtem Board passiert nichts. Fehler stehen in der Meldungszeile des Boards.
+   * Ohne Bestätigung passiert nichts. Liefert einen Fehlertext (beschäftigtes Board, fehlgeschlagene Verschiebungen), sonst ''.
    */
-  moveMails(mails:OffBoardMail[],target:string,moved?:(id:string)=>void):Promise<void>
+  moveMails(mails:OffBoardMail[],target:string,moved?:(id:string)=>void):Promise<string>
 }
 /** Mail außerhalb des Boards mit Outlook-ID und Quellordner-ID. */
 export type OffBoardMail=AiMail&{id:string;folderId:string}

@@ -56,6 +56,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   }))
   if(name==='outlook_move'){
     if(!window.batchActive)throw Error('Verschieben ohne Schreibstapel')
+    if(window.failMove)throw Error('Outlook belegt')
     return JSON.stringify({id:'neu-'+args.id,source:args.source,target:args.target})
   }
   if(name==='outlook_undo')return JSON.stringify({id:args.id.replace(/^neu-/,''),source:args.source,target:args.target})
@@ -167,6 +168,14 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(view.locator('details[data-folder="Einkauf"] li strong')).to_have_text(['„Probenbericht Mai“'])
             expect(view.locator('details[data-folder="Labor"] li strong')).to_have_text(['„Bestellung Kittel“'])
             assert state()['outlierFolders'] == [], state()
+
+            # Scheitert das Verschieben, steht der Fehler in der Statuszeile des Schritts und die Mail bleibt in der Liste.
+            page.evaluate("window.failMove=true")
+            labor = view.locator('details[data-folder="Labor"]')
+            labor.get_by_role('button', name='Verschieben nach „Einkauf“: „Bestellung Kittel“').click()
+            dialog.get_by_role('button', name='Verschieben').click()
+            expect(view.locator('.setup-status')).to_have_text('Nicht verschoben. 0 von 1 geändert. Outlook belegt')
+            expect(labor.locator('li strong')).to_have_text(['„Bestellung Kittel“'])
             assert not errors, errors
             browser.close()
             print('OK – Ausreißer: Prüfung mit Kennzahl, Verschieben mit Bestätigung und Undo, Bleibt hier, Nicht lernen')

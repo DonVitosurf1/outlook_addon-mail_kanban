@@ -2,7 +2,7 @@
  * Reine Logik der Ausreißerprüfung (E3), ohne DOM und ohne Outlook: Bayes-Variante, Kennzahl je Ordner, offene Fälle.
  * Die Embedding-Variante rechnet in Rust (`ai_outliers`), die Oberfläche steht in `setup-outliers.ts`.
  */
-import {bayesModel, type LearnRow, type Outlier} from './ai'
+import {BAYES_MIN_DOCS, bayesModel, type LearnRow, type Outlier} from './ai'
 
 export type {Outlier} from './ai'
 /** Ab diesem Anteil verdächtiger Mails (strikt darüber) gilt ein Lernordner als Kandidat für E4. */
@@ -11,18 +11,26 @@ export const OUTLIER_SHARE=0.25
 export const EMBEDDING_MARGIN=0.05
 /** Vorsprung der Bayes-Wahrscheinlichkeit des fremden Ordners vor dem eigenen. */
 export const BAYES_MARGIN=0.5
+/**
+ * Mindestzahl an Lernmails, damit ein Ordner prüfbar ist: Ohne die geprüfte Mail braucht Bayes noch `BAYES_MIN_DOCS`
+ * Beispiele im eigenen Ordner, Embeddings brauchen noch eine Mail für das eigene Profil (wie `Ollama::outliers`).
+ */
+export const minimumMails={Bayes:BAYES_MIN_DOCS+1,Embeddings:2} as const
 
 /**
  * Bayes-Variante ohne Embeddings: Jede Mail wird beim Trainieren ausgelassen (Leave-one-out) und neu eingeordnet.
  * Verdächtig ist sie, wenn der Klassifikator wie bei der Ablage sicher einen anderen Ordner vorschlägt und dessen
- * Wahrscheinlichkeit um mindestens `margin` vor der des eigenen Ordners liegt. Zeilen ohne `id` werden übergangen.
+ * Wahrscheinlichkeit um mindestens `margin` vor der des eigenen Ordners liegt. Zeilen ohne `id` werden übergangen, ebenso
+ * Ordner, die ohne die Mail unter das Bayes-Minimum fallen: Ohne eigenen Vergleich wäre dort jede Mail verdächtig.
  * Sortiert nach Deutlichkeit (`other - own`), absteigend.
  */
 export function bayesOutliers(rows:LearnRow[],margin:number):Outlier[]{
-  const model=bayesModel(rows)
+  const model=bayesModel(rows),docs=new Map<string,number>()
+  for(const row of rows)docs.set(row.folder,(docs.get(row.folder)||0)+1)
   return rows.flatMap(row=>{
+    if(!row.id||docs.get(row.folder)!<minimumMails.Bayes)return []
     const {best,probs}=model(row.features,row)
-    if(!row.id||!best||best.folder===row.folder)return []
+    if(!best||best.folder===row.folder)return []
     const other=probs.get(best.folder)??0,own=probs.get(row.folder)??0
     return other-own>=margin?[{id:row.id,folder:row.folder,suggested:best.folder,own,other}]:[]
   }).sort((a,b)=>clarity(b)-clarity(a))

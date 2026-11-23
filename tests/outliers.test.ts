@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { bayesModel, embeddingId, excludeFromLearning, recordFiling, setAiLive, trainFromFolders, withoutExcluded, type LearnRow } from '../src/ai'
-import { BAYES_MARGIN, bayesOutliers, openOutliers, outlierFolders } from '../src/outliers'
+import { BAYES_MARGIN, bayesOutliers, minimumMails, openOutliers, outlierFolders } from '../src/outliers'
 import { LEGACY } from '../src/backup'
 
 function storage(entries:Record<string,string>={}){
@@ -29,6 +29,21 @@ test('Bayes-Ausreißer: Lernbeispiel wird ausgelassen, ein fremder Ordner mit Ab
   assert.deepEqual(bayesOutliers(rows,1.01),[])
   // Mails ohne Kennung werden nie gemeldet.
   assert.deepEqual(bayesOutliers(rows.map(r=>({...r,id:undefined})),BAYES_MARGIN),[])
+})
+
+test('Bayes-Ausreißer: Ordner, die ohne die Mail unter das Bayes-Minimum fallen, werden nicht geprüft',()=>{
+  const small=(n:number)=>Array.from({length:n},(_,i)=>row('Klein','k'+i,['e:team@klein.de','w:bestellung','w:sache'+i]))
+  const shops=Array.from({length:6},(_,i)=>shop(i))
+  assert.equal(minimumMails.Bayes,4)
+  for(const n of [1,2,3]){
+    const rows=[...shops,...small(n)]
+    // Ohne Mindestgröße fiele der eigene Ordner beim Auslassen aus dem Ranking und jede Mail wäre verdächtig.
+    assert.equal(bayesModel(rows)(rows.at(-1)!.features,rows.at(-1)).probs.get('Klein'),undefined)
+    assert.deepEqual(bayesOutliers(rows,BAYES_MARGIN),[],'Ordner mit '+n+' Mails')
+    assert.deepEqual(outlierFolders({Einkauf:6},bayesOutliers(rows,BAYES_MARGIN)),[])
+  }
+  // Ab vier Mails bleibt der eigene Ordner im Vergleich, passende Mails sind nicht verdächtig.
+  assert.deepEqual(bayesOutliers([...shops,...small(4)],BAYES_MARGIN),[])
 })
 
 test('Bayes-Ausreißer: Unterhaltung im fremden Ordner zählt ohne die eigene Stimme',()=>{
@@ -64,7 +79,7 @@ test('Nicht lernen: ausgeschlossene Mails fehlen in Lernbeispielen und Ordnerpro
   }}}}})
   const folders=[{id:'A',name:'A',path:'A'}]
   assert.equal((await trainFromFolders(folders)).count,4)
-  excludeFromLearning([samples[1]])
+  assert.equal(excludeFromLearning([samples[1]]),true)
   const rows=()=>JSON.parse(map.get('outlook-kanban-ai-training-v1')!).rows.map((r:{id:string})=>r.id)
   assert.deepEqual(rows(),['A0','A2','A3'])
   assert.deepEqual(JSON.parse(map.get('mailboard-learn-excluded-v1')!).ids,[embeddingId(samples[1])])
@@ -74,6 +89,9 @@ test('Nicht lernen: ausgeschlossene Mails fehlen in Lernbeispielen und Ordnerpro
   // Die Kennung hängt am Inhalt, nicht an der Outlook-ID: auch nach einem Verschieben bleibt die Mail ausgeschlossen.
   assert.deepEqual(withoutExcluded(samples.map(m=>({...m,id:'neu-'+m.id}))).map(m=>m.id),['neu-A0','neu-A2','neu-A3'])
   assert.equal(withoutExcluded(samples,new Set()).length,4)
+  setAiLive(false)
+  assert.equal(excludeFromLearning([samples[2]]),false)
+  assert.deepEqual(JSON.parse(map.get('mailboard-learn-excluded-v1')!).ids,[embeddingId(samples[1])])
 })
 
 test('Verschieben hängt das Lernbeispiel in den neuen Ordner um',()=>{

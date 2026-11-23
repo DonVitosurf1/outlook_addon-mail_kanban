@@ -10,7 +10,7 @@
  */
 import {embeddingId, embeddingOutliers, embeddingsEnabled, excludeFromLearning, features, trainingMails} from './ai'
 import type {Folder} from './live'
-import {BAYES_MARGIN, EMBEDDING_MARGIN, bayesOutliers, openOutliers, outlierFolders, type Outlier, type OutlierFolder} from './outliers'
+import {BAYES_MARGIN, EMBEDDING_MARGIN, bayesOutliers, minimumMails, openOutliers, outlierFolders, type Outlier, type OutlierFolder} from './outliers'
 import {registerStep, type OffBoardMail, type StepContext} from './setup'
 
 type Finding=Outlier&{mail:OffBoardMail}
@@ -39,7 +39,7 @@ async function check(ctx:StepContext,folders:Folder[]):Promise<Scan>{
   // Verschieben braucht die Outlook-ID der Mail und ihren Quellordner.
   const mails=new Map<string,OffBoardMail>()
   for(const g of groups)for(const m of g.mails)if(m.id)mails.set(keyOf(g.folder.path,embeddingId(m)),{...m,id:m.id,folderId:g.folder.id})
-  let found:Outlier[]|undefined,method='Bayes',note=''
+  let found:Outlier[]|undefined,method:keyof typeof minimumMails='Bayes',note=''
   if(embeddingsEnabled()){
     ctx.status('Vergleiche die Lernmails mit den Ordnerprofilen …')
     try{found=await embeddingOutliers(groups.map(g=>({key:g.folder.path,mails:g.mails})),EMBEDDING_MARGIN);method='Embeddings'}
@@ -49,8 +49,12 @@ async function check(ctx:StepContext,folders:Folder[]):Promise<Scan>{
   if(ctx.host.mailbox()!=='outlook')throw new Error('Für die Ausreißerprüfung bitte das Outlook-Postfach öffnen.')
   found??=bayesOutliers(groups.flatMap(g=>g.mails.map(m=>({folder:g.folder.path,id:embeddingId(m),features:features(m)}))),BAYES_MARGIN)
   const findings=found.flatMap(o=>{const mail=mails.get(keyOf(o.folder,o.id));return mail?[{...o,mail}]:[]})
+  // Die Kennzahl zählt nur prüfbare Ordner. Zu kleine Ordner können keine Kandidaten für E4 werden.
+  const small=groups.filter(g=>g.mails.length<minimumMails[method]).map(g=>g.folder.path)
+  if(small.length)note=(note?note+' ':'')+'Zu wenige Lernmails zum Prüfen: '+small.join(', ')+'.'
   if(failures.length)note=(note?note+' ':'')+'Nicht gelesen: '+failures.join(' · ')
-  return {stamp:stampOf(folders),method,note,totals:Object.fromEntries(groups.map(g=>[g.folder.path,g.mails.length])),findings}
+  const totals=Object.fromEntries(groups.filter(g=>!small.includes(g.folder.path)).map(g=>[g.folder.path,g.mails.length]))
+  return {stamp:stampOf(folders),method,note,totals,findings:findings.filter(f=>f.folder in totals)}
 }
 
 registerStep('E3',ctx=>{
@@ -140,11 +144,11 @@ registerStep('E3',ctx=>{
     const target=ctx.host.learnerFolders().find(f=>f.path===path)
     if(!target){ctx.status('Der Ordner „'+path+'“ ist nicht mehr geladen. Bitte Outlook aktualisieren.');return}
     const done=new Set<string>()
-    await ctx.host.moveMails(items.map(i=>i.mail),target.id,id=>done.add(id))
+    const problem=await ctx.host.moveMails(items.map(i=>i.mail),target.id,id=>done.add(id))
     const moved=items.filter(i=>done.has(i.mail.id))
-    if(!moved.length)return
+    if(!moved.length){if(problem)ctx.status('Nicht verschoben. '+problem);return}
     ctx.save(state=>{for(const i of moved)state.outliers[i.id]={folder:i.folder,decision:'moved',target:path}})
-    settle(moved,names(moved)+' nach „'+path+'“ verschoben.')
+    settle(moved,names(moved)+' nach „'+path+'“ verschoben.'+(problem?' '+problem:''))
   }
   function stay(items:Finding[]){
     ctx.save(state=>{
@@ -155,7 +159,7 @@ registerStep('E3',ctx=>{
     settle(items,names(items)+' '+(items.length===1?'bleibt':'bleiben')+' hier und '+(items.length===1?'wird':'werden')+' nicht mehr gemeldet.')
   }
   function exclude(items:Finding[]){
-    excludeFromLearning(items.map(i=>i.mail))
+    if(!excludeFromLearning(items.map(i=>i.mail))){ctx.status('Nicht gespeichert. Der lokale Speicher ist nicht verfügbar oder Outlook nicht geöffnet.');return}
     ctx.save(state=>{for(const i of items)state.outliers[i.id]={folder:i.folder,decision:'exclude'}})
     settle(items,names(items)+' '+(items.length===1?'wird':'werden')+' nicht mehr zum Lernen verwendet.')
   }

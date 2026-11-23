@@ -178,16 +178,22 @@ export function learnExcluded():Set<string>{
 export function withoutExcluded<T extends AiMail>(mails:T[],excluded:ReadonlySet<string>=learnExcluded()):T[]{
   return excluded.size?mails.filter(m=>!excluded.has(embeddingId(m))):mails
 }
-/** „Nicht lernen“: merkt die Mails unter `mailboard-learn-excluded-v1` und entfernt ihre gespeicherten Lernbeispiele sofort. */
-export function excludeFromLearning(list:AiMail[]){
-  if(!liveSource||!list.length)return
-  const ids=[...new Set([...learnExcluded(),...list.map(embeddingId)])].slice(-5000)
-  localStorage.setItem(excludedKey,JSON.stringify({ids}))
-  const drop=new Set(list.flatMap(m=>m.id?[m.id]:[]))
-  dropTrainingRows(r=>!!r.id&&drop.has(r.id))
-  const feedback=history()
-  if(feedback.some(r=>r.id&&drop.has(r.id)))localStorage.setItem(feedbackKey,JSON.stringify({rows:feedback.filter(r=>!(r.id&&drop.has(r.id)))}))
+/** „Nicht lernen“: merkt die Mails unter `mailboard-learn-excluded-v1` und entfernt ihre gespeicherten Lernbeispiele sofort. Falsch ohne Outlook oder Speicher. */
+export function excludeFromLearning(list:AiMail[]):boolean{
+  if(!liveSource)return false
+  if(!list.length)return true
+  try{
+    const ids=[...new Set([...learnExcluded(),...list.map(embeddingId)])].slice(-5000)
+    localStorage.setItem(excludedKey,JSON.stringify({ids}))
+    const drop=new Set(list.flatMap(m=>m.id?[m.id]:[]))
+    dropTrainingRows(r=>!!r.id&&drop.has(r.id))
+    const feedback=history()
+    if(feedback.some(r=>r.id&&drop.has(r.id)))localStorage.setItem(feedbackKey,JSON.stringify({rows:feedback.filter(r=>!(r.id&&drop.has(r.id)))}))
+    return true
+  }catch{return false}
 }
+/** Mindestzahl an Lernbeispielen, ab der Bayes einen Ordner vorschlägt. */
+export const BAYES_MIN_DOCS=3
 const weight=(token:string)=>token.startsWith('c:')?4:token.startsWith('e:')?2:1
 /** Bayes-Ergebnis: `best` ist der Vorschlag nach den bisherigen Regeln, `probs` die Wahrscheinlichkeit je Ordner (bei Unterhaltungen der Stimmenanteil). */
 export type BayesVerdict={best?:Suggestion;probs:Map<string,number>}
@@ -233,7 +239,7 @@ export function bayesModel(rows:LearnRow[]) {
       const total=mine?g.total-without.features.reduce((n,t)=>n+weight(t),0):g.total
       const count=(t:string)=>(g.counts.get(t)||0)-(mine?weight(t)*(own.get(t)||0):0)
       return {folder,docs,score:Math.log(docs)+known.reduce((n,t)=>n+weight(t)*Math.log((count(t)+1)/(size+total)),0)}
-    }).filter(g=>g.docs>=3).sort((a,b)=>b.score-a.score)
+    }).filter(g=>g.docs>=BAYES_MIN_DOCS).sort((a,b)=>b.score-a.score)
     if(!ranked.length)return {probs:new Map()}
     const best=ranked[0],sum=ranked.reduce((n,r)=>n+Math.exp(r.score-best.score),0)
     const probs=new Map(ranked.map(r=>[r.folder,Math.exp(r.score-best.score)/sum]))

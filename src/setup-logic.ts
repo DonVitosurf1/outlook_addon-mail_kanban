@@ -36,7 +36,7 @@ export const stepIds:readonly StepId[]=['E1','E2','E3','E4','E5','E6','E7']
 export const stepInfo:Record<StepId,{title:string;text:string;needsAi:boolean}>={
   E1:{title:'Ordner wählen',text:'Lege fest, welche Ordner das Board zeigt, aus welchen es lernt und wohin Erledigtes archiviert wird.',needsAi:false},
   E2:{title:'Lernen und messen',text:'Das Board lernt aus deinen Lernordnern und misst, wie oft seine Ablagevorschläge stimmen. Das ist dein Ausgangswert.',needsAi:false},
-  E3:{title:'Ausreißer prüfen',text:'Mails, die nicht zu ihrem Ordner passen, verschiebst du, bestätigst sie oder nimmst sie vom Lernen aus.',needsAi:true},
+  E3:{title:'Ausreißer prüfen',text:'Mails, die nicht zu ihrem Ordner passen, verschiebst du, bestätigst sie oder nimmst sie vom Lernen aus.',needsAi:false},
   E4:{title:'Struktur verfeinern',text:'Überfüllte Ordner unterteilen, ähnliche Ordner zusammenlegen und unklare Namen verbessern. Jede Änderung bestätigst du.',needsAi:true},
   E5:{title:'Steckbriefe',text:'Für Lernordner ohne Steckbrief entwirft die lokale KI einen Vorschlag. Du prüfst jeden.',needsAi:true},
   E6:{title:'Neu lernen und vergleichen',text:'Das Board lernt mit den bereinigten Ordnern neu und vergleicht die Trefferquote mit dem Ausgangswert.',needsAi:false},
