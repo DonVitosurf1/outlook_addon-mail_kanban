@@ -45,6 +45,8 @@ async function check(ctx:StepContext,folders:Folder[]):Promise<Scan>{
     try{found=await embeddingOutliers(groups.map(g=>({key:g.folder.path,mails:g.mails})),EMBEDDING_MARGIN);method='Embeddings'}
     catch(e){note='Embeddings nicht verfügbar, geprüft wurde mit Bayes. '+errorText(e)}
   }
+  // Kein Bayes-Ersatz für ein inzwischen gewechseltes Postfach.
+  if(ctx.host.mailbox()!=='outlook')throw new Error('Für die Ausreißerprüfung bitte das Outlook-Postfach öffnen.')
   found??=bayesOutliers(groups.flatMap(g=>g.mails.map(m=>({folder:g.folder.path,id:embeddingId(m),features:features(m)}))),BAYES_MARGIN)
   const findings=found.flatMap(o=>{const mail=mails.get(keyOf(o.folder,o.id));return mail?[{...o,mail}]:[]})
   if(failures.length)note=(note?note+' ':'')+'Nicht gelesen: '+failures.join(' · ')
