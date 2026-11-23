@@ -2,7 +2,7 @@ import { getLegacyConfig, getLegacyProfiles, getLegacyFile, updateConfig } from 
 import type { Folder, Invoke } from './live'
 
 export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[]}
-type Suggestion = {folder:string;reason:string}
+export type Suggestion = {folder:string;reason:string}
 type FolderInfo = {key:string;profile:string}
 type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[]}
 type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;embedModel:string}
@@ -59,7 +59,7 @@ function native():Invoke {
 function words(s:string) {
   return [...new Set(s.toLocaleLowerCase('de').match(/[\p{L}][\p{L}\p{N}-]{2,}/gu)||[])].filter(w=>!stop.has(w))
 }
-function features(m:AiMail):string[] {
+export function features(m:AiMail):string[] {
   const tokens=words(m.subject).map(w=>'w:'+w)
   if(m.sender)tokens.push('n:'+m.sender.trim().toLocaleLowerCase('de'))
   if(m.senderEmail){
@@ -107,7 +107,7 @@ function ruleForSender(address:string,folders:FolderInfo[],rulesList:unknown[]):
     }
   }
 }
-type LearnRow = { folder:string; features:string[]; id?:string; received?:string }
+export type LearnRow = { folder:string; features:string[]; id?:string; received?:string }
 const trainingKey='outlook-kanban-ai-training-v1'
 const statisticsKey='outlook-kanban-ai-statistics-v1'
 const sourceHints = new WeakMap<AiMail,Suggestion>()
@@ -158,21 +158,52 @@ export function recordFiling(mail:AiMail,folder:string) {
   // Outlook has already committed the move when this callback runs.
   try{
     localStorage.setItem(feedbackKey,JSON.stringify({rows:rows.slice(-3000)}))
+    // Lernbeispiel umhängen: Ein Lernbeispiel derselben Mail aus dem bisherigen Ordner zählt nicht mehr.
+    if(mail.id)dropTrainingRows(r=>r.id===mail.id&&r.folder!==folder)
     const hint=sourceHints.get(mail)
     if(hint?.folder){rate(hint.reason,hint.folder===folder);sourceHints.delete(mail)}
   }catch{ /* Local statistics are best effort if WebView storage is full. */ }
 }
+function dropTrainingRows(drop:(row:LearnRow)=>boolean){
+  const state=stored(trainingKey),rows=history(trainingKey),kept=rows.filter(r=>!drop(r))
+  if(kept.length!==rows.length)localStorage.setItem(trainingKey,JSON.stringify({...state,rows:kept}))
+}
+const excludedKey='mailboard-learn-excluded-v1'
+/** Kennungen (`embeddingId`) der Mails, die nach „Nicht lernen“ (E3) kein Lernbeispiel und kein Teil eines Ordnerprofils mehr sind. */
+export function learnExcluded():Set<string>{
+  const ids=stored(excludedKey).ids
+  return new Set(Array.isArray(ids)?ids.filter((id):id is string=>typeof id==='string'):[])
+}
+/** Lässt ausgeschlossene Mails weg. Gilt für die Lernbeispiele (`learnFolders`) und das Ordnerprofil (`trainCenter`). */
+export function withoutExcluded<T extends AiMail>(mails:T[],excluded:ReadonlySet<string>=learnExcluded()):T[]{
+  return excluded.size?mails.filter(m=>!excluded.has(embeddingId(m))):mails
+}
+/** „Nicht lernen“: merkt die Mails unter `mailboard-learn-excluded-v1` und entfernt ihre gespeicherten Lernbeispiele sofort. */
+export function excludeFromLearning(list:AiMail[]){
+  if(!liveSource||!list.length)return
+  const ids=[...new Set([...learnExcluded(),...list.map(embeddingId)])].slice(-5000)
+  localStorage.setItem(excludedKey,JSON.stringify({ids}))
+  const drop=new Set(list.flatMap(m=>m.id?[m.id]:[]))
+  dropTrainingRows(r=>!!r.id&&drop.has(r.id))
+  const feedback=history()
+  if(feedback.some(r=>r.id&&drop.has(r.id)))localStorage.setItem(feedbackKey,JSON.stringify({rows:feedback.filter(r=>!(r.id&&drop.has(r.id)))}))
+}
 const weight=(token:string)=>token.startsWith('c:')?4:token.startsWith('e:')?2:1
-/** Multinomial Bayes over sender and subject, with the reference's minimum support and certainty. */
-function classifier(rows:LearnRow[]) {
-  const vocab=new Set<string>()
+/** Bayes-Ergebnis: `best` ist der Vorschlag nach den bisherigen Regeln, `probs` die Wahrscheinlichkeit je Ordner (bei Unterhaltungen der Stimmenanteil). */
+export type BayesVerdict={best?:Suggestion;probs:Map<string,number>}
+/**
+ * Multinomial Bayes over sender and subject, with the reference's minimum support and certainty.
+ * `without` lässt ein Lernbeispiel des Modells aus (Leave-one-out für die Ausreißerprüfung), ohne neu zu trainieren.
+ */
+export function bayesModel(rows:LearnRow[]) {
+  const vocab=new Map<string,number>()
   const groups=new Map<string,{docs:number;total:number;counts:Map<string,number>}>()
   const conversations=new Map<string,Map<string,number>>()
   for(const row of rows){
     const group=groups.get(row.folder)??{docs:0,total:0,counts:new Map<string,number>()}
     group.docs++;groups.set(row.folder,group)
     for(const token of row.features){
-      vocab.add(token)
+      vocab.set(token,(vocab.get(token)||0)+1)
       const w=weight(token);group.total+=w
       group.counts.set(token,(group.counts.get(token)||0)+w)
       if(token.startsWith('c:')){
@@ -181,20 +212,37 @@ function classifier(rows:LearnRow[]) {
       }
     }
   }
-  return (feat:string[]):Suggestion|undefined=>{
+  return (feat:string[],without?:LearnRow):BayesVerdict=>{
+    const own=new Map<string,number>()
+    for(const token of without?.features??[])own.set(token,(own.get(token)||0)+1)
+    const left=(token:string)=>(vocab.get(token)||0)-(own.get(token)||0)
     const conv=feat.find(t=>t.startsWith('c:'))
-    const matches=[...(conversations.get(conv||'')||[])].sort((a,b)=>b[1]-a[1])
-    if(matches.length && matches[0][1]>=3*(matches[1]?.[1]||0))return {folder:matches[0][0],reason:'Frühere Ablage dieser Unterhaltung'}
-    const known=feat.filter(t=>vocab.has(t))
-    if(!known.length||known.every(t=>t.startsWith('w:'))&&known.length<2)return
-    const ranked=[...groups.entries()].filter(([,g])=>g.docs>=3).map(([folder,g])=>{
-      const score=Math.log(g.docs)+known.reduce((n,t)=>n+weight(t)*Math.log(((g.counts.get(t)||0)+1)/(vocab.size+g.total)),0)
-      return {folder,score}
-    }).sort((a,b)=>b.score-a.score)
-    if(!ranked.length)return
-    const best=ranked[0],prob=1/ranked.reduce((n,r)=>n+Math.exp(r.score-best.score),0)
-    if(prob>=0.85)return {folder:best.folder,reason:'Aus früheren Ablagen gelernt'}
+    const votes=new Map(conversations.get(conv||''))
+    if(without&&conv&&own.has(conv))votes.set(without.folder,(votes.get(without.folder)||0)-own.get(conv)!)
+    const matches=[...votes].filter(([,n])=>n>0).sort((a,b)=>b[1]-a[1])
+    if(matches.length && matches[0][1]>=3*(matches[1]?.[1]||0)){
+      const total=matches.reduce((n,[,v])=>n+v,0)
+      return {best:{folder:matches[0][0],reason:'Frühere Ablage dieser Unterhaltung'},probs:new Map(matches.map(([f,v])=>[f,v/total]))}
+    }
+    const known=feat.filter(t=>left(t)>0)
+    if(!known.length||known.every(t=>t.startsWith('w:'))&&known.length<2)return {probs:new Map()}
+    const size=vocab.size-[...own.keys()].filter(t=>left(t)<=0).length
+    const ranked=[...groups.entries()].map(([folder,g])=>{
+      const mine=without?.folder===folder
+      const docs=mine?g.docs-1:g.docs
+      const total=mine?g.total-without.features.reduce((n,t)=>n+weight(t),0):g.total
+      const count=(t:string)=>(g.counts.get(t)||0)-(mine?weight(t)*(own.get(t)||0):0)
+      return {folder,docs,score:Math.log(docs)+known.reduce((n,t)=>n+weight(t)*Math.log((count(t)+1)/(size+total)),0)}
+    }).filter(g=>g.docs>=3).sort((a,b)=>b.score-a.score)
+    if(!ranked.length)return {probs:new Map()}
+    const best=ranked[0],sum=ranked.reduce((n,r)=>n+Math.exp(r.score-best.score),0)
+    const probs=new Map(ranked.map(r=>[r.folder,Math.exp(r.score-best.score)/sum]))
+    return {best:probs.get(best.folder)!>=0.85?{folder:best.folder,reason:'Aus früheren Ablagen gelernt'}:undefined,probs}
   }
+}
+function classifier(rows:LearnRow[]) {
+  const model=bayesModel(rows)
+  return (feat:string[]):Suggestion|undefined=>model(feat).best
 }
 function area(key:string){
   const first=key.replace(/\\/g,'/').split('/').filter(Boolean)[0]||''
@@ -321,7 +369,7 @@ async function semanticScores(mail:AiMail,targets:FolderInfo[],cfg:Config){
 }
 async function trainCenter(folder:string,samples:AiMail[],ai:Config){
   const profile=folderInfo([folder])[0].profile, options=embeddingOptions()
-  const selected=samples.slice(0,Math.min(300,Math.max(1,Number(getLegacyConfig().embedding_samples)||150)))
+  const selected=withoutExcluded(samples).slice(0,Math.min(300,Math.max(1,Number(getLegacyConfig().embedding_samples)||150)))
   const weighted=selected.map((m,i)=>{
     const weight=options.recent&&selected.length>1?1-i/(2*(selected.length-1)):1
     return {text:embedText(m),weight}
@@ -346,26 +394,42 @@ export function trainFromFolders(folders:Folder[],progress?:(message:string)=>vo
   return training
 }
 function scopeStamp(folders:Folder[]){return JSON.stringify(folders.filter(f=>!f.isInbox&&allowed(f.path)).map(f=>[f.id,f.path]).sort())}
-async function learnFolders(folders:Folder[],progress?:(message:string)=>void) {
-  const epoch=sourceEpoch,invoke=native(), cfg=getLegacyConfig()
-  const limit=300
+/** Lernmails eines Lernordners aus `outlook_training`, ohne ausgeschlossene Mails. `error`, wenn Outlook den Ordner nicht liefern konnte. */
+export type TrainingFolder={folder:Folder;mails?:AiMail[];error?:string}
+/**
+ * Liest die Lernmails je Lernordner (bis zu 300 aus `learn_max_days`, Standard zwei Jahre) wie das Lernen selbst.
+ * Posteingang und `_`-Ordner zählen nicht. „Nicht lernen“-Mails fehlen bereits. Genutzt von `learnFolders` und der Ausreißerprüfung (E3).
+ */
+export async function trainingMails(folders:Folder[],progress?:(message:string)=>void):Promise<TrainingFolder[]>{
+  const epoch=sourceEpoch,invoke=native(),cfg=getLegacyConfig()
   const days=Math.max(0,Math.min(3650,Number(cfg.learn_max_days??730)))
+  const excluded=learnExcluded(),targets=folders.filter(f=>!f.isInbox && allowed(f.path)),result:TrainingFolder[]=[]
+  for(const [index,folder] of targets.entries()){
+    requireLive(epoch)
+    progress?.('Lese '+folder.path+' ('+(index+1)+'/'+targets.length+') …')
+    try{result.push({folder,mails:withoutExcluded(JSON.parse(await invoke<string>('outlook_training',{folder:folder.id,limit:300,days})),excluded)})}
+    catch(err){result.push({folder,error:String(err)})}
+  }
+  requireLive(epoch)
+  return result
+}
+async function learnFolders(folders:Folder[],progress?:(message:string)=>void) {
+  const epoch=sourceEpoch
+  requireLive(epoch)
   const known=history(trainingKey)
   const rows:LearnRow[]=[], failures:string[]=[],semanticFailures:string[]=[]
   const ai=config(),centers:Centers=Object.create(null), oldCenters=stored(centersKey) as Centers
   const targets=folders.filter(f=>!f.isInbox && allowed(f.path))
   if(!targets.length)throw new Error('Bitte Outlook laden und mindestens einen Lernordner auswählen.')
-  for(const [index,f] of targets.entries()){
+  for(const {folder:f,mails:samples,error} of await trainingMails(targets,progress)){
     requireLive(epoch)
-    progress?.('Lese '+f.path+' ('+(index+1)+'/'+targets.length+') …')
-    try{
-      const samples:AiMail[]=JSON.parse(await invoke<string>('outlook_training',{folder:f.id,limit,days}))
-      if(ai.enabled&&ai.embeddings&&samples.length){
-        try{centers[f.path]=await trainCenter(f.path,samples,ai)}
-        catch(e){semanticFailures.push(f.path+': '+String(e));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path]}
-      }
-      rows.push(...samples.map(m=>({folder:f.path,id:m.id,received:m.received,features:features(m)})))
-    }catch(err){failures.push(f.path+': '+String(err));rows.push(...known.filter(r=>r.folder===f.path));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path]}
+    if(!samples){failures.push(f.path+': '+error);rows.push(...known.filter(r=>r.folder===f.path));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path];continue}
+    if(ai.enabled&&ai.embeddings&&samples.length){
+      progress?.('Ordnerprofil für '+f.path+' …')
+      try{centers[f.path]=await trainCenter(f.path,samples,ai)}
+      catch(e){semanticFailures.push(f.path+': '+String(e));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path]}
+    }
+    rows.push(...samples.map(m=>({folder:f.path,id:m.id,received:m.received,features:features(m)})))
   }
   requireLive(epoch)
   if(failures.length!==targets.length)localStorage.setItem(trainingKey,JSON.stringify({rows,stamp:Date.now(),scope:scopeStamp(folders)}))
@@ -754,6 +818,20 @@ export const embeddingIndex={
     const sets=groups.map(g=>({name:g.name,items:indexItems(g.ids)})), items=indexItems(ids)
     return indexCall('ai_groups',{groups:sets,items},[...sets.flatMap(g=>g.items),...items])
   },
+}
+/** Verdächtige Lernmail (E3). `id` ist `embeddingId(mail)`, `own`/`other` die Ähnlichkeit zum eigenen bzw. besten fremden Profil. */
+export type Outlier={id:string;folder:string;suggested:string;own:number;other:number}
+/** Ob Embeddings eingeschaltet sind. Ohne sie prüft die Ausreißerprüfung mit Bayes. */
+export function embeddingsEnabled(){return liveSource&&embeddingsOn(config())}
+/**
+ * Ausreißer über den Vektor-Cache (`ai_outliers`): Ähnlichkeit zum eigenen Profil ohne die Mail gegen das beste fremde Profil.
+ * Verdächtig ab `margin` Vorsprung und über der Ablageschwelle (`embedding_threshold`). Gleicher Einbettungstext wie beim Lernen.
+ */
+export async function embeddingOutliers(groups:{key:string;mails:AiMail[]}[],margin=0.05):Promise<Outlier[]>{
+  const invoke=native(),cfg=config()
+  if(!embeddingsOn(cfg))throw new Error('Bitte die lokale KI und Embeddings in den Einstellungen aktivieren.')
+  return invoke<Outlier[]>('ai_outliers',{url:cfg.embedUrl,model:cfg.embedModel,threshold:Number(getLegacyConfig().embedding_threshold??0.78),margin,
+    folders:groups.map(g=>({key:g.key,items:g.mails.map(m=>({id:embeddingId(m),text:embedText(m)}))}))})
 }
 export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   learningFolders=getTrainingFolders

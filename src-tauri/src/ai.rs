@@ -1,5 +1,5 @@
 use mailboard_ollama::cache::{Evaluation, EvaluationFolder, SampleIndex};
-use mailboard_ollama::index::{Group, GroupMatch, Item};
+use mailboard_ollama::index::{Group, GroupMatch, Item, Outlier};
 use mailboard_ollama::{Analysis, Folder, Mail, Ollama, Sample, Score};
 use tauri::Manager;
 
@@ -90,6 +90,22 @@ pub async fn ai_groups(
     Ollama::new(&url)?
         .with_cache(vector_path(&app)?)
         .groups(&model, &groups, &items)
+        .await
+}
+
+/// Ausreißer der Lernordner (E3) auf Basis des Vektor-Caches.
+#[tauri::command]
+pub async fn ai_outliers(
+    app: tauri::AppHandle,
+    url: String,
+    model: String,
+    folders: Vec<mailboard_ollama::index::Folder>,
+    threshold: f64,
+    margin: f64,
+) -> Result<Vec<Outlier>, String> {
+    Ollama::new(&url)?
+        .with_cache(vector_path(&app)?)
+        .outliers(&model, &folders, threshold, margin)
         .await
 }
 

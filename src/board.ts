@@ -22,6 +22,7 @@ import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, w
 import { loadRoutines, useSamplePlanning } from './planning-store'
 import { initTabs } from './tabs'
 import { initSetup, type SetupFolder } from './setup'
+import './setup-outliers'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -240,11 +241,16 @@ let mutationVersion=0
 function needsStatus(mail:Mail,value:string){
   return mail.status!==value || mail.hasStatus===false
 }
-/** `tagsFor` berechnet die Kategorien je Mail, etwa beim Umschalten des Fokus für eine gemischte Auswahl. */
-type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[]}
+/**
+ * `tagsFor` berechnet die Kategorien je Mail, etwa beim Umschalten des Fokus für eine gemischte Auswahl.
+ * `offBoard` (nur Outlook): Mails, die nicht auf dem Board stehen, etwa Lernbeispiele aus der Ausreißerprüfung (E3).
+ * Sie laufen mit derselben Bestätigung, demselben Undo-Schritt und derselben Rückmeldung. `moved` meldet jede verschobene Mail (bisherige ID).
+ */
+type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[];offBoard?:Mail[];moved?:(id:string)=>void}
 async function change(ids:string[],action:Mutation) {
+  if(action.offBoard&&!isLive())return
   await exclusive(async()=>{
-    const rows=mails.filter(m=>ids.includes(m.id))
+    const rows=action.offBoard?.filter(m=>ids.includes(m.id))??mails.filter(m=>ids.includes(m.id))
     const field=action.kind
     const value=action.value as string
     const wanted=(m:Mail)=>action.tagsFor?action.tagsFor(m):action.value as string[]
@@ -314,6 +320,7 @@ async function change(ids:string[],action:Mutation) {
                   try {recordFiling(m,dest!.path||dest!.name)} catch { /* Outlook already saved the move. */ }
                 }
               }
+              action.moved?.(m.id)
             }
             if(action.status && needsStatus(m,action.status)){
               try {await service!.status(batch,id,value,action.status);m.status=action.status;m.hasStatus=true}
@@ -579,7 +586,9 @@ async function start() {
   const toggleItem=toggleCaseItem
   initTabs()
   setup=initSetup({mailbox:()=>mailbox,folders:()=>isLive()?folders as SetupFolder[]:[],learnerFolders,service:()=>isLive()?service:undefined,
-    confirm:(question,label)=>ask(document.body,question,label)})
+    confirm:(question,label)=>ask(document.body,question,label),
+    moveMails:(list,target,moved)=>change(list.map(m=>m.id),{kind:'move',value:target,moved,
+      offBoard:list.map(m=>({...m,folder:folders.find(f=>f.id===m.folderId)?.name??'',status:'Offen',tags:[],attachments:[]}))})})
   el('setupOpen').onclick=()=>setup?.open()
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,

@@ -87,4 +87,13 @@ test('Gespeicherter Stand wird geprüft gelesen',()=>{
   assert.equal(state.measurements.after,undefined)
   assert.deepEqual(Object.keys(state.outliers),['x'])
   assert.deepEqual(state.data,{E7:{offset:300}})
+  assert.deepEqual(state.confirmed,[]);assert.deepEqual(state.outlierFolders,[])
+})
+
+test('Gespeicherter Stand: bestätigte Ausreißer und Kandidaten für E4 werden geprüft gelesen',()=>{
+  const state=parseState({version:1,confirmed:['a','a',3,'b'],
+    outlierFolders:[{folder:'Labor',outliers:2,total:6},{folder:'Leer',outliers:0,total:0},{folder:'Kaputt',outliers:'2',total:6},'x']})
+  assert.deepEqual(state.confirmed,['a','b'])
+  assert.deepEqual(state.outlierFolders,[{folder:'Labor',outliers:2,total:6}])
+  assert.deepEqual(parseState({version:1,confirmed:'a',outlierFolders:{}}).confirmed,[])
 })

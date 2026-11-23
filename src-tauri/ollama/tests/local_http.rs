@@ -1,4 +1,4 @@
-use mailboard_ollama::index::{Group, Item};
+use mailboard_ollama::index::{Group, Item, Outlier};
 use mailboard_ollama::{Folder, Mail, Ollama};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -544,4 +544,80 @@ async fn embedding_index_refuses_cloud_and_remote_models() {
     for call in calls {
         assert!(call.contains("POST /api/show") && !call.contains("Interne Nachfrage"));
     }
+}
+
+#[tokio::test]
+async fn outliers_compare_own_profile_without_mail_to_best_foreign_profile() {
+    let info = json!({"model_info":{"general.architecture":"test"}});
+    let (url, server) = mock(vec![
+        ("200 OK", info.clone()),
+        (
+            "200 OK",
+            json!({"embeddings":[[1,0],[1,0.1],[0,1],[0,1],[0.1,1],[-1,0]]}),
+        ),
+        ("200 OK", info.clone()),
+        ("200 OK", info),
+    ]);
+    let root = std::env::temp_dir().join(format!(
+        "mailboard-outlier-test-{}-{}",
+        std::process::id(),
+        url.split(':').next_back().unwrap()
+    ));
+    let folder = |key: &str, texts: &[&str]| mailboard_ollama::index::Folder {
+        key: key.into(),
+        items: items(texts),
+    };
+    let folders = [
+        folder("Labor", &["Proben", "Messung", "Urlaubsantrag Labor"]),
+        folder("Personal", &["Urlaub", "Krankmeldung"]),
+        folder("Einzeln", &["Einzelstück"]),
+        folder("/_Alt", &["Urlaub alt"]),
+    ];
+    let client = Ollama::new(&url).unwrap().with_cache(root.clone());
+    let found = client.outliers("test", &folders, 0.78, 0.05).await.unwrap();
+    assert_eq!(found.len(), 1, "{found:?}");
+    let Outlier {
+        id,
+        folder,
+        suggested,
+        own,
+        other,
+    } = &found[0];
+    assert_eq!(
+        (id.as_str(), folder.as_str(), suggested.as_str()),
+        ("id-Urlaubsantrag Labor", "Labor", "Personal")
+    );
+    assert!(*own < 0.1 && *other > 0.99, "{own} {other}");
+    // Über der Mindestdifferenz, aber unter der Ablageschwelle, und umgekehrt: nichts verdächtig.
+    assert!(client
+        .outliers("test", &folders, 0.999, 0.05)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(client
+        .outliers("test", &folders, 0.78, 0.96)
+        .await
+        .unwrap()
+        .is_empty());
+    let calls = server.join().unwrap();
+    assert_eq!(calls.len(), 4);
+    assert!(calls[1].contains("POST /api/embed") && calls[1].contains("Einzelstück"));
+    assert!(!calls[1].contains("Urlaub alt"));
+    assert!(calls[2].contains("POST /api/show") && calls[3].contains("POST /api/show"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn outliers_refuse_cloud_models_before_sending_mail() {
+    let (url, server) = mock(vec![]);
+    let folders = [mailboard_ollama::index::Folder {
+        key: "Labor".into(),
+        items: items(&["Interne Nachfrage"]),
+    }];
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .outliers("embed:cloud", &folders, 0.78, 0.05)
+        .await
+        .is_err());
+    assert!(server.join().unwrap().is_empty());
 }

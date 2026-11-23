@@ -121,13 +121,13 @@ Für alle Schritte gilt:
 
 ### E3 Ausreißer prüfen
 
-- [ ] **Erkennung je Lernordner** über dessen Trainingsmails: Ähnlichkeit zum *eigenen* Profil ohne die Mail selbst gegen das beste *fremde* Profil. Verdächtig ist eine Mail, wenn das fremde Profil um mindestens 0,05 vorne liegt und über der Ablageschwelle. Ohne Embeddings gibt es eine Bayes-Variante, die die Mail beim Training auslässt.
+- [x] **Erkennung je Lernordner** über dessen Trainingsmails: Ähnlichkeit zum *eigenen* Profil ohne die Mail selbst gegen das beste *fremde* Profil. Verdächtig ist eine Mail, wenn das fremde Profil um mindestens 0,05 vorne liegt und über der Ablageschwelle. Ohne Embeddings gibt es eine Bayes-Variante, die die Mail beim Training auslässt.
   - Neuer Rust-Befehl `ai_outliers(model, folders:[{key, items:[{id,text}]}])` auf Basis des Vektor-Caches.
-- [ ] **Prüfliste** je Ordner, sortiert nach Deutlichkeit. Je Mail und als Stapel gibt es:
+- [x] **Prüfliste** je Ordner, sortiert nach Deutlichkeit. Je Mail und als Stapel gibt es:
   - **Verschieben nach X:** Bestätigung, Undo, Lernbeispiel wird umgehängt.
   - **Bleibt hier:** wird lokal als bestätigt gespeichert und nie wieder gemeldet.
   - **Nicht lernen:** wird aus `LearnRow` und Profil herausgefiltert.
-- [ ] **Ordner mit vielen Ausreißern** (z. B. über 25 %) gehen als Kandidaten für Unterteilung oder Zusammenlegen in E4.
+- [x] **Ordner mit vielen Ausreißern** (z. B. über 25 %) gehen als Kandidaten für Unterteilung oder Zusammenlegen in E4.
 
 ### E4 Struktur verfeinern
 

@@ -3,6 +3,7 @@
  * Die Oberfläche steht in `setup.ts`.
  */
 import type {Measurement} from './ai'
+import type {OutlierFolder} from './outliers'
 
 export type StepId='E1'|'E2'|'E3'|'E4'|'E5'|'E6'|'E7'
 export type StepStatus='open'|'done'|'skipped'
@@ -13,7 +14,10 @@ export type OutlierDecision={folder:string;decision:'moved'|'stay'|'exclude';tar
  * - `step`: der zuletzt geöffnete Schritt, dort setzt „Einrichtung fortsetzen“ an,
  * - `status`: offen, erledigt oder übersprungen je Schritt,
  * - `measurements.baseline`: Ausgangswert aus E2, `measurements.after`: Messung nach dem neuen Lernen (E6),
- * - `outliers`: Entscheidungen aus E3, Schlüssel ist eine stabile Mailkennung (z. B. Lernbeispiel-ID).
+ * - `outliers`: Entscheidungen aus E3, Schlüssel ist die inhaltsbasierte Kennung `embeddingId(mail)` (bleibt beim Verschieben gleich).
+ * - `confirmed`: Kennungen (`embeddingId`) der Mails mit „Bleibt hier“ aus E3. Sie gelten als sicher richtig und werden nie wieder gemeldet.
+ * - `outlierFolders`: Lernordner mit mehr als 25 % Ausreißern beim letzten Prüflauf von E3 (`{folder, outliers, total}`),
+ *   Kandidaten für Unterteilen oder Zusammenlegen in E4. Jeder Prüflauf ersetzt die Liste.
  * - `data`: freier Platz je Schritt für spätere Schritte (z. B. Seitenstand beim Posteingang). Nur JSON-Werte.
  */
 export type SetupState={
@@ -22,6 +26,8 @@ export type SetupState={
   status:Record<StepId,StepStatus>
   measurements:{baseline?:Measurement;after?:Measurement}
   outliers:Record<string,OutlierDecision>
+  confirmed:string[]
+  outlierFolders:OutlierFolder[]
   data:Partial<Record<StepId,unknown>>
 }
 export const SETUP_KEY='mailboard-setup-v1'
@@ -38,7 +44,7 @@ export const stepInfo:Record<StepId,{title:string;text:string;needsAi:boolean}>=
 }
 
 export function freshState():SetupState{
-  return {version:1,step:'E1',status:Object.fromEntries(stepIds.map(id=>[id,'open'])) as Record<StepId,StepStatus>,measurements:{},outliers:{},data:{}}
+  return {version:1,step:'E1',status:Object.fromEntries(stepIds.map(id=>[id,'open'])) as Record<StepId,StepStatus>,measurements:{},outliers:{},confirmed:[],outlierFolders:[],data:{}}
 }
 const isObject=(x:unknown):x is Record<string,unknown>=>!!x&&typeof x==='object'&&!Array.isArray(x)
 /** Liest einen gespeicherten Stand. Unbekannte oder beschädigte Felder fallen auf den Anfangsstand zurück. */
@@ -58,6 +64,9 @@ export function parseState(raw:unknown):SetupState{
     if(isObject(value)&&typeof value.folder==='string'&&['moved','stay','exclude'].includes(String(value.decision)))
       state.outliers[key]=value as unknown as OutlierDecision
   }
+  if(Array.isArray(raw.confirmed))state.confirmed=[...new Set(raw.confirmed.filter((id):id is string=>typeof id==='string'))]
+  if(Array.isArray(raw.outlierFolders))state.outlierFolders=raw.outlierFolders.flatMap(f=>isObject(f)&&typeof f.folder==='string'&&
+    Number.isInteger(f.outliers)&&Number.isInteger(f.total)&&(f.total as number)>0?[{folder:f.folder,outliers:f.outliers as number,total:f.total as number}]:[])
   if(isObject(raw.data))for(const id of stepIds)if(id in raw.data)state.data[id]=raw.data[id]
   return state
 }

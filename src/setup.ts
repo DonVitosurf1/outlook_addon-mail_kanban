@@ -22,12 +22,12 @@
  * Ohne registrierte Funktion bleibt der Schritt ein Platzhalter. `ctx.ai` sagt, ob die lokale KI eingeschaltet ist.
  *
  * Gespeicherter Stand: localStorage `mailboard-setup-v1`, nur im Outlook-Modus, Form siehe `SetupState` in setup-logic.ts:
- *   {version:1, step:'E2', status:{E1:'done',E2:'open',…,E7:'open'}, measurements:{baseline?,after?}, outliers:{…}, data:{…}}
+ *   {version:1, step:'E2', status:{E1:'done',E2:'open',…,E7:'open'}, measurements:{baseline?,after?}, outliers:{…}, confirmed:[…], outlierFolders:[…], data:{…}}
  * `measurements.*` hat die Form `Measurement` aus ai.ts ({date, report, samples, note}).
  */
 import {createFolder, getArchiveScope, getBoardScope, getLearningScope} from './projects'
 import {updateConfig} from './data-settings'
-import {localAiEnabled, measureLearning, renderEvaluation, trainFromFolders, type Measurement} from './ai'
+import {localAiEnabled, measureLearning, renderEvaluation, trainFromFolders, type AiMail, type Measurement} from './ai'
 import type {Folder, LiveBoard} from './live'
 import {currentView, showView, viewPanel} from './tabs'
 import {showToast} from './toast'
@@ -48,7 +48,16 @@ export type SetupHost={
   service():LiveBoard|undefined
   /** Bestätigung mit Zielliste vor jeder Postfachänderung. */
   confirm(question:string,label?:string):Promise<boolean>
+  /**
+   * Verschiebt Mails, die nicht auf dem Board stehen (z. B. Lernmails aus `trainingMails`), auf dem Move-Weg des Boards:
+   * Bestätigung mit Ziel, Undo-Schritt im Schreibstapel, Rückmeldung mit Rückgängig, danach `recordFiling` (Lernbeispiel umhängen).
+   * `target` ist die Outlook-Ordner-ID. `moved` läuft je erfolgreich verschobener Mail mit ihrer bisherigen ID.
+   * Ohne Bestätigung oder bei beschäftigtem Board passiert nichts. Fehler stehen in der Meldungszeile des Boards.
+   */
+  moveMails(mails:OffBoardMail[],target:string,moved?:(id:string)=>void):Promise<void>
 }
+/** Mail außerhalb des Boards mit Outlook-ID und Quellordner-ID. */
+export type OffBoardMail=AiMail&{id:string;folderId:string}
 export type StepContext={
   id:StepId
   body:HTMLElement
