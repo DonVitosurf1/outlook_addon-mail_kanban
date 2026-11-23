@@ -44,7 +44,8 @@ const folders=[
   {id:'05',name:'Neu',path:'Neu',parentId:'root',rootId:'root',mails:[mail('n0','Zentrifuge defekt'),mail('n1','Wartung Zentrifuge')]},
 ]
 const pathOf=f=>f.parentId==='root'?f.name:pathOf(folders.find(p=>p.id===f.parentId))+'/'+f.name
-const listed=()=>folders.map(({mails,...f})=>({...f,path:pathOf(f),count:mails.length}))
+// Einkauf ohne Anzahl wie beim älteren Outlook-Helfer: E4 nennt die Lernmails als Untergrenze.
+const listed=()=>folders.map(({mails,...f})=>({...f,path:pathOf(f),count:f.id==='02'?null:mails.length}))
 const write=name=>{if(!window.batchActive)throw Error(name+' ohne Schreibstapel')}
 window.outlook={folders,pathOf}
 window.calls=[]
@@ -54,7 +55,9 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_batch'){window.batchActive=args.active;return}
   if(name==='outlook_categories')return '[]'
   if(name==='outlook_folders')return JSON.stringify(listed())
-  if(name==='outlook_board'||name==='outlook_folder')return '[]'
+  if(name==='outlook_board')return JSON.stringify(folders.filter(f=>args.folders.includes(f.id)).flatMap(f=>
+    f.mails.map(m=>({...m,folderId:f.id,folder:f.name,status:'Offen',tags:[],attachments:[]}))))
+  if(name==='outlook_folder')return '[]'
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_training'){
     const f=folders.find(x=>x.id===args.folder)
@@ -65,6 +68,8 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
     const from=folders.find(f=>f.id===args.source),to=folders.find(f=>f.id===args.target)
     const row=from?.mails.find(m=>m.id===args.id)
     if(!row||!to)throw Error('Mail oder Ordner nicht mehr vorhanden.')
+    if(name==='outlook_move'&&row.subject===window.failMove)throw Error('Outlook belegt')
+    if(name==='outlook_undo'&&row.subject===window.failUndo)throw Error('Mail gesperrt')
     from.mails=from.mails.filter(m=>m!==row);row.id='n'+row.id;to.mails.push(row)
     return JSON.stringify({id:row.id,source:args.source,target:args.target})
   }
@@ -116,7 +121,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             # Überfüllt: Einkauf mit 320 Mails. Unterteilen öffnet den vorhandenen Ablauf aus structure.ts.
             crowded = view.get_by_role('region', name='Überfüllte Ordner')
             expect(crowded.locator('li strong')).to_have_text(['„Einkauf“'])
-            expect(crowded.locator('li small')).to_have_text('320 Mails')
+            expect(crowded.locator('li small')).to_have_text('mindestens 300 Mails')
             crowded.get_by_role('button', name='Unterteilung vorschlagen: „Einkauf“').click()
             structure = page.locator('.structure-dialog')
             expect(structure.locator('fieldset')).to_have_count(2)
@@ -166,15 +171,31 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(merge.locator('li')).to_have_count(0)
             expect(merge).to_contain_text('Keine Überschneidungen gefunden.')
 
-            # Ein Rückgängig-Schritt: Ordner zurück an seinen Platz, Mails zurück, Einstellungen wie vorher.
             toast = page.locator('.toast')
             expect(toast).to_contain_text('„Laborbedarf“ in „Labor“ zusammengelegt')
-            toast.get_by_role('button', name='Rückgängig').click()
+
+            # Auf dem Board (jetzt mit „Labor“) eine zusammengelegte Mail verschieben und das zurücknehmen: Sie hat danach eine neue ID.
+            view.get_by_role('button', name='Pausieren').click()
+            page.get_by_role('button', name='Pipettenspitzen 0', exact=False).first.click()
+            page.locator('#folder').select_option(label='Einkauf')
+            page.locator('#moveConfirm').get_by_role('button', name='Verschieben').click()
+            expect(toast).to_contain_text('Einkauf')
+            page.locator('#undo').click()
+            expect(toast).to_contain_text('Zurückgenommen')
+            board_undo = calls('outlook_undo')
+            assert len(board_undo) == 1 and board_undo[0][1]['target'] == '03', board_undo
+            new_id = page.evaluate("outlook.folders.find(f=>f.id==='03').mails.find(m=>m.subject==='Pipettenspitzen 0').id")
+
+            # Ein Rückgängig-Schritt: Ordner zurück an seinen Platz, Mails zurück (auch mit der neuen ID), Einstellungen wie vorher.
+            page.locator('#undo').click()
             expect(toast).to_contain_text('rückgängig')
+            page.locator('#moreTools summary').click()
+            page.locator('#setupOpen').click()
             expect(merge.locator('li strong')).to_have_text([title])
             back = calls('project_move')[-1][1]
             assert back == {'folder': '04F', 'source': 'z5', 'target': 'root'}, back
-            undone = calls('outlook_undo')
+            undone = calls('outlook_undo')[1:]
+            assert new_id in [c[1]['id'] for c in undone], (new_id, undone)
             assert len(undone) == 5 and all(c[2] and c[1]['source'] == '03' and c[1]['target'] == '04FF' for c in undone), undone
             listed = {f['id']: f for f in page.evaluate("outlook.folders.map(f=>({id:f.id,path:outlook.pathOf(f),count:f.mails.length}))")}
             assert listed['04FF'] == {'id': '04FF', 'path': 'Laborbedarf', 'count': 5}, listed
@@ -206,6 +227,38 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert 'Laborgeräte' in options()['suggestion_folders'] and 'Neu' not in options()['suggestion_folders'], options()
             expect(rename).to_contain_text('Keine unklaren Ordnernamen.')
             expect(toast).to_contain_text('„Neu“ in „Laborgeräte“ umbenannt')
+
+            # Teilfehler: eine Mail lässt sich nicht verschieben. Der Ordner bleibt, die Einstellungen bleiben, Rückgängig holt die vier zurück.
+            before = options()
+            page.evaluate("window.failMove='Pipettenspitzen 3'")
+            merge.get_by_role('button', name='Zusammenlegen: ' + title).click()
+            confirm.get_by_role('button', name='Zusammenlegen').click()
+            expect(status).to_have_text('4 Mails verschoben, dann abgebrochen. Mit Rückgängig holst du sie zurück. „Pipettenspitzen 3“: Outlook belegt')
+            assert len(calls('project_move')) == 2 and len(calls('project_create')) == 1
+            counts = lambda: page.evaluate("Object.fromEntries(outlook.folders.map(f=>[outlook.pathOf(f),f.mails.length]))")
+            assert counts()['Laborbedarf'] == 1 and counts()['Labor'] == 44, counts()
+            assert options() == before, (options(), before)
+            expect(toast).to_contain_text('4 Mails verschoben, Zusammenlegen unvollständig')
+
+            # Teilweise gescheitertes Rückgängig: stehen lassen, dann überspringen. Der Stapel bleibt frei.
+            page.evaluate("window.failMove='';window.failUndo='Pipettenspitzen 1'")
+            toast.get_by_role('button', name='Rückgängig').click()
+            stuck = page.get_by_role('dialog').filter(has_text='1 Mail konnte nicht nach „Laborbedarf“ zurückverschoben werden')
+            expect(stuck).to_contain_text('Mail gesperrt')
+            stuck.get_by_role('button', name='Abbrechen').click()
+            expect(page.locator('#message')).to_have_text('Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
+            assert counts()['Laborbedarf'] == 4 and counts()['Labor'] == 41, counts()
+            view.locator('h3').focus()
+            page.keyboard.press('Control+z')
+            stuck.get_by_role('button', name='Schritt überspringen').click()
+            expect(page.locator('#message')).to_have_text('Rückgängig-Schritt übersprungen.')
+            assert counts()['Laborbedarf'] == 4 and counts()['Labor'] == 41, counts()
+            # Der nächste Schritt im Stapel ist wieder erreichbar: das Umbenennen.
+            view.locator('h3').focus()
+            page.keyboard.press('Control+z')
+            expect(rename.locator('li strong')).to_have_text(['„Neu“'])
+            assert calls('project_rename')[-1][1] == {'folder': '05', 'name': 'Neu'}, calls('project_rename')
+            page.evaluate("window.failUndo=''")
 
             # Verwerfen blendet einen Vorschlag aus, bis du ihn wieder zeigen lässt.
             crowded.get_by_role('button', name='Verwerfen: „Einkauf“').click()

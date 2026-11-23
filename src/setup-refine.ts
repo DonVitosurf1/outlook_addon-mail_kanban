@@ -58,6 +58,8 @@ registerStep('E4',async ctx=>{
   const baseline=ctx.state.measurements.baseline
   const counts:Record<string,number|undefined>=Object.fromEntries(learners.map(f=>[f.path,f.count??baseline?.samples[f.path]]))
   const byPath=new Map(learners.map(f=>[f.path,f]))
+  // Ohne Anzahl aus Outlook (älterer Outlook-Helfer) zählen nur die Lernmails der Messung: eine Untergrenze.
+  const amount=(path:string,n:number|undefined)=>n==null?'':(byPath.get(path)?.count==null?'mindestens ':'')+mails(n)
   const dismissed=new Set(dismissedOf(ctx.state))
   const sections:Record<Section,HTMLElement>={crowded:make('section'),merge:make('section'),rename:make('section')}
 
@@ -89,7 +91,7 @@ registerStep('E4',async ctx=>{
     const ul=list('crowded')
     for(const c of crowded){
       const folder=byPath.get(c.folder)!,title=quoted(c.folder)
-      const info=[mails(c.mails),c.outliers?Math.round(100*c.outliers.outliers/c.outliers.total)+' % Ausreißer':''].filter(Boolean).join(' · ')
+      const info=[amount(c.folder,c.mails),c.outliers?Math.round(100*c.outliers.outliers/c.outliers.total)+' % Ausreißer':''].filter(Boolean).join(' · ')
       const actions=item(ul,title,info)
       const split=button('Unterteilung vorschlagen …',()=>openStructure(service,folder,async created=>{
         const fresh=await service.json<SetupFolder[]>('outlook_folders')
@@ -112,7 +114,7 @@ registerStep('E4',async ctx=>{
     const ul=list('merge')
     for(const base of found){
       const o=flipped.has(base.key)?reversed(base,counts):base
-      const title=quoted(o.source)+' in '+quoted(o.target)+' zusammenlegen'+(o.mails==null?'':' ('+mails(o.mails)+')')
+      const title=quoted(o.source)+' in '+quoted(o.target)+' zusammenlegen'+(o.mails==null?'':' ('+amount(o.source,o.mails)+')')
       const info=[o.similarity!==undefined?'Profile sehr ähnlich ('+decimal(o.similarity)+')':'',
         o.confusion!==undefined?'in der Messung zu '+Math.round(100*o.confusion)+' % verwechselt':''].filter(Boolean).join(' · ')
       const actions=item(ul,title,info)
@@ -190,7 +192,8 @@ registerStep('E4',async ctx=>{
     if(!source||!target){ctx.status('Die Ordner sind nicht mehr geladen. Bitte Outlook aktualisieren.');return}
     try{mergePlan(source,target,all)}catch(e){ctx.status(errorText(e));return}
     const allow=getLegacyConfig().allow_move!==true
-    const what=(o.mails==null?'alle Mails':o.mails===1?'die eine Mail':'alle '+mails(o.mails))+' aus '+quoted(o.source)+' nach '+quoted(o.target)+' verschieben und den leeren Ordner nach „'+MERGED_FOLDER+'“ verschieben?'
+    const exact=source.count!=null
+    const what=(o.mails==null?'alle Mails':!exact?'alle Mails (mindestens '+mails(o.mails)+')':o.mails===1?'die eine Mail':'alle '+mails(o.mails))+' aus '+quoted(o.source)+' nach '+quoted(o.target)+' verschieben und den leeren Ordner nach „'+MERGED_FOLDER+'“ verschieben?'
     const question=(allow?'Das Board darf noch keine Mails in Outlook verschieben. Jetzt erlauben und '+what:what[0].toUpperCase()+what.slice(1))+
       ' Steckbrief, Lern- und Board-Ziele werden umgeschrieben. Gelöscht wird nichts, Rückgängig stellt beides wieder her.'
     if(!await ctx.host.confirm(question,allow?'Erlauben und zusammenlegen':'Zusammenlegen'))return

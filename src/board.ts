@@ -7,7 +7,7 @@ import {colorSettings,applyLaneColor} from './category-colors'
 import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, updateConfig } from './data-settings'
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
 import demo from './demo.json'
-import { countsAsFiling, LiveBoard, UndoConflict, type Folder, type Invoke } from './live'
+import { countsAsFiling, LiveBoard, UndoSkippable, type Folder, type Invoke } from './live'
 import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
 import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
@@ -364,16 +364,21 @@ async function undo() {
     const label=latestUndoLabel()
     const done=()=>showToast(label?'Zurückgenommen: '+label:'Änderung rückgängig gemacht.')
     if(isLive()) {
+      // Ein Schritt, der nicht ganz zurückgeht, lässt sich überspringen, damit er den Stapel nicht blockiert.
+      const offerSkip=async(error:unknown)=>{
+        if(!(error instanceof UndoSkippable))throw error
+        const skip=await ask(document.body,error.message+' Diesen Rückgängig-Schritt überspringen und den aktuellen Outlook-Wert behalten?', 'Schritt überspringen')
+        if(skip)error.skip()
+        notify(skip?'Rückgängig-Schritt übersprungen.':'Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
+      }
       await service!.writeBatch(async()=>{
-        if(await undoProjectIfLatest(service?.latest||0)){done();return}
+        try {if(await undoProjectIfLatest(service?.latest||0)){done();return}}
+        catch(error){await offerSkip(error);return}
         if(!service?.canUndo)return
         try {await service.undo(step=>{
           if(step.kind==='field'&&step.value&&step.field==='followUp')cockpit.record('followed_up',-1)
           if(step.kind==='field'&&step.value&&step.field==='snoozeUntil')cockpit.record('snoozed',-1)})} catch(error){
-          if(!(error instanceof UndoConflict))throw error
-          const skip=await ask(document.body,error.message+' Diesen Rückgängig-Schritt überspringen und den aktuellen Outlook-Wert behalten?', 'Schritt überspringen')
-          if(skip)error.skip()
-          notify(skip?'Rückgängig-Schritt übersprungen.':'Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
+          await offerSkip(error)
           return
         } finally {await refresh()}
         done()

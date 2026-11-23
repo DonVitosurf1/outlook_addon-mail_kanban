@@ -11,9 +11,16 @@ type TagsStep = {kind:'tags';id:string;folder:string;before:string[];after:strin
 type Step = MoveStep | StatusStep | FieldStep | TagsStep
 export type Invoke = <T>(name:string,args?:Record<string,unknown>)=>Promise<T>
 
-export class UndoConflict extends Error {
-  constructor(field:string,readonly skip:()=>boolean) {
-    super(field+' wurde inzwischen in Outlook geändert. Der aktuelle Wert bleibt erhalten.')
+/** Rücknahme, die nicht ganz gelingt. `skip` entfernt den Schritt, damit der Stapel nicht blockiert (liefert falsch, wenn er schon weg ist). */
+export class UndoSkippable extends Error {
+  constructor(message:string,readonly skip:()=>boolean) {
+    super(message)
+    this.name='UndoSkippable'
+  }
+}
+export class UndoConflict extends UndoSkippable {
+  constructor(field:string,skip:()=>boolean) {
+    super(field+' wurde inzwischen in Outlook geändert. Der aktuelle Wert bleibt erhalten.',skip)
     this.name='UndoConflict'
   }
 }
@@ -22,6 +29,8 @@ export class LiveBoard {
   private batches:Step[][]=[]
   private times=new WeakMap<Step[],number>()
   private labels=new WeakMap<Step[],string>()
+  /** Meldet jede neue Outlook-ID einer Mail (Verschieben, Rücknahme), damit die Projekt-Historie ihr folgt (`projects.ts`). */
+  identityChanged?:(oldId:string,newId:string)=>void
   get latest() {const batch=this.batches.at(-1);return batch?(this.times.get(batch)||0):0}
   /** Beschriftung des obersten Undo-Stapels, falls bekannt. */
   get latestLabel() {const batch=this.batches.at(-1);return batch?this.labels.get(batch):undefined}
@@ -93,6 +102,7 @@ export class LiveBoard {
   private updateIdentity(oldId:string,newId:string) {
     for(const batch of this.batches)
       for(const step of batch) if(step.id===oldId) step.id=newId
+    if(oldId!==newId)this.identityChanged?.(oldId,newId)
   }
   private removeStep(batch:Step[],step:Step):boolean {
     if(batch.at(-1)!==step)return false

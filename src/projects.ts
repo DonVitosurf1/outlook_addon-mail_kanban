@@ -1,6 +1,6 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
 import { getLegacyConfig, getLegacyProfiles, setProfile, rekeyProfile, updateConfig } from './data-settings'
-import type {LiveBoard} from './live'
+import {UndoSkippable, type LiveBoard} from './live'
 import {distribute} from './distribute'
 import {ask} from './data-settings'
 import {draftProfile, relabelLearning} from './ai'
@@ -19,6 +19,10 @@ export function bindProjectBoard(service:LiveBoard|undefined){
     }
   }
   liveService=service
+  // Verschiebt das Board später eine zusammengelegte Mail (oder nimmt das zurück), folgt die Rücknahme des Zusammenlegens ihrer neuen ID.
+  if(service)service.identityChanged=(from,to)=>{
+    for(const step of history)if(step.kind==='merge')step.mails=step.mails.map(id=>id===from?to:id)
+  }
   if(trigger){trigger.hidden=!service;trigger.disabled=!service}
 }
 type ProjectService=Pick<LiveBoard,'json'|'invoke'|'begin'|'writeBatch'|'move'>
@@ -291,9 +295,15 @@ async function undoMerge(api:ProjectService,step:MergeStep){
     }catch(e){stuck.unshift(id);errors.push(errorText(e))}
   }
   step.mails=stuck
-  if(stuck.length)throw new Error(stuck.length+(stuck.length===1?' Mail konnte':' Mails konnten')+' nicht zurückverschoben werden. Rückgängig versucht es erneut. '+[...new Set(errors)].join(' · '))
-  history.splice(history.indexOf(step),1)
-  forgetUndo(step.stamp)
+  const drop=()=>{
+    const index=history.indexOf(step)
+    if(index<0)return false
+    history.splice(index,1);forgetUndo(step.stamp);return true
+  }
+  // Stehen lassen: der nächste Versuch nimmt nur die übrigen Mails. Überspringen: sie bleiben, wo sie sind, der Stapel ist frei.
+  if(stuck.length)throw new UndoSkippable((stuck.length===1?'1 Mail konnte':stuck.length+' Mails konnten')+' nicht nach „'+step.source.path+
+    '“ zurückverschoben werden und '+(stuck.length===1?'bleibt':'bleiben')+' vorerst, wo '+(stuck.length===1?'sie ist':'sie sind')+'. '+[...new Set(errors)].join(' · '),drop)
+  drop()
 }
 /**
  * Legt einen Ordner im Schreibstapel an und meldet die geänderte Ordnerliste (wie „Unterordner anlegen“).

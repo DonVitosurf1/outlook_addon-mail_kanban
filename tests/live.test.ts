@@ -172,3 +172,12 @@ test('Undo-Stapel behalten ihre Beschriftung',async()=>{
   await board.undo()
   assert.equal(board.latestLabel,'Erste')
 })
+
+test('neue Mail-IDs aus Verschieben und Rücknahme gehen an die Projekt-Historie (Zusammenlegen in E4)',async()=>{
+  const {board}=fixture(),seen:string[]=[]
+  board.identityChanged=(from,to)=>seen.push(from+'→'+to)
+  const moved=await board.move(board.begin(),'11','01','02')
+  await board.undo()
+  board.remapMail('x','x')
+  assert.deepEqual(seen,['11→'+moved,moved+'→'+String(Number(moved)+1)])
+})
