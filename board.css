@@ -235,6 +235,13 @@ body:not([data-view=board]) :is(#board, #triage, #viewMenu, #selectionCount) { d
 .flag-reply { color: #164f86; background: #dceafa; }
 .flag-focus { color: #075a54; background: #d3f1ec; }
 .flag-vip { color: #5a2c86; background: #ede2fb; }
+.flag-case { color: #7a2d5b; background: #f8e1ef; }
+.case-suggest { display: inline-flex; align-items: center; gap: .1rem; max-width: 100%; }
+.case-suggest button { font: inherit; cursor: pointer; border: 0; }
+.case-suggest .flag-case { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .72rem; }
+.case-suggest-x { padding: 0 .35rem; border-radius: 999px; color: #7a2d5b; background: transparent; font-size: .85rem; line-height: 1.4; }
+.case-suggest-x:hover, .case-suggest .flag-case:hover { background: #f1c8e0; }
+.case-suggest button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .card .arrival-mark { color: #3d3200; background: var(--active); }
 .card-progress { display: block; margin-top: .45rem; }
 .card-progress-label { display: flex; justify-content: space-between; gap: .5rem; font-size: .72rem; color: var(--muted); }

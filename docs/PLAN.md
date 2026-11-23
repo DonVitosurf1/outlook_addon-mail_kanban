@@ -59,11 +59,11 @@ Für alle Punkte gilt:
 
 ### K4 Vorgang-Vorschlag
 
-- [ ] **Profil je offenem Vorgang** aus den Vektoren seiner zugeordneten Mails (Mittelwert, ab 1 Mail).
-- [ ] **Vorschlag** nur für Mails ohne Vorgang, wenn die Ähnlichkeit über einer Schwelle liegt (Start: 0,80) und der Abstand zum zweitbesten Vorgang mindestens 0,03 beträgt. Beide Werte sind wie bei der Ablage einstellbar.
-- [ ] **Karte**: Pille „Vorgang Umzug?“ (Stil wie `card-flag`). Klick ordnet zu (`assign`, ein Undo-Schritt), ein „×“ lehnt ab. Die Ablehnung wird je Inhalts-Signatur und Vorgang lokal gespeichert, damit sie auch nach dem Verschieben mit neuer EntryID gilt.
-- [ ] **Triage**: In Schritt 2 „Offen durchgehen“ sind die Vorschläge sichtbar. Strg+K bietet „Vorgangsvorschlag übernehmen“.
-- [ ] **Tests**: Unit-Test für Schwelle, Abstand und Ablehnung, Smoke-Test mit simuliertem Ranking: Pille → Klick → Kategorie → Undo.
+- [x] **Profil je offenem Vorgang** aus den Vektoren seiner zugeordneten Mails (Mittelwert, ab 1 Mail).
+- [x] **Vorschlag** nur für Mails ohne Vorgang, wenn die Ähnlichkeit über einer Schwelle liegt (Start: 0,80) und der Abstand zum zweitbesten Vorgang mindestens 0,03 beträgt. Beide Werte sind wie bei der Ablage einstellbar.
+- [x] **Karte**: Pille „Vorgang Umzug?“ (Stil wie `card-flag`). Klick ordnet zu (`assign`, ein Undo-Schritt), ein „×“ lehnt ab. Die Ablehnung wird je Inhalts-Signatur und Vorgang lokal gespeichert, damit sie auch nach dem Verschieben mit neuer EntryID gilt.
+- [x] **Triage**: In Schritt 2 „Offen durchgehen“ sind die Vorschläge sichtbar. Strg+K bietet „Vorgangsvorschlag übernehmen“.
+- [x] **Tests**: Unit-Test für Schwelle, Abstand und Ablehnung, Smoke-Test mit simuliertem Ranking: Pille → Klick → Kategorie → Undo.
 
 ### K5 Suche nach Bedeutung
 

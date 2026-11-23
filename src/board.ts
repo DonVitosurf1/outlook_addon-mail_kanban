@@ -17,6 +17,7 @@ import { initTriage } from './triage'
 import { initRoutines, markRoutine } from './routines'
 import { initCalendar } from './calendar'
 import { renderMailTasks } from './mail-tasks'
+import { caseLimits, initCaseSuggest } from './case-suggest'
 import { allCases, initCases, toggleCaseItem } from './cases'
 import { shortcutFor, type ShortcutAction } from './shortcuts'
 import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
@@ -64,6 +65,7 @@ let cockpit:ReturnType<typeof initCockpit>
 let views:BoardViews
 let triage:ReturnType<typeof initTriage>|undefined
 let cases:ReturnType<typeof initCases>|undefined
+let caseSuggest:ReturnType<typeof initCaseSuggest>|undefined
 let calendarView:ReturnType<typeof initCalendar>|undefined
 let setup:ReturnType<typeof initSetup>|undefined
 let suggestionVersion=0
@@ -519,10 +521,11 @@ function pick(id:string) {
   if(!dialog.open)dialog.showModal()
 }
 function makeCard(mail:Mail,config:Record<string,unknown>,hint?:string,caseStates:readonly CaseState[]=[]) {
+  const suggestion=caseSuggest?.suggestionFor(mail)
   const card=tag('button','')
   card.className='card';card.id='mail-'+mail.id;card.draggable=true
   card.ondragstart=e=>e.dataTransfer?.setData('application/x-mailboard-item',mail.id)
-  renderCardContent(card,mail,config,hint,caseStates)
+  renderCardContent(card,mail,config,hint,caseStates,suggestion)
   card.onclick=()=>pick(mail.id)
   views.bindCard(card,mail.id)
   return card
@@ -555,6 +558,7 @@ function render() {
   cockpit?.refresh()
   triage?.refresh()
   cases?.refresh()
+  caseSuggest?.refresh()
   calendarView?.refresh()
   views.sync(mails)
   const visible=views.filter(mails.filter(m=>(isLive()||!scope||m.folder===scope)&&matchesQuery(m,search.value)))
@@ -639,6 +643,7 @@ async function start() {
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
   cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
+  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:(id,name)=>assignCase([id],name,true),render})
   const runRoutine=(action:RoutineAction)=>{
     switch(action){
       case 'triage':triage?.start();break
@@ -734,6 +739,20 @@ async function start() {
     input.value=String(getLegacyConfig()[key]??fallback)
     input.onchange=()=>{if(input.checkValidity() && Number.isInteger(input.valueAsNumber)){updateConfig({[key]:input.valueAsNumber});render()}}
     const l=tag('label',caption);l.append(input);parts[part].append(l)
+  }
+  for(const [key,caption,min,max,note] of [
+    ['case_threshold','Vorgangsvorschlag · Ähnlichkeit ab',0.5,0.99,'Je höher, desto weniger Vorschläge.'],
+    ['case_margin','Vorgangsvorschlag · Abstand zum zweitbesten Vorgang',0,0.5,'Je höher, desto eindeutiger muss der Vorschlag sein.']
+  ] as const) {
+    const input=document.createElement('input');input.type='number';input.min=String(min);input.max=String(max);input.step='0.01'
+    input.value=String(caseLimits(getLegacyConfig())[key==='case_threshold'?'threshold':'margin'])
+    input.title=note
+    input.onchange=()=>{
+      const value=input.valueAsNumber
+      if(Number.isFinite(value)&&value>=min&&value<=max){updateConfig({[key]:Math.round(value*100)/100});render()}
+      else input.value=String(caseLimits(getLegacyConfig())[key==='case_threshold'?'threshold':'margin'])
+    }
+    const l=tag('label',caption);l.append(input);parts.lernen.append(l)
   }
   for(const [key,caption,fallback,part] of [
     ['suggestions','Ablagevorschläge auf Karten anzeigen',true,'darstellung'],['compact_cards','Kompakte Karten',true,'darstellung'],['show_ai_summary','KI-Zusammenfassung auf Karten',true,'darstellung'],

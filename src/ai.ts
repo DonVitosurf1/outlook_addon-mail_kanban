@@ -842,7 +842,7 @@ export async function queueEmbeddings(){
       await invoke<number>('ai_embed',{url:cfg.embedUrl,model:cfg.embedModel,items:batch.map(m=>({id:embeddingId(m),text:embedText(m)}))})
       if(current(epoch)&&embeddedStamp===stamp)for(const m of batch)done.add(embeddingId(m))
     }
-    if(current(epoch))reportQueue('Einbettung abgeschlossen.')
+    if(current(epoch)){reportQueue('Einbettung abgeschlossen.');if(typeof document!=='undefined')document.dispatchEvent(new CustomEvent('mailboard:embedded'))}
   }catch(error){if(current(epoch))reportQueue('Einbettung angehalten. '+String(error))}
   finally{if(current(epoch))embedding=false}
 }

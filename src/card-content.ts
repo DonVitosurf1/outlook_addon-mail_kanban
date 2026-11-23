@@ -12,6 +12,24 @@ function flag(text:string,kind:string,title=''){
   if(title)pill.title=title
   return pill
 }
+/** Vorgangsvorschlag (K4): Pille zum Zuordnen und „×“ zum Ablehnen, beide eigene Buttons, die das Öffnen der Karte nicht auslösen. */
+function caseSuggestPill(suggestion:{name:string;accept():void;dismiss():void}){
+  const box=node('span','','case-suggest')
+  const act=(button:HTMLButtonElement,run:()=>void)=>{
+    button.type='button'
+    button.onclick=event=>{event.preventDefault();event.stopPropagation();run()}
+    button.onkeydown=event=>event.stopPropagation()
+    button.draggable=false
+  }
+  const take=node('button','Vorgang '+suggestion.name+'?','card-flag flag-case')
+  take.title='Mail dem Vorgang „'+suggestion.name+'“ zuordnen'
+  take.setAttribute('aria-label','Vorgang '+suggestion.name+' zuordnen')
+  const reject=node('button','×','case-suggest-x')
+  reject.title='Vorschlag ablehnen';reject.setAttribute('aria-label','Vorschlag ablehnen')
+  act(take,suggestion.accept);act(reject,suggestion.dismiss)
+  box.append(take,reject)
+  return box
+}
 /** Fußzeile mit Kategorien links und Zählern rechts, wie Avatare und Zähler der Vorlage. */
 function cardFoot(card:HTMLElement){
   let foot=card.querySelector<HTMLElement>(':scope > .card-foot')
@@ -83,7 +101,7 @@ function vipList(config:Record<string,unknown>){
   try {return (localStorage.getItem('board.views.vip')||'').split('\n').filter(Boolean)}
   catch {return []}
 }
-export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<string,unknown>, hint?:string, cases:readonly CaseState[]=[]){
+export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<string,unknown>, hint?:string, cases:readonly CaseState[]=[], suggestion?:{name:string;accept():void;dismiss():void}){
   const subject=node('strong',mail.subject||'(ohne Betreff)','card-subject')
   subject.title=subject.textContent||''
   const author=node('small','','card-author')
@@ -120,6 +138,7 @@ export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<str
   if(mail.needsReply && ['Offen','In Bearbeitung'].includes(mail.status))flags.push(flag('Antwort nötig','reply'))
   if(mail.tags.some(t=>same(t,FOCUS_TAG)))flags.push(flag('Fokus','focus','Im Tagesfokus (F)'))
   if(matchesSplit(mail,'vip',vipList(config)))flags.push(flag('VIP','vip'))
+  if(suggestion)flags.push(caseSuggestPill(suggestion))
   if(flags.length)cardRow(card,'flags').append(...flags)
 
   // Vorgänge mit Checkliste zeigen ihren Fortschritt statt eines Kategorie-Chips.

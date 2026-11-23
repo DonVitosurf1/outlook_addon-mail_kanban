@@ -526,7 +526,7 @@ export class BoardViews {
     if(e.key==='Escape' && input?.id==='search'){
       e.preventDefault(); this.clearFilters(); return
     }
-    if(input?.closest('input,textarea,select,[contenteditable=true]'))return
+    if(input?.closest('input,textarea,select,[contenteditable=true],.case-suggest'))return
     const modifier=e.ctrlKey||e.metaKey
     if(modifier && ['+','=','-','0'].includes(e.key)){
       e.preventDefault();this.changeZoom(e.key==='0'?0:e.key==='-'?-10:10);return
