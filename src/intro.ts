@@ -10,18 +10,20 @@ function read(key:string){try{return localStorage.getItem(key)||''}catch{return 
 function write(key:string){try{localStorage.setItem(key,'1')}catch{/* Nur diese Sitzung. */}}
 
 let active:{close:()=>void}|undefined
-let current=''
+let current=''  // Postfach des Boards, zuletzt von maybeIntro gemeldet
 
 export function introActive(){return !!active}
 /** Startet die Einführung einmal je Postfach. Der alte Schlüssel `board.layout.intro` gilt für beide als gesehen. */
 export function maybeIntro(source:'outlook'|'demo'|'offline'){
-  if(source==='offline')return
+  if(source!==current)active?.close()
   current=source
+  if(source==='offline')return
   if(read('board.layout.intro')||read(keyOf(source)))return
   setTimeout(()=>{if(current===source&&!active&&!read(keyOf(source)))showIntro()},0)
 }
 export function showIntro(){
   active?.close()
+  const owner=current  // Beim Öffnen festgehalten: nur dieses Postfach wird gemerkt.
   const pop=document.createElement('div');pop.className='intro-pop'
   pop.setAttribute('role','dialog');pop.setAttribute('aria-modal','false');pop.setAttribute('aria-label','Kurze Einführung');pop.tabIndex=-1
   const count=document.createElement('p');count.className='intro-step'
@@ -57,9 +59,10 @@ export function showIntro(){
   const close=()=>{
     document.removeEventListener('keydown',onEscape,true);removeEventListener('resize',place)
     pop.remove();active=undefined
-    if(returnTo?.isConnected)returnTo.focus()
+    const back=returnTo?.isConnected&&returnTo.getClientRects().length?returnTo:document.querySelector<HTMLElement>('#board .card')
+    back?.focus()
   }
-  const finish=()=>{if(current!=='offline'&&current)write(keyOf(current));close()}
+  const finish=()=>{if(owner&&owner!=='offline')write(keyOf(owner));close()}
   const onEscape=(e:KeyboardEvent)=>{if(e.key==='Escape'){finish()}}
   skip.onclick=finish
   next.onclick=()=>{if(index>=steps.length-1){finish();return}index++;draw();next.focus()}

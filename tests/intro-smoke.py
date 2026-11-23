@@ -28,7 +28,14 @@ def check(page, base):
     expect(intro).to_contain_text('Jede Spalte ist ein Status')
     expect(intro.get_by_role('button', name='Weiter')).to_be_focused()
     # Tasten in der Blase lösen keine Kartenaktionen aus.
-    page.keyboard.press('1')
+    card = page.locator('#mail-DEMO0008')
+    lane_before = card.evaluate("c => c.closest('.lane')?.querySelector('h2')?.textContent || ''")
+    card.click(modifiers=['Control'])
+    page.get_by_role('button', name='Weiter').focus()
+    for key in ['4', 'f']:
+        page.keyboard.press(key)
+    assert card.evaluate("c => c.closest('.lane')?.querySelector('h2')?.textContent || ''") == lane_before
+    expect(page.locator('#mail-DEMO0008 .flag-focus')).to_have_count(0)
     page.get_by_role('button', name='Weiter').click()
     expect(intro).to_contain_text('Klick öffnet die Mail')
     page.get_by_role('button', name='Weiter').click()
@@ -46,6 +53,8 @@ def check(page, base):
     # Über die Hilfe erneut starten, Escape überspringt.
     page.locator('#moreTools summary').click()
     page.locator('#cockpit-help').click()
+    page.get_by_role('searchbox', name='Hilfethemen durchsuchen').fill('Einführung')
+    expect(page.locator('summary', has_text='Einführung erneut zeigen')).to_have_count(1)
     page.get_by_role('button', name='Einführung erneut zeigen').click()
     expect(intro).to_be_visible()
     expect(intro).to_contain_text('Jede Spalte ist ein Status')

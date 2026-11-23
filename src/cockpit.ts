@@ -40,6 +40,7 @@ const help = [
   ['Wie lese ich eine Nachricht?', 'Öffne eine Karte und wähle „In Outlook öffnen“. Outlook zeigt dir das Original und die Anhänge. Die Anwendung sendet keine Mails.'],
   ['Wie lege ich eine Mail ab?', 'Prüfe den vorgeschlagenen Zielordner und bestätige die Ablage. Mit Strg+Z kannst du die letzte erfolgreiche Aktion in dieser Sitzung zurücknehmen. Nach jeder Änderung erscheint kurz eine Meldung mit dem Knopf „Rückgängig“.'],
   ['Was passiert bei fehlender KI?', 'Die lokale KI ist optional. Du kannst dein Board auch bei ausgeschaltetem oder langsamem Modell weiter bedienen.'],
+  ['Einführung erneut zeigen', 'Die kurze Einführung zeigt in drei Schritten das Board, die Karten und die Tab-Leiste. Sie startet mit dem Knopf „Einführung erneut zeigen“ unter den Hilfethemen und ist über Weiter, Überspringen oder Escape bedienbar.'],
   ['Warum fehlen Zahlen im Wochenblick?', 'Der Wochenblick zählt die aktuell geladenen Karten. Die Aktivitätszahlen sammeln erfolgreich im Board ausgeführte Aktionen der laufenden Woche lokal.'],
 ]
 
