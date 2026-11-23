@@ -1,3 +1,4 @@
+import { showIntro } from './intro'
 import {dateTerms} from './date-terms'
 import metadata from '../package.json'
 import {renderLearningDashboard} from './ai'
@@ -148,7 +149,8 @@ export function initCockpit(options: Options) {
     }
     input.oninput = filter
     filter()
-    body.append(input,found,button('Tastenkürzel anzeigen',()=>open('shortcuts')))
+    const again=button('Einführung erneut zeigen',()=>{dialog.close();showIntro()})
+    body.append(input,found,button('Tastenkürzel anzeigen',()=>open('shortcuts')),again)
   }
   function renderShortcuts() {
     title.textContent = 'Tastenkürzel'

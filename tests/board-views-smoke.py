@@ -50,6 +50,7 @@ def blank_drop(page,card,target,group=False):
 with sync_playwright() as pw:
  b=pw.chromium.launch(executable_path=shutil.which('chromium'),args=['--no-sandbox'])
  p=b.new_page(viewport={'width':1280,'height':800})
+ p.add_init_script("localStorage.setItem('board.layout.intro','1')")
  errors=[]
  p.on('pageerror',lambda e:errors.append(str(e)))
  p.goto(f'http://127.0.0.1:{server.server_port}/')
@@ -133,6 +134,7 @@ with sync_playwright() as pw:
  assert not errors,errors
  # A real DOM roundtrip with a replaceable COM boundary checks partial writes and reply evidence.
  p=b.new_page()
+ p.add_init_script("localStorage.setItem('board.layout.intro','1')")
  p.add_init_script("""
  localStorage.setItem('kanban-board-options-v1', JSON.stringify({poll_seconds:0,reply_to_offen:true}))
  const days=d=>new Date(Date.now()-d*86400000).toISOString()

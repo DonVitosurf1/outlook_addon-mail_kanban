@@ -21,6 +21,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
         with sync_playwright() as pw:
             browser = pw.chromium.launch(executable_path=os.getenv('CHROMIUM') or shutil.which('chromium'))
             page = browser.new_page(viewport={'width': 1440, 'height': 900})
+            page.add_init_script("localStorage.setItem('board.layout.intro','1')")
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(f'http://127.0.0.1:{server.server_port}/')

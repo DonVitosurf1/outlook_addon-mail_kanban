@@ -175,6 +175,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
 def check_live(browser, base):
     """F und Vorgangszuordnung schreiben je Mail die passenden Outlook-Kategorien und lassen sich gemeinsam zurücknehmen."""
     page = browser.new_page(viewport={'width': 1280, 'height': 800})
+    page.add_init_script("localStorage.setItem('board.layout.intro','1')")
     page.add_init_script(LIVE)
     errors = []
     page.on('pageerror', lambda error: errors.append(str(error)))
@@ -251,6 +252,7 @@ if __name__ == '__main__':
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(executable_path=os.getenv('CHROMIUM') or shutil.which('chromium'))
                 page = browser.new_page(viewport={'width': 1440, 'height': 900})
+                page.add_init_script("localStorage.setItem('board.layout.intro','1')")
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 base = f'http://127.0.0.1:{server.server_port}/'

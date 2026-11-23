@@ -110,6 +110,7 @@ if __name__ == "__main__":
                 browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM") or shutil.which("chromium"))
                 for width, height, font in [(1920, 1080, 16), (1280, 720, 16), (960, 640, 24), (680, 480, 24)]:
                     page = browser.new_page(viewport={"width": width, "height": height})
+                    page.add_init_script("localStorage.setItem('board.layout.intro','1')")
                     errors = []
                     page.on("pageerror", lambda error: errors.append(str(error)))
                     check_board(page, f"http://127.0.0.1:{server.server_port}", font)

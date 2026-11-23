@@ -31,9 +31,6 @@ export class BoardLayout{
       store('display-profile', profile.value)
     })
     this.resizeControl()
-    if(!saved('intro')){
-      this.hint('Die Windows-App lädt beim Start dein klassisches Outlook-Profil. Status, Fristen und Notizen speichert sie dort an der Mail. Eine Ablage bestätigst du vor dem Verschieben. Outlook öffnet Antworten als Entwurf.', 'intro')
-    }
   }
   private hint(text:string,key:string){
     const box=document.createElement('div');box.className='board-hint'

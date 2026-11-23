@@ -33,6 +33,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler,
         with sync_playwright() as pw:
             browser=pw.chromium.launch(executable_path=os.getenv('CHROMIUM') or shutil.which('chromium'))
             page=browser.new_page()
+            page.add_init_script("localStorage.setItem('board.layout.intro','1')")
             errors=[]
             page.on('pageerror',lambda error: errors.append(str(error)))
             page.add_init_script(bridge)

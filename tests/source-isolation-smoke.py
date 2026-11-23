@@ -30,6 +30,7 @@ window.__TAURI__={core:{invoke:async(cmd)=>{
 
 def run(browser, base):
     offline = browser.new_page()
+    offline.add_init_script("localStorage.setItem('board.layout.intro','1')")
     offline.goto(base)
     offline.locator('#cockpit-start').click()
     expect(offline.locator('#cockpit-dialog')).to_contain_text('kein Postfach geöffnet')
@@ -40,6 +41,7 @@ def run(browser, base):
     offline.close()
 
     page = browser.new_page()
+    page.add_init_script("localStorage.setItem('board.layout.intro','1')")
     page.add_init_script(bootstrap)
     page.goto(base)
     expect(page.locator('.foot')).to_have_text('Klassisches Outlook')

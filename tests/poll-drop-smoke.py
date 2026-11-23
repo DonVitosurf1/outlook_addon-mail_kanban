@@ -77,6 +77,7 @@ try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=shutil.which("chromium"))
         page = browser.new_page(viewport={"width": 960, "height": 620})
+        page.add_init_script("localStorage.setItem('board.layout.intro','1')")
         page.clock.install()
         page.add_init_script(bootstrap)
         errors = []

@@ -191,7 +191,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
   - Test: `live-board-smoke.py`.
 - [ ] **U3 „Nächster Schritt“-Hinweis.** Nach dem ersten Verbinden ohne Lernziele zeigt das Board einen deutlichen Hinweis „Einrichtung starten“. Er führt in den Assistenten (E0).
   - Solange die Einrichtung nicht abgeschlossen ist, zeigt Start den Fortschritt, z. B. „3 von 7 Schritten“.
-- [ ] **U4 Kurze Einführung.** Der lange Hinweistext (`board-hint` „intro“ in `src/views-layout.ts`) wird durch drei kurze Hinweise direkt an Board, Karte und Tabs ersetzt.
+- [x] **U4 Kurze Einführung.** Der lange Hinweistext (`board-hint` „intro“ in `src/views-layout.ts`) wird durch drei kurze Hinweise direkt an Board, Karte und Tabs ersetzt.
   - Weiter und Überspringen gehen per Tastatur, Escape schließt.
   - Über die Hilfe lässt sich die Einführung erneut zeigen.
   - Im Beispielpostfach und im Outlook-Postfach getrennt merkbar.

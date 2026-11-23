@@ -12,6 +12,7 @@ import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysi
 import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
 import { initCockpit, recordWeekly } from './cockpit'
+import { maybeIntro } from './intro'
 import { initTriage } from './triage'
 import { initRoutines, markRoutine } from './routines'
 import { initCalendar } from './calendar'
@@ -158,6 +159,7 @@ function sourceUpdated(rows:Mail[],source:Mailbox,items:Folder[],key:string) {
   if(outlook)void queueAnalyses()
   void syncColors?.(outlook)
   void correspondence?.refresh()
+  maybeIntro(source)
 }
 function boardFolders(list:Folder[], paths:string[]) {
   const targets=new Set(paths.map(p=>p.toLocaleLowerCase('de')))

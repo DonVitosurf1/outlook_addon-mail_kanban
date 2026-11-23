@@ -31,6 +31,7 @@ try:
         browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM") or shutil.which("chromium"))
         base = f"http://127.0.0.1:{server.server_port}/"
         page = browser.new_page(viewport={"width": 1280, "height": 500})
+        page.add_init_script("localStorage.setItem('board.layout.intro','1')")
         page.add_init_script(bootstrap)
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -60,6 +61,7 @@ try:
         assert not errors, errors
         page.close()
         demo = browser.new_page(viewport={"width": 1280, "height": 800})
+        demo.add_init_script("localStorage.setItem('board.layout.intro','1')")
         demo.goto(base)
         expect(demo.locator("#openSettings")).to_be_hidden()
         browser.close()
