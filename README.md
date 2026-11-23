@@ -28,7 +28,7 @@ Der normale Start aus dem entpackten Ordner benötigt keine Administratorrechte,
 - Ohne KI lassen sich Mails verarbeiten und Ablageziele anhand von Regeln, Steckbriefen und gelernten Beispielen vorschlagen. Wer die Modellfunktionen nutzen möchte, startet lokal Ollama, llama.cpp oder den Server von LM Studio (Standardadresse `http://127.0.0.1:1234/`), installiert ein passendes Modell und wählt es unter **Outlook und lokale KI** aus. Mailinhalte erhält nur ein Modell, für das der Server lokale Gewichte nachweist. Modellzugriffe laufen über Rust und sind auf Loopback beschränkt.
 - **Werkzeuge → Lokale Daten und Textbausteine** exportiert und importiert Sicherungen. Die App speichert lokale Einstellungen im Benutzerprofil. Das bloße Kopieren der EXE auf einen anderen PC überträgt diese Daten nicht.
 
-[Funktionsmatrix und Unterschiede zur Python-Version](docs/FUNKTIONSMATRIX.md) · [Erweiterungen 0.16–0.20](docs/ERWEITERUNGEN.md) · [Datenübernahme](docs/DATEN.md) · [Windows-Abnahme](docs/WINDOWS-ABNAHME.md) · [Designentscheidungen](DESIGN.md)
+[Funktionsmatrix und Unterschiede zur Python-Version](docs/FUNKTIONSMATRIX.md) · [Erweiterungen 0.16–0.20](docs/ERWEITERUNGEN.md) · [Plan und offene Punkte](docs/PLAN.md) · [Datenübernahme](docs/DATEN.md) · [Windows-Abnahme](docs/WINDOWS-ABNAHME.md) · [Designentscheidungen](DESIGN.md)
 
 ## Unter Windows selbst bauen
 
