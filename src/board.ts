@@ -45,6 +45,7 @@ const core=window.__TAURI__?.core
 const service=core && new LiveBoard((command,args)=>core.invoke(command,args),(delta,occurredAt)=>recordWeekly(true,'filed',delta,occurredAt))
 function mayMove(){return getLegacyConfig().allow_move===true}
 const storageKey='outlook-kanban-demo-positions-v1'
+let demoSteps=0
 const demoUndo:{mails:Mail[],events:Counter[],label?:string}[]=[]
 let demoMails:Mail[]=[]
 let mails:Mail[]=[]
@@ -131,6 +132,7 @@ function changeDemo(action:()=>void,events:Counter[]=[],label?:string) {
   if(mailbox!=='demo')return
   const before=structuredClone(demoMails)
   action()
+  demoSteps++
   demoUndo.push({mails:before,events,label})
   if(demoUndo.length>undoLimit)demoUndo.shift()
   for(const event of events)cockpit.record(event)
@@ -363,6 +365,13 @@ async function change(ids:string[],action:Mutation) {
 function reporting(failed:((text:string)=>void)|undefined,action:()=>Promise<void>){
   return failed?action().catch(e=>{failed(errorText(e));throw e}):action()
 }
+/** Kennung des letzten Rücknahme-Schritts, um einen eigenen Schritt später gezielt zurückzunehmen. */
+function undoMarker(){return isLive()?(service?.latest||0)+':'+projectUndoLatest():String(demoSteps)}
+async function undoIfLatest(marker:string){
+  if(undoMarker()!==marker)return false
+  await undo()
+  return true
+}
 async function undo() {
   if(!hasMailbox())return
   await exclusive(async()=>{
@@ -455,7 +464,7 @@ function initDetailBar() {
 }
 function showTasks(mail:Mail) {
   renderMailTasks(el('tasks'),mail,{cases:()=>allCases(mails),canAssign:hasMailbox,confirm:(question,label)=>ask(dialog,question,label),
-    assign:async(m,name)=>{await assignCase([m.id],name,true)},undo:()=>void undo(),
+    assign:async(m,name)=>{await assignCase([m.id],name,true)},marker:undoMarker,undoIfLatest,
     refresh:()=>{for(const m of mails)restoreAnalysis(m);if(selected)selected=mails.find(m=>m.id===selected!.id)||selected;window.dispatchEvent(new Event('kanban-analysis'))}})
 }
 window.addEventListener('kanban-analysis',()=>{if(selected&&dialog.open)showTasks(selected)})

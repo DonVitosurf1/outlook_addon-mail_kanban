@@ -44,6 +44,47 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
 """
 
 
+def open_tasks(page, base):
+    page.goto(base)
+    page.locator('#loadInbox').click()
+    expect(page.locator('#mail-a1 .count-tasks')).to_have_text('2 Aufgaben')
+    page.locator('#mail-a1').click()
+    tasks = page.get_by_role('region', name='Aufgaben')
+    tasks.get_by_role('button', name='Übernehmen').click()
+    page.get_by_role('dialog').filter(has_text='anlegen und diese Mail zuordnen').get_by_role('button', name='Anlegen und zuordnen').click()
+    expect(page.locator('.toast')).to_contain_text('2 Punkte in „Angebot Zentrifuge Freigabe“ übernommen.')
+    return tasks
+
+
+def check_undo(browser, base, due):
+    """(a) Rückgängig stellt Kategorie, Punkte und Pille wieder her. (b) Nach einer anderen Änderung bleibt diese stehen."""
+    for stale in (False, True):
+        page = browser.new_page(viewport={'width': 1280, 'height': 900})
+        page.add_init_script("localStorage.setItem('board.layout.intro','1')")
+        page.add_init_script(f"window.DUE='{due}'")
+        page.add_init_script(LIVE)
+        tasks = open_tasks(page, base)
+        if stale:
+            # Ein veralteter Rückgängig-Knopf, obwohl danach etwas anderes geändert wurde.
+            page.evaluate("window.keep=document.querySelector('.toast button')")
+            page.keyboard.press('Escape')
+            page.locator('#mail-a1').focus()
+            page.keyboard.press('f')
+            expect(page.locator('#focusViews button', has_text='Fokus')).to_have_text('Fokus · 1')
+            page.evaluate('window.keep.click()')
+            expect(page.locator('.toast')).to_contain_text('Die Zuordnung zum Vorgang bleibt, weil danach etwas anderes geändert wurde.')
+            assert page.evaluate('store[0].tags') == ['Vorgang: Angebot Zentrifuge Freigabe', 'Fokus'], page.evaluate('store[0].tags')
+            expect(page.locator('#mail-a1 .count-tasks')).to_have_text('2 Aufgaben')
+        else:
+            page.locator('.toast').get_by_role('button', name='Rückgängig').click()
+            expect(page.locator('#mail-a1 .count-tasks')).to_have_text('2 Aufgaben')
+            assert page.evaluate('store[0].tags') == []
+            assert page.evaluate("localStorage.getItem('mailboard-tasks-taken-v1')") in (None, '{}')
+        page.get_by_role('tab', name='Vorgänge').click()
+        expect(page.locator('#casesView')).not_to_contain_text('Angebot freigeben')
+        page.close()
+
+
 def run(browser, base, due):
     page = browser.new_page(viewport={'width': 1280, 'height': 900})
     page.add_init_script("localStorage.setItem('board.layout.intro','1')")
@@ -94,6 +135,7 @@ if __name__ == '__main__':
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(executable_path=os.getenv('CHROMIUM') or shutil.which('chromium'))
                 run(browser, f'http://127.0.0.1:{server.server_port}/', due)
+                check_undo(browser, f'http://127.0.0.1:{server.server_port}/', due)
                 browser.close()
         finally:
             server.shutdown()

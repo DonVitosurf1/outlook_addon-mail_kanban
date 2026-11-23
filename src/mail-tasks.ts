@@ -13,7 +13,10 @@ type Options = {
   /** Setzt die Kategorie „Vorgang: Name“ an der Mail (Postfachänderung mit Rücknahme). */
   assign(mail:TaskMail,name:string):Promise<void>
   confirm(question:string,label:string):Promise<boolean>
-  undo():void
+  /** Kennung des letzten Rücknahme-Schritts. */
+  marker():string
+  /** Nimmt den letzten Schritt nur zurück, wenn er noch zur Kennung passt. Liefert, ob das geschah. */
+  undoIfLatest(marker:string):Promise<boolean>
   /** Wendet die Analyse-Ergebnisse (ohne übernommene Aufgaben) neu auf die geladenen Mails an und zeichnet Karten und Details neu. */
   refresh():void
 }
@@ -56,23 +59,31 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
     if(problem){status.textContent=problem;return}
     take.disabled=true
     try{
-      if(isNew){
-        if(!await options.confirm('Vorgang „'+name+'“ anlegen und diese Mail zuordnen? Dafür wird die Kategorie „'+caseTag(name)+'“ in Outlook gesetzt.','Anlegen und zuordnen'))return
-        await options.assign(mail,name)
-      }
+      if(isNew&&!await options.confirm('Vorgang „'+name+'“ anlegen und diese Mail zuordnen? Dafür wird die Kategorie „'+caseTag(name)+'“ in Outlook gesetzt.','Anlegen und zuordnen'))return
       const added=chosen.map(r=>({id:newId(),text:r.text.value.trim(),done:false,...(r.due.value?{due:r.due.value}:{})}))
-      const ok=updateCase(name,c=>({...c,items:[...c.items,...added]}),{name,created:localDay(),items:[]})
-      if(!ok){status.textContent='Die Punkte konnten nicht gespeichert werden.';return}
+      const ids=new Set(added.map(a=>a.id))
+      const dropItems=()=>isNew?updateCase(name,()=>undefined):updateCase(name,c=>({...c,items:c.items.filter(i=>!ids.has(i.id))}))
+      // Erst lokal speichern: scheitert das, bleibt die Mail unverändert.
+      if(!updateCase(name,c=>({...c,items:[...c.items,...added]}),{name,created:localDay(),items:[]})){status.textContent='Die Punkte konnten nicht gespeichert werden.';return}
+      let marker=''
+      if(isNew){
+        try{await options.assign(mail,name);marker=options.marker()}
+        catch(error){dropItems();throw error}
+      }
       const id=embeddingId(mail),before=takenTasks(id),originals=chosen.map(r=>r.task.text)
       setTaken(id,[...before,...originals])
       options.refresh()
-      showToast(added.length+(added.length===1?' Punkt':' Punkte')+' in „'+name+'“ übernommen.',()=>{
-        const ids=new Set(added.map(a=>a.id))
+      showToast(added.length+(added.length===1?' Punkt':' Punkte')+' in „'+name+'“ übernommen.',()=>void (async()=>{
         updateCase(name,c=>({...c,items:c.items.filter(i=>!ids.has(i.id))}))
         setTaken(id,before)
-        if(isNew)options.undo()
+        let kept=false
+        if(isNew){
+          try{if(await options.undoIfLatest(marker))dropItems();else kept=true}
+          catch(error){status.textContent=String(error);kept=true}
+        }
         options.refresh()
-      })
+        if(kept)showToast('Die Zuordnung zum Vorgang bleibt, weil danach etwas anderes geändert wurde.')
+      })())
     }catch(error){status.textContent=String(error)}
     finally{take.disabled=false}
   }
