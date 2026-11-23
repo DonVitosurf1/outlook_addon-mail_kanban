@@ -105,19 +105,19 @@ Für alle Schritte gilt:
 
 ### E0 Rahmen
 
-- [ ] **Neues Modul** `src/setup.ts` als eigene Ansicht `Einrichtung` (Panel wie in `tabs.ts`). Erreichbar über Start und Werkzeuge. Wird angeboten, wenn Outlook verbunden ist und noch keine Lernziele gesetzt sind.
-- [ ] **Fortschritt** lokal in `mailboard-setup-v1`: aktueller Schritt, erledigte Schritte, Ausgangswerte der Messung, Entscheidungen zu Ausreißern. Gespeichert wird nur für Outlook, nie im Beispielpostfach.
-- [ ] **Schrittleiste** oben mit Status je Schritt (offen, erledigt, übersprungen), dazu „Pausieren“ und „Weiter“.
+- [x] **Neues Modul** `src/setup.ts` als eigene Ansicht `Einrichtung` (Panel wie in `tabs.ts`). Erreichbar über Start und Werkzeuge. Wird angeboten, wenn Outlook verbunden ist und noch keine Lernziele gesetzt sind.
+- [x] **Fortschritt** lokal in `mailboard-setup-v1`: aktueller Schritt, erledigte Schritte, Ausgangswerte der Messung, Entscheidungen zu Ausreißern. Gespeichert wird nur für Outlook, nie im Beispielpostfach.
+- [x] **Schrittleiste** oben mit Status je Schritt (offen, erledigt, übersprungen), dazu „Pausieren“ und „Weiter“.
 
 ### E1 Ordner wählen
 
-- [ ] **Ordnerbaum** mit Mailanzahl und den Spalten Board / Lernen / Archiv. Er nutzt die vorhandenen Ziele (`getBoardScope`, `getLearningScope`, `getArchiveScope`, `updateConfig`).
-- [ ] **Vorbelegung:** alle Ordner außer Posteingang, Gesendet und `_…` als Lernziele. Ein Ordner mit „Archiv“ im Namen wird als Archiv vorgeschlagen. Gibt es keinen, kann der Assistent einen anlegen.
+- [x] **Ordnerbaum** mit Mailanzahl und den Spalten Board / Lernen / Archiv. Er nutzt die vorhandenen Ziele (`getBoardScope`, `getLearningScope`, `getArchiveScope`, `updateConfig`).
+- [x] **Vorbelegung:** alle Ordner außer Posteingang, Gesendet und `_…` als Lernziele. Ein Ordner mit „Archiv“ im Namen wird als Archiv vorgeschlagen. Gibt es keinen, kann der Assistent einen anlegen.
 
 ### E2 Lernen und Ausgangswert messen
 
-- [ ] **Lernen** wie bisher (`learnFolders`: bis zu 300 Mails je Ordner aus zwei Jahren, Bayes und Embedding-Profil).
-- [ ] **Messen** mit `evaluateHoldout`. Die Trefferquote je Quelle und je Ordner wird als Ausgangswert gespeichert. Ordner mit wenigen Mails (unter 10) werden markiert.
+- [x] **Lernen** wie bisher (`learnFolders`: bis zu 300 Mails je Ordner aus zwei Jahren, Bayes und Embedding-Profil).
+- [x] **Messen** mit `evaluateHoldout`. Die Trefferquote je Quelle und je Ordner wird als Ausgangswert gespeichert. Ordner mit wenigen Mails (unter 10) werden markiert.
 
 ### E3 Ausreißer prüfen
 
@@ -189,7 +189,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
   - Betroffen ist `change()` in `src/board.ts`, gesetzt wird `allow_move`.
   - Abbrechen lässt die Mail unverändert. Die Freigabe bleibt in den Einstellungen änderbar.
   - Test: `live-board-smoke.py`.
-- [ ] **U3 „Nächster Schritt“-Hinweis.** Nach dem ersten Verbinden ohne Lernziele zeigt das Board einen deutlichen Hinweis „Einrichtung starten“. Er führt in den Assistenten (E0).
+- [x] **U3 „Nächster Schritt“-Hinweis.** Nach dem ersten Verbinden ohne Lernziele zeigt das Board einen deutlichen Hinweis „Einrichtung starten“. Er führt in den Assistenten (E0).
   - Solange die Einrichtung nicht abgeschlossen ist, zeigt Start den Fortschritt, z. B. „3 von 7 Schritten“.
 - [x] **U4 Kurze Einführung.** Der lange Hinweistext (`board-hint` „intro“ in `src/views-layout.ts`) wird durch drei kurze Hinweise direkt an Board, Karte und Tabs ersetzt.
   - Weiter und Überspringen gehen per Tastatur, Escape schließt.

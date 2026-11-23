@@ -39,9 +39,9 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             page.locator('#moreTools summary').click()
             page.locator('#backDemo').click()
             expect(page.locator('.foot')).to_have_text('Beispielpostfach')
-            # Werkzeuge: nur noch die sechs Einträge in fester Reihenfolge.
+            # Werkzeuge: nur noch die sieben Einträge in fester Reihenfolge.
             ids = page.locator('#moreTools .tools-panel button').evaluate_all('els => els.map(e => e.id)')
-            assert ids == ['paletteTrigger', 'openSettings', 'projectTools', 'dataSettings', 'backDemo', 'cockpit-help'], ids
+            assert ids == ['paletteTrigger', 'openSettings', 'projectTools', 'setupOpen', 'dataSettings', 'backDemo', 'cockpit-help'], ids
             for gone in ['Gesendet ohne Antwort', 'VIP-Liste', 'Unterhaltungen zusammenfassen']:
                 expect(page.locator('#moreTools .tools-panel')).not_to_contain_text(gone)
             page.keyboard.press('Escape')

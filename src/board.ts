@@ -21,6 +21,7 @@ import { shortcutFor, type ShortcutAction } from './shortcuts'
 import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
 import { loadRoutines, useSamplePlanning } from './planning-store'
 import { initTabs } from './tabs'
+import { initSetup, type SetupFolder } from './setup'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -57,6 +58,7 @@ let views:BoardViews
 let triage:ReturnType<typeof initTriage>|undefined
 let cases:ReturnType<typeof initCases>|undefined
 let calendarView:ReturnType<typeof initCalendar>|undefined
+let setup:ReturnType<typeof initSetup>|undefined
 let suggestionVersion=0
 let currentSuggestion:((apply:boolean)=>Promise<void>)|undefined
 let reloadPending=false
@@ -510,6 +512,7 @@ function render() {
     if(f.id)dropZone(btn,ids=>void change(ids,{kind:'move',value:f.id}))
     nav.append(btn)
   }
+  setup?.refresh()
   cockpit?.refresh()
   triage?.refresh()
   cases?.refresh()
@@ -575,6 +578,9 @@ async function start() {
   document.addEventListener('mailboard:planning',()=>render())
   const toggleItem=toggleCaseItem
   initTabs()
+  setup=initSetup({mailbox:()=>mailbox,folders:()=>isLive()?folders as SetupFolder[]:[],learnerFolders,service:()=>isLive()?service:undefined,
+    confirm:(question,label)=>ask(document.body,question,label)})
+  el('setupOpen').onclick=()=>setup?.open()
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
@@ -601,7 +607,7 @@ async function start() {
     cases:()=>allCases(mails),toggleItem})
   cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,
     startTriage:()=>triage?.start(),triageActive:()=>!!triage?.active,routines:loadRoutines,
-    openCalendar:()=>calendar.open(),markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),
+    openCalendar:()=>calendar.open(),setupProgress:()=>setup?.progress()??'',openSetup:()=>setup?.open(),markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),
     onStatus:(ids:string[],status:string)=>change(ids,{kind:'status',value:status}),
     onFolder:(ids:string[],target:string)=>change(ids,{kind:'move',value:target}),
     getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:undo,

@@ -231,8 +231,9 @@ type Tally={shown:number;correct:number}
 type Source='Regel'|'Bayes'|'Hybrid'|'Embedding'
 type Prediction={truth:string;id:string;folder:string;gap:number}
 type SemanticEvaluation={tested:number;missing:number;profiled:Tally;plain:Tally;predictions:Prediction[]}
-type EvaluationResult={tested:number;folders:number;combined:Tally;bayes:Tally;rule:Tally;sources:Partial<Record<Source,Tally>>;
-  embedding:Tally|null;plain:Tally|null;semanticTested:number;missing:number}
+/** `byFolder` zählt das Gesamtergebnis je Ordner der zurückgehaltenen Mails (`tested` = Testmails des Ordners). */
+export type EvaluationResult={tested:number;folders:number;combined:Tally;bayes:Tally;rule:Tally;sources:Partial<Record<Source,Tally>>;
+  embedding:Tally|null;plain:Tally|null;semanticTested:number;missing:number;byFolder:Record<string,Tally&{tested:number}>}
 const tally=():Tally=>({shown:0,correct:0})
 function count(target:Tally,guess:string|undefined,truth:string){
   if(!guess)return
@@ -253,8 +254,10 @@ export function evaluateHoldout(rows:LearnRow[],targets:string[],configuredRules
   const evidence=new Map(semantics?.predictions.map(p=>[JSON.stringify([p.truth,p.id]),p]))
   const result:EvaluationResult={tested:test.length,folders:new Set(test.map(r=>r.folder)).size,
     combined:tally(),bayes:tally(),rule:tally(),sources:{},embedding:semantics?.profiled??null,plain:semantics?.plain??null,
-    semanticTested:semantics?.tested??0,missing:semantics?.missing??0}
+    semanticTested:semantics?.tested??0,missing:semantics?.missing??0,byFolder:{}}
   for(const row of test){
+    const own=result.byFolder[row.folder]??={tested:0,...tally()}
+    own.tested++
     const bayes=predict(row.features)?.folder, sender=row.features.find(f=>f.startsWith('e:'))?.slice(2)||''
     count(result.bayes,bayes,row.folder)
     const rule=hidden.includes('Regel')?undefined:ruleForSender(sender,destinations,configuredRules)?.folder
@@ -264,11 +267,12 @@ export function evaluateHoldout(rows:LearnRow[],targets:string[],configuredRules
     const final=rule?{folder:rule,source:'Regel' as const}:combineForecast(bayes,sem)
     if(!final||hidden.includes(final.source))continue
     count(result.combined,final.folder,row.folder)
+    count(own,final.folder,row.folder)
     count(result.sources[final.source]??=tally(),final.folder,row.folder)
   }
   return result
 }
-function renderEvaluation(parent:HTMLElement,result:EvaluationResult){
+export function renderEvaluation(parent:HTMLElement,result:EvaluationResult){
   const table=document.createElement('table'),caption=document.createElement('caption')
   table.className='ai-evaluation'
   caption.textContent='Ablage-Testlauf · '+result.tested+' zurückgehaltene Mails aus '+result.folders+' Ordnern'
@@ -847,6 +851,50 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   }
 }
 
+/** Ergebnis eines Testlaufs: Auswertung, Lernbeispiele je Ordner und ein Hinweis zum Semantikvergleich. */
+export type Measurement={date:string;report:EvaluationResult;samples:Record<string,number>;note:string}
+/**
+ * Testlauf auf den gespeicherten Lernbeispielen: je Ordner bleiben die zehn neuesten Mails zurück (`evaluateHoldout`).
+ * Mit lokaler KI und Embeddings fließt der Vektorvergleich ein, sonst nur Bayes und Regeln. Speichert das Ergebnis für die Ablage-Auswertung.
+ */
+export async function measureLearning(folders?:Folder[],progress?:(message:string)=>void):Promise<Measurement>{
+  const epoch=sourceEpoch
+  requireLive(epoch)
+  const cfg=config(),legacy=getLegacyConfig(),rows=history(trainingKey)
+  const scope=folders?.map(f=>f.path)??[...new Set(rows.map(r=>r.folder))]
+  const targets=scope.filter(allowed),valid=new Set(targets),{test}=splitHoldout(rows.filter(r=>valid.has(r.folder)))
+  if(!test.length)throw new Error('Für den Testlauf braucht ein gewählter Lernordner mindestens 13 Beispiele (10 für den Test, mindestens 3 zum Lernen).')
+  const heldByFolder=new Map<string,Set<string>>()
+  for(const row of test){
+    if(!row.id)continue
+    const ids=heldByFolder.get(row.folder)??new Set<string>();ids.add(row.id);heldByFolder.set(row.folder,ids)
+  }
+  const centers=stored(centersKey) as Centers,options=JSON.stringify(embeddingOptions())
+  const semanticFolders=Object.entries(centers).flatMap(([key,c])=>{
+    if(!valid.has(key)||!c.index||c.memberIds?.length!==c.index.members.length||c.url!==cfg.embedUrl||c.model!==cfg.embedModel||c.options!==options)return []
+    const ids=heldByFolder.get(key)
+    const held=Object.fromEntries(c.memberIds.flatMap((id,i)=>ids?.has(id)?[[i,id]]:[]))
+    return [{key,index:c.index,held}]
+  })
+  let semantic:SemanticEvaluation|undefined
+  if(cfg.enabled&&cfg.embeddings&&semanticFolders.length){
+    progress?.('Gespeicherte Vektoren werden mit den zurückgehaltenen Mails verglichen …')
+    semantic=await native()<SemanticEvaluation>('ai_holdout',{folders:semanticFolders,weight:embeddingOptions().profileWeight,
+      threshold:Number(legacy.embedding_threshold??0.78),margin:Number(legacy.embedding_min_margin??0.03)})
+  }
+  requireLive(epoch)
+  const hidden=Array.isArray(legacy.hidden_sources)?legacy.hidden_sources.map(String):[]
+  const report=evaluateHoldout(rows,targets,rules(),hidden,semantic)
+  const note=cfg.enabled&&cfg.embeddings&&!semanticFolders.length?' Für den Semantikvergleich bitte die Lernordner aktualisieren.':''
+  const date=new Date().toLocaleDateString('de')
+  const stats=stored(statisticsKey)
+  localStorage.setItem(statisticsKey,JSON.stringify({...stats,evaluation:{date,report}}))
+  const samples:Record<string,number>=Object.fromEntries(targets.map(key=>[key,0]))
+  for(const row of rows)if(valid.has(row.folder))samples[row.folder]++
+  return {date,report,samples,note}
+}
+/** Ob die lokale KI eingeschaltet ist. Ohne sie lernt und misst das Board nur mit Bayes und Regeln. */
+export function localAiEnabled(){return config().enabled}
 export function renderLearningDashboard(container:HTMLElement){
   if(!liveSource){
     const note=document.createElement('p');note.textContent='Die Ablage-Auswertung verwendet die Lernordner deines geöffneten Outlook-Postfachs.'
@@ -946,36 +994,10 @@ function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[],e
     if(!current(epoch))return
     evaluate.disabled=true
     try{
-      const cfg=config(),legacy=getLegacyConfig(),rows=history(trainingKey)
-      const scope=getTrainingFolders?.()?.map(f=>f.path)??[...new Set(rows.map(r=>r.folder))]
-      const targets=scope.filter(allowed),valid=new Set(targets),{test}=splitHoldout(rows.filter(r=>valid.has(r.folder)))
-      if(!test.length){status.textContent='Für den Testlauf braucht ein gewählter Lernordner mindestens 13 Beispiele (10 für den Test, mindestens 3 zum Lernen).';return}
-      const heldByFolder=new Map<string,Set<string>>()
-      for(const row of test){
-        if(!row.id)continue
-        const ids=heldByFolder.get(row.folder)??new Set<string>();ids.add(row.id);heldByFolder.set(row.folder,ids)
-      }
-      const centers=stored(centersKey) as Centers,options=JSON.stringify(embeddingOptions())
-      const folders=Object.entries(centers).flatMap(([key,c])=>{
-        if(!valid.has(key)||!c.index||c.memberIds?.length!==c.index.members.length||c.url!==cfg.embedUrl||c.model!==cfg.embedModel||c.options!==options)return []
-        const ids=heldByFolder.get(key)
-        const held=Object.fromEntries(c.memberIds.flatMap((id,i)=>ids?.has(id)?[[i,id]]:[]))
-        return [{key,index:c.index,held}]
-      })
-      let semantic:SemanticEvaluation|undefined
-      if(cfg.enabled&&cfg.embeddings&&folders.length){
-        status.textContent='Gespeicherte Vektoren werden mit den zurückgehaltenen Mails verglichen …'
-        semantic=await native()<SemanticEvaluation>('ai_holdout',{folders,weight:embeddingOptions().profileWeight,
-          threshold:Number(legacy.embedding_threshold??0.78),margin:Number(legacy.embedding_min_margin??0.03)})
-      }
-      const hidden=Array.isArray(legacy.hidden_sources)?legacy.hidden_sources.map(String):[]
-      const report=evaluateHoldout(rows,targets,rules(),hidden,semantic)
-      const additional=cfg.enabled&&cfg.embeddings&&!folders.length?' Für den Semantikvergleich bitte die Lernordner aktualisieren.':''
-      status.textContent='Testlauf abgeschlossen. '+report.combined.correct+' richtige Ablagen bei '+report.combined.shown+' Vorschlägen.'+additional
-      const stats=stored(statisticsKey)
-      localStorage.setItem(statisticsKey,JSON.stringify({...stats,evaluation:{date:new Date().toLocaleDateString('de'),report}}))
+      const {report,note}=await measureLearning(getTrainingFolders?.(),text=>{status.textContent=text})
+      status.textContent='Testlauf abgeschlossen. '+report.combined.correct+' richtige Ablagen bei '+report.combined.shown+' Vorschlägen.'+note
       refresh()
-    }catch(error){status.textContent=String(error)}
+    }catch(error){status.textContent=error instanceof Error?error.message:String(error)}
     finally{evaluate.disabled=false}
   }
 }

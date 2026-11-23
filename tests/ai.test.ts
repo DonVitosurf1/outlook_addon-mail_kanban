@@ -127,6 +127,8 @@ test('Gesamttestlauf zählt die tatsächlich ausgewählte Quelle und berücksich
   assert.deepEqual(result.bayes,{correct:20,shown:20})
   assert.deepEqual(result.combined,{correct:18,shown:20})
   assert.deepEqual(result.sources,{Regel:{correct:0,shown:1},Hybrid:{correct:1,shown:1},Embedding:{correct:0,shown:1},Bayes:{correct:17,shown:17}})
+  // Je Ordner zehn Testmails. Die Fehlablagen durch Regel (IT0) und Embedding (IT1) zählen bei IT.
+  assert.deepEqual(result.byFolder,{IT:{tested:10,shown:10,correct:8},Labor:{tested:10,shown:10,correct:10}})
   const filtered=evaluateHoldout(rows,['IT','Labor'],fixed,['Regel','Hybrid'],semantic)
   assert.deepEqual(filtered.combined,{correct:17,shown:18})
   assert.equal(filtered.sources.Hybrid,undefined);assert.equal(filtered.sources.Regel,undefined)

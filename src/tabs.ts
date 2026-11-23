@@ -1,17 +1,25 @@
-/** Pillen-Tabs unter dem Titel: Board, Kalender, Vorgänge und Routinen sind gleichrangige Ansichten. */
-export type ViewName = 'board'|'calendar'|'cases'|'routines'
+/**
+ * Pillen-Tabs unter dem Titel: Board, Kalender, Vorgänge und Routinen sind gleichrangige Ansichten.
+ * Die Einrichtung (`setup`) ist eine Ansicht ohne eigenen Tab. Sie öffnet sich über Werkzeuge, Start oder den Hinweis.
+ */
+export type ViewName = 'board'|'calendar'|'cases'|'routines'|'setup'
 
 const views:[ViewName,string,string][] = [
   ['board','Board','board'],['calendar','Kalender','calendarView'],['cases','Vorgänge','casesView'],['routines','Routinen','routinesView'],
 ]
+/** Alle Bereiche neben dem Board: die Tab-Ansichten und die Ansichten ohne Tab. */
+const panels:[ViewName,string][] = [...views.map(([key,,panel]):[ViewName,string]=>[key,panel]),['setup','setupView']]
+const panelId=(name:ViewName)=>panels.find(([key])=>key===name)![1]
+const hasTab=(name:ViewName)=>views.some(([key])=>key===name)
 
 /** Legt für eine Planungsansicht den Bereich neben dem Board an. */
 export function viewPanel(name:Exclude<ViewName,'board'>,label:string){
   const panel=document.createElement('section')
-  panel.id=views.find(([key])=>key===name)![2]
+  panel.id=panelId(name)
   panel.className='plan-view'
-  panel.setAttribute('role','tabpanel')
-  panel.setAttribute('aria-labelledby','tab-'+name)
+  // Ohne Tab ist der Bereich eine benannte Region statt eines Tab-Panels.
+  panel.setAttribute('role',hasTab(name)?'tabpanel':'region')
+  if(hasTab(name))panel.setAttribute('aria-labelledby','tab-'+name)
   panel.setAttribute('aria-label',label)
   panel.tabIndex=-1
   panel.hidden=true
@@ -20,19 +28,21 @@ export function viewPanel(name:Exclude<ViewName,'board'>,label:string){
 }
 export function currentView():ViewName{
   const value=document.body.dataset.view
-  return views.some(([key])=>key===value)?value as ViewName:'board'
+  return panels.some(([key])=>key===value)?value as ViewName:'board'
 }
 /** Wechselt die Ansicht. Andere Module reagieren auf das Ereignis `mailboard:view`. */
 export function showView(name:ViewName,focus=false){
   document.body.dataset.view=name
-  for(const [key,,panelId] of views){
+  // Ohne eigenen Tab bleibt der Board-Tab per Tab-Taste erreichbar, ist aber nicht ausgewählt.
+  const reachable=hasTab(name)?name:'board'
+  for(const [key] of views){
     const tab=document.getElementById('tab-'+key)
     tab?.setAttribute('aria-selected',String(key===name))
-    if(tab)tab.tabIndex=key===name?0:-1
-    if(key!=='board'){const panel=document.getElementById(panelId);if(panel)panel.hidden=key!==name}
+    if(tab)tab.tabIndex=key===reachable?0:-1
   }
+  for(const [key,id] of panels)if(key!=='board'){const panel=document.getElementById(id);if(panel)panel.hidden=key!==name}
   document.dispatchEvent(new CustomEvent('mailboard:view',{detail:name}))
-  if(focus)document.getElementById(name==='board'?'board':views.find(([key])=>key===name)![2])?.focus()
+  if(focus)document.getElementById(panelId(name))?.focus()
 }
 
 export function initTabs(){

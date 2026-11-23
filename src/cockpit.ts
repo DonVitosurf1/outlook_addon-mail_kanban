@@ -18,6 +18,9 @@ type Options = CleanupOptions & {
   triageActive: () => boolean
   routines: () => Routine[]
   openCalendar: () => void
+  /** Einrichtungsfortschritt wie „Einrichtung: 2 von 7 Schritten“, leer, wenn Start ihn nicht zeigen soll. */
+  setupProgress: () => string
+  openSetup: () => void
   markRoutine: (id: string) => void
   showFocus: (key: 'today' | 'focus') => void
   showOverdue: () => void
@@ -39,6 +42,7 @@ const help = [
   ['Was ist ein Vorgang?', 'Ein Vorgang bündelt zusammengehörige Mails über die Outlook-Kategorie „Vorgang: Name“ und führt eine lokale Checkliste mit optionalen Terminen. Zuordnen lässt sich über das Kontextmenü einer Karte, Strg+K oder den Tab „Vorgänge“.'],
   ['Wie lese ich eine Nachricht?', 'Öffne eine Karte und wähle „In Outlook öffnen“. Outlook zeigt dir das Original und die Anhänge. Die Anwendung sendet keine Mails.'],
   ['Wie lege ich eine Mail ab?', 'Prüfe den vorgeschlagenen Zielordner und bestätige die Ablage. Mit Strg+Z kannst du die letzte erfolgreiche Aktion in dieser Sitzung zurücknehmen. Nach jeder Änderung erscheint kurz eine Meldung mit dem Knopf „Rückgängig“.'],
+  ['Wie richte ich das Board ein?', 'Werkzeuge → Einrichtung führt mit deinem Outlook-Postfach durch sieben Schritte: Ordner wählen, Lernen und messen, Ausreißer prüfen, Struktur verfeinern, Steckbriefe, neu lernen und vergleichen, Posteingang abarbeiten. Pausieren bringt dich zurück zum Board. Der Fortschritt bleibt gespeichert, Start zeigt ihn an. Ohne lokale KI kannst du die Schritte 3 bis 5 überspringen.'],
   ['Was passiert bei fehlender KI?', 'Die lokale KI ist optional. Du kannst dein Board auch bei ausgeschaltetem oder langsamem Modell weiter bedienen.'],
   ['Einführung erneut zeigen', 'Die kurze Einführung zeigt in drei Schritten das Board, die Karten und die Tab-Leiste. Sie startet mit dem Knopf „Einführung erneut zeigen“ unter den Hilfethemen und ist über Weiter, Überspringen oder Escape bedienbar.'],
   ['Warum fehlen Zahlen im Wochenblick?', 'Der Wochenblick zählt die aktuell geladenen Karten. Die Aktivitätszahlen sammeln erfolgreich im Board ausgeführte Aktionen der laufenden Woche lokal.'],
@@ -221,6 +225,12 @@ export function initCockpit(options: Options) {
         button(s.late.length+' wartend und fällig',show(options.showOverdue)))
       const triage=button(options.triageActive()?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startTriage)
       triage.className='cockpit-primary'
+      const setup=options.setupProgress()
+      if(setup){
+        const row=element('p',setup+' ');row.className='cockpit-setup'
+        row.append(link('Einrichtung öffnen',options.openSetup))
+        body.append(row)
+      }
       body.append(element('h3','Heute'),stats,triage,element('h3','Routinen heute'))
       const due=dueRoutines(options.routines(),day)
       if(!due.length)body.append(element('p','Keine Routine fällig.'))

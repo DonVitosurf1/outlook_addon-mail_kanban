@@ -113,6 +113,17 @@ function rekeyConfig(from:string,to:string){
   if(saved){const data=JSON.parse(saved);localStorage.setItem(ruleKey,JSON.stringify({...data,items:remapRules(data.items)}))}
   rekeyProfile(from,to)
 }
+/**
+ * Legt einen Ordner im Schreibstapel an und meldet die geänderte Ordnerliste (wie „Unterordner anlegen“).
+ * Die Bestätigung mit Ziel holt der Aufrufer vorher ein. Angelegte Ordner werden nie gelöscht.
+ */
+export async function createFolder(parentId:string,name:string){
+  const service=session()
+  let created:Receipt|undefined
+  await service.writeBatch(async()=>{created=await service.json<Receipt>('project_create',{parent:parentId,name})})
+  changed()
+  return created!
+}
 function button(label:string,handle:()=>void){
   const b=document.createElement('button');b.textContent=label;b.onclick=handle;return b
 }

@@ -486,3 +486,39 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .intro-arrow { position:absolute; width:12px; height:12px; background:var(--surface); border:1px solid var(--edge); transform:rotate(45deg); }
 .intro-arrow[data-dir="up"] { top:-7px; border-right:0; border-bottom:0; }
 .intro-arrow[data-dir="down"] { bottom:-7px; border-left:0; border-top:0; }
+
+/* Einrichtung (E0) und Hinweis über dem Board (U3) */
+.setup-hint { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; margin: 0 0 .6rem; padding: .6rem .7rem .6rem 1rem; border-radius: var(--radius-panel); background: var(--surface); box-shadow: var(--shadow); border-left: 5px solid var(--sun); font-size: .9rem; }
+.setup-hint p { flex: 1 1 18rem; font-weight: 600; }
+.setup-hint[hidden], body:not([data-view=board]) .setup-hint { display: none; }
+button.setup-go { color: var(--sun-ink); background: var(--sun); border-color: var(--sun); font-weight: 650; }
+button.setup-go:hover:not(:disabled) { color: var(--sun-ink); background: var(--sun-strong); border-color: var(--sun-strong); }
+.setup-steps { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem; margin: .7rem 0 .4rem; }
+.setup-steps button { display: flex; align-items: baseline; gap: .3rem; border-radius: 999px; }
+.setup-steps button span { font-weight: 650; }
+.setup-steps .setup-state { color: var(--muted); font-size: .78em; }
+.setup-steps button[data-status=done] { background: var(--soft); border-color: var(--accent); }
+.setup-steps button[data-status=skipped] .setup-state { font-style: italic; }
+.setup-steps button[aria-current=step], .setup-steps button[aria-current=step]:hover:not(:disabled) { background: var(--sun); border-color: var(--sun); color: var(--sun-ink); font-weight: 600; }
+.setup-steps button[aria-current=step] .setup-state { color: var(--sun-ink); }
+.setup-step { margin-top: .6rem; padding: .3rem 1rem .8rem; border-radius: 1rem; background: var(--soft); }
+.setup-step h3:focus { outline: none; }
+.setup-step h3:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.setup-step > p { color: var(--muted); max-width: 60rem; }
+.setup-note { padding: .3rem .6rem; border-radius: .6rem; background: #fff6d6; color: var(--sun-ink); }
+.setup-body > button, .setup-body > label { margin: .5rem .4rem 0 0; }
+.plan-view label.setup-radio { display: inline-flex; gap: .35rem; align-items: center; white-space: nowrap; }
+.setup-table { overflow: auto; max-height: 55vh; margin-top: .5rem; }
+.setup-table table { border-collapse: collapse; width: 100%; background: var(--surface); }
+.setup-table :is(th,td) { padding: .3rem .55rem; border-bottom: 1px solid var(--line); text-align: left; overflow-wrap: anywhere; }
+.setup-table td { text-align: center; }
+.setup-table td:nth-child(2) { text-align: right; }
+.setup-table caption { text-align: left; font-weight: 600; padding: .3rem 0; }
+.setup-folders tr.setup-few th, .setup-folders tr.setup-few td:last-child { color: #9b4d0d; font-weight: 600; }
+.setup-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .7rem; }
+.setup-actions .primary { margin-left: auto; }
+.setup-complete { padding: .4rem .7rem; border-radius: .7rem; background: #e1f2eb; color: #20594b; }
+.cockpit-setup { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem .6rem; padding: .45rem .7rem; border-radius: .8rem; background: #fff6d6; font-weight: 600; }
+[data-display-profile="monitor"] .setup-step { padding: .6rem 1.3rem 1.1rem; }
+.setup-table thead th:not(:first-child) { text-align: center; }
+.setup-table thead th:nth-child(2) { text-align: right; }
