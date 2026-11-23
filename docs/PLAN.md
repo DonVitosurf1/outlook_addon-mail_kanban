@@ -149,18 +149,18 @@ Für alle Schritte gilt:
 
 ### E7 Posteingang abarbeiten
 
-- [ ] **Lesen:** Alle Posteingangsmails ohne Status werden gelesen. Heute liest `__backlog` die ältesten 300 (`outlook_backlog`). Der Befehl bekommt Grenze und Versatz, damit bis zu 2.000 Mails in Seiten gelesen werden. Das betrifft den C#-Helfer und braucht einen Vertragstest in `outlook-test/tests`.
-- [ ] **Einteilen** jeder Mail in **sicher** (Vorschlag mit hoher Sicherheit, wie `trustedFolderBatch`), **unsicher** oder **ohne Ziel**.
-- [ ] **Sicher:** Stapel je Zielordner mit Betreffliste, je Stapel bestätigen (wie die sicheren Sammelvorschläge beim Aufräumen).
-- [ ] **Unsicher:** öffnet „Posteingang aufräumen“ mit genau diesen Mails.
-- [ ] **Ohne Ziel und älter als 3 Monate:** Sammelangebot „ins Archiv“ mit Anzahl und Altersgrenze, als ein Undo-Schritt. Jüngere bleiben im Posteingang.
+- [x] **Lesen:** Alle Posteingangsmails ohne Status werden gelesen. Heute liest `__backlog` die ältesten 300 (`outlook_backlog`). Der Befehl bekommt Grenze und Versatz, damit bis zu 2.000 Mails in Seiten gelesen werden. Das betrifft den C#-Helfer und braucht einen Vertragstest in `outlook-test/tests`.
+- [x] **Einteilen** jeder Mail in **sicher** (Vorschlag mit hoher Sicherheit, wie `trustedFolderBatch`), **unsicher** oder **ohne Ziel**.
+- [x] **Sicher:** Stapel je Zielordner mit Betreffliste, je Stapel bestätigen (wie die sicheren Sammelvorschläge beim Aufräumen).
+- [x] **Unsicher:** öffnet „Posteingang aufräumen“ mit genau diesen Mails.
+- [x] **Ohne Ziel und älter als 3 Monate:** Sammelangebot „ins Archiv“ mit Anzahl und Altersgrenze, als ein Undo-Schritt. Jüngere bleiben im Posteingang.
 
 ### Tests und Abnahme
 
 - [ ] **Unit-Tests:** Ausreißer-Regel (Schwelle, Abstand, Bestätigte, Ausgeschlossene), Erkennung von Überschneidungen, Plan für das Zusammenlegen (Reihenfolge, Umschlüsseln), Einteilung des Posteingangs, Altersgrenze.
 - [ ] **Rust-HTTP-Tests:** `ai_outliers` und `ai_clusters` mit simulierten Vektoren, Cache-Treffer.
 - [ ] **Smoke-Test** mit simuliertem Outlook (drei Ordner, einer davon Sammelbecken, 40 Posteingangsmails): Assistent komplett durchlaufen, pausieren und fortsetzen, Ausreißer verschieben mit Undo, zusammenlegen nach `_Zusammengelegt` mit Undo, Stapelablage, Archivangebot.
-- [ ] **C#-Vertragstest** für den seitenweisen Backlog.
+- [x] **C#-Vertragstest** für den seitenweisen Backlog.
 - **Fertig, wenn** ein Postfach mit grober Struktur in einer Sitzung zu bereinigten Lernordnern mit Steckbriefen, gemessener Trefferquote vorher/nachher und einem abgearbeiteten Posteingang kommt. Jede Postfachänderung muss dabei bestätigt und rücknehmbar sein.
 
 ## 5. Bedienbarkeit (entschieden am 23.11.2026)

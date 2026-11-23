@@ -599,6 +599,29 @@ export function trustedFolderBatch(folders:string[]){
     return match&&!ignored.includes(match.folder)?match:undefined
   }
 }
+/** Mindestanteil des Bayes-Favoriten für einen Vorschlag ohne hohe Sicherheit (`likelyFolderBatch`). */
+export const LIKELY_SHARE=0.5
+/**
+ * Vorschlag ohne hohe Sicherheit und ohne Modellaufruf, für das Einteilen des Posteingangs (E7): der Bayes-Favorit ab
+ * `LIKELY_SHARE` auch unter der Sicherheitsschwelle, sonst ein Begriff aus Ordnername oder Steckbrief. Abgelehnte Ordner zählen nicht.
+ */
+export function likelyFolderBatch(folders:string[]){
+  const epoch=sourceEpoch
+  if(!liveSource)return ()=>undefined
+  const targets=folderInfo(folders)
+  const all=new Set(targets.map(f=>f.key))
+  const model=bayesModel([...history(trainingKey),...history()].filter(r=>all.has(r.folder)))
+  return (mail:AiMail):Suggestion|undefined=>{
+    if(!current(epoch))return
+    const ignored=rejected(mail)
+    const hidden=getLegacyConfig().hidden_sources
+    if(!(Array.isArray(hidden)&&hidden.includes('Bayes'))){
+      const [best]=[...model(features(mail)).probs].filter(([f])=>!ignored.includes(f)).sort((a,b)=>b[1]-a[1])
+      if(best&&best[1]>=LIKELY_SHARE)return {folder:best[0],reason:'Aus früheren Ablagen, ohne hohe Sicherheit'}
+    }
+    return lexical(mail,targets.filter(f=>!ignored.includes(f.key)))
+  }
+}
 export function trustedFolder(mail:AiMail,folders:string[]){
   return trustedFolderBatch(folders)(mail)
 }

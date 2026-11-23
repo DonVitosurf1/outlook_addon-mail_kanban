@@ -264,8 +264,40 @@ internal static class Contracts
         call(new[]{"--status","AB01AA","01","Warten",expectedSince});
         dynamic restored=call(revert);
         Check(restored.previous=="Warten" && restored.status==oldStatus && restored.statusSince==oldSince,"Status und Stichtag rückgängig");
+        Backlog();
         Console.WriteLine("OK: Undo-Wertkonflikte, Zeitstempel und Wiederholung");
         Console.WriteLine("OK: Projektordner, HTML-Entwurf, Nachfassen");
         Console.WriteLine("OK: Ordner, Karten, Verschlüsselt, Move/Undo über Refresh, Fehler, Status, Tags, Fristen, Notiz");
+    }
+
+    // Seitenweiser Rückstand (E7): Grenze und Versatz, älteste zuerst, ohne Erledigte. Ohne Parameter wie bisher.
+    private static void Backlog()
+    {
+        var ns=new FakeNamespace();
+        ns.Inbox.Items.values.Clear();
+        for(int i=0;i<360;i++)
+            ns.Inbox.Items.values.Add(new FakeMail {EntryID="M"+i,Parent=ns.Inbox,Categories=i%10==3?"Status: Erledigt":"",
+                ReceivedTime=DateTime.Now.AddDays(-400+i)});
+        ns.Inbox.Items.values.Insert(5,new FakeMail {EntryID="BAD",Parent=ns.Inbox,Categories="",SubjectError=unchecked((int)0x80070005)});
+        var commands=new BoardCommands(ns, ns.Inbox, ";");
+        Func<string[],List<string>> ids=args=>((List<object>)commands.Execute(args,s=>s.Split('|'))).Select(c=>(string)((dynamic)c).id).ToList();
+        var all=ids(new[]{"--backlog"});
+        Check(all.Count==300 && all[0]=="M0" && !ns.Inbox.Items.Descending,"Rückstand ohne Parameter: älteste 300");
+        Check(!all.Contains("BAD") && !all.Contains("M3"),"Rückstand ohne Unlesbare und Erledigte");
+        var first=ids(new[]{"--backlog","20","0"});
+        var second=ids(new[]{"--backlog","20","20"});
+        Check(first.Count==20 && second.Count==20,"Grenze eingehalten");
+        Check(!first.Intersect(second).Any(),"Seiten überschneiden sich nicht");
+        Check(first.Concat(second).SequenceEqual(all.Take(40)),"Seiten lückenlos in der Reihenfolge");
+        var whole=ids(new[]{"--backlog","5000","0"});
+        Check(whole.Count==324 && whole.Take(300).SequenceEqual(all),"Alle Seiten zusammen");
+        var last=ids(new[]{"--backlog","100","250"});
+        Check(last.Count==74 && last.SequenceEqual(whole.Skip(250)),"Letzte Seite kürzer");
+        Check(ids(new[]{"--backlog","20","400"}).Count==0,"Seite hinter dem Ende ist leer");
+        foreach(var bad in new[]{new[]{"--backlog","0","0"},new[]{"--backlog","20"},new[]{"--backlog","x","0"},new[]{"--backlog","20","-1"}}) {
+            try { ids(bad); throw new Exception("Ungültige Seite angenommen: "+string.Join(" ",bad)); }
+            catch(ArgumentException) { }
+        }
+        Console.WriteLine("OK: Rückstand seitenweise");
     }
 }

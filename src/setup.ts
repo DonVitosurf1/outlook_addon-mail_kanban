@@ -29,6 +29,7 @@ import {createFolder, getArchiveScope, getBoardScope, getLearningScope} from './
 import {updateConfig} from './data-settings'
 import {localAiEnabled, measureLearning, renderEvaluation, trainFromFolders, type AiMail, type Measurement} from './ai'
 import type {Folder, LiveBoard} from './live'
+import type {ViewMail} from './views-logic'
 import {currentView, showView, viewPanel} from './tabs'
 import {showToast} from './toast'
 import {SETUP_KEY, freshState, initialScopes, isComplete, nextOpen, parseState, progressText, shouldOfferSetup, stepIds, stepInfo,
@@ -64,6 +65,12 @@ export type SetupHost={
   exclusive(action:()=>Promise<void>):Promise<string>
   /** Nimmt die letzte Änderung zurück wie Strg+Z, etwa aus der Rückmeldung. */
   undo():void
+  /**
+   * Öffnet „Posteingang aufräumen“ (cleanup.ts) mit genau diesen Mails, auch wenn sie nicht auf dem Board stehen.
+   * Verschiebt die Durchsicht eine Mail, ändern sich `folderId` und `folder` der übergebenen Mail, bei einer Statusänderung `status`.
+   * `onClose` läuft beim Schließen.
+   */
+  review(mails:ViewMail[],onClose?:()=>void):void
 }
 /** Mail außerhalb des Boards mit Outlook-ID und Quellordner-ID. */
 export type OffBoardMail=AiMail&{id:string;folderId:string}
@@ -79,6 +86,8 @@ export type StepContext={
   /** Schritt als erledigt markieren und zum nächsten offenen Schritt gehen. */
   done():void
   skip():void
+  /** Öffnet einen anderen Schritt, etwa E1, wenn ein Archivordner fehlt. */
+  go(step:StepId):void
   /** Zeichnet die Ansicht beim aktuellen Schritt neu, etwa nach einer Messung, und zeigt `message` in der Statuszeile. */
   refresh(message?:string):void
   /** Statuszeile unter dem Schritt (role=status). */
@@ -166,6 +175,7 @@ export function initSetup(host:SetupHost){
       save:change=>{const s=load();change(s);store(s)},
       done:()=>{if(mine===token)finish(load(),id,'done')},
       skip:()=>{if(mine===token)finish(load(),id,'skipped')},
+      go:step=>{if(mine===token)go(load(),step)},
       refresh:(message='')=>{if(mine===token){render();view.querySelector('.setup-status')!.textContent=message}},
       status:text=>{if(mine===token)status.textContent=text},
       active:()=>mine===token&&currentView()==='setup'&&live()}

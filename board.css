@@ -539,6 +539,20 @@ button.setup-go:hover:not(:disabled) { color: var(--sun-ink); background: var(--
 .setup-refine-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
 .setup-refine-actions label { display: inline-flex; align-items: center; gap: .35rem; }
 [data-display-profile="monitor"] .setup-refine-list li { padding: .65rem .9rem; }
+.setup-inbox { margin-top: .8rem; max-width: 70rem; }
+.setup-inbox h4 { margin: .4rem 0; }
+.setup-inbox h4:focus { outline: none; }
+.setup-inbox h4:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.setup-stacks { list-style: none; margin: 0; padding: 0; display: grid; gap: .4rem; }
+.setup-stacks > li { display: flex; flex-wrap: wrap; align-items: flex-start; gap: .5rem; padding: .45rem .7rem; border-radius: .8rem; background: var(--surface); border: 1px solid var(--line); }
+.setup-stacks details { flex: 1 1 20rem; min-width: 0; }
+.setup-stacks summary { cursor: pointer; font-weight: 600; overflow-wrap: anywhere; }
+.setup-stacks summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.setup-stacks details ul { margin: .3rem 0 0; padding-left: 1.2rem; color: var(--muted); overflow-wrap: anywhere; }
+.setup-months { display: inline-flex; align-items: center; gap: .35rem; }
+.setup-months input { width: 4.5rem; }
+.setup-inbox-end { margin-top: 1rem; }
+[data-display-profile="monitor"] .setup-stacks > li { padding: .65rem .9rem; }
 .setup-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .7rem; }
 .setup-actions .primary { margin-left: auto; }
 .setup-complete { padding: .4rem .7rem; border-radius: .7rem; background: #e1f2eb; color: #20594b; }

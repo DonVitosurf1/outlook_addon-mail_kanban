@@ -26,6 +26,7 @@ import './setup-outliers'
 import './setup-refine'
 import './setup-profiles'
 import './setup-compare'
+import './setup-inbox'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -613,7 +614,8 @@ async function start() {
       await exclusive(()=>action().catch(e=>{problem=errorText(e);throw e}))
       return problem
     },
-    undo:()=>void undo()})
+    undo:()=>void undo(),
+    review:(list,onClose)=>cockpit.openCleanup(list,onClose)})
   el('setupOpen').onclick=()=>setup?.open()
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
@@ -642,8 +644,10 @@ async function start() {
   cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,
     startTriage:()=>triage?.start(),triageActive:()=>!!triage?.active,routines:loadRoutines,
     openCalendar:()=>calendar.open(),setupProgress:()=>setup?.progress()??'',openSetup:()=>setup?.open(),markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),
-    onStatus:(ids:string[],status:string)=>change(ids,{kind:'status',value:status}),
-    onFolder:(ids:string[],target:string)=>change(ids,{kind:'move',value:target}),
+    // Vorgegebene Mailliste (E7): Mails außerhalb des Boards, Ordner der verschobenen Mails für die Durchsicht nachziehen.
+    onStatus:(ids,status,rows)=>change(ids,{kind:'status',value:status,offBoard:rows as Mail[]|undefined}),
+    onFolder:(ids,target,rows)=>change(ids,{kind:'move',value:target,offBoard:rows as Mail[]|undefined,
+      moved:rows&&(id=>{const row=rows.find(m=>m.id===id);if(row){row.folderId=target;row.folder=folders.find(f=>f.id===target)?.name??row.folder}})}),
     getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:undo,
     closeBacklog:async()=>{
       if(!isLive()){scope=previousScope;render();return}
