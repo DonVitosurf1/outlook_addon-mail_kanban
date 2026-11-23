@@ -185,7 +185,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
   - Jeder KI-Schalter bekommt einen Satz, was er bewirkt und was er kostet.
   - „Verbindung testen“ zeigt den Outlook-Status, das tatsächlich gewählte Sprachmodell (statt „Automatisch auswählen“), das Embedding-Modell und die Antwortzeit an einer kurzen Probe.
   - Test: Bestehende Layoutprüfung bei 24 px Grundschrift, alle Abschnitte erreichbar.
-- [ ] **U2 Verschieben im Dialog freigeben.** Die erste Ablage endet nicht mehr mit einer Fehlermeldung. Der Bestätigungsdialog fragt stattdessen: „Das Board darf noch keine Mails verschieben. Jetzt erlauben und verschieben?“
+- [x] **U2 Verschieben im Dialog freigeben.** Die erste Ablage endet nicht mehr mit einer Fehlermeldung. Der Bestätigungsdialog fragt stattdessen: „Das Board darf noch keine Mails verschieben. Jetzt erlauben und verschieben?“
   - Betroffen ist `change()` in `src/board.ts`, gesetzt wird `allow_move`.
   - Abbrechen lässt die Mail unverändert. Die Freigabe bleibt in den Einstellungen änderbar.
   - Test: `live-board-smoke.py`.
@@ -225,7 +225,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
   - „Unterhaltungen zusammenfassen“ wandert als Schalter mit sichtbarem Zustand ins Menü Ansicht.
   - Die VIP-Liste kommt in die Einstellungen (Abschnitt Board).
   - Werkzeuge enthält danach nur noch: Befehl suchen, Einstellungen, Ordner und Steckbriefe, Einrichtung, Lokale Daten und Textbausteine, Beispielpostfach, Hilfe.
-- [ ] **U11 Begriffe klären.**
+- [x] **U11 Begriffe klären.**
   - Der Seitenleisten-Abschnitt „Fokus“ heißt künftig **„Ansichten“**. Er enthält auch eine Ansicht „Fokus“.
   - Die Datumsarten bekommen eine einheitliche Erklärung, als Tooltip an Karten und Feldern und als Hilfethema:
     - **Wiedervorlage** = die Karte ist bis zu diesem Tag geparkt,

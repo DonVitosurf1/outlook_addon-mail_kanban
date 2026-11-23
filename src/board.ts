@@ -198,19 +198,20 @@ async function connect(startOutlook=false) {
   if(wasLive)await exclusive(load)
   else await load()
 }
-function confirmMove(question:string) {
+function confirmMove(question:string,confirmLabel='Verschieben') {
   const prompt=el<HTMLDialogElement>('moveConfirm')
   el('moveQuestion').textContent=question
+  el('moveConfirmOk').textContent=confirmLabel
   prompt.returnValue='cancel'
   return new Promise<boolean>(resolve=>{
-    prompt.addEventListener('close',()=>resolve(prompt.returnValue==='confirm'),{once:true})
+    prompt.addEventListener('close',()=>{el('moveConfirmOk').textContent='Verschieben';resolve(prompt.returnValue==='confirm')},{once:true})
     prompt.showModal()
   })
 }
 
-function archiveFolder(){
+function archiveFolder(needAllowed=true){
   const path=getArchiveScope()
-  return isLive() && mayMove() && path?folders.find(f=>f.path===path):undefined
+  return isLive() && (!needAllowed || mayMove()) && path?folders.find(f=>f.path===path):undefined
 }
 function isInInbox(mail:Mail) {return folders.some(f=>f.isInbox && f.id===mail.folderId)}
 function archiveCandidates(){
@@ -241,19 +242,23 @@ async function change(ids:string[],action:Mutation) {
     const dest=folders.find(f=>f.id===value)
     if(field==='move'&&!dest)throw new Error('Zielordner nicht verfügbar.')
     const moving=field==='move'?todo.filter(m=>(m.folderId||m.folder)!==value):[]
-    const archive=field==='status' && value==='Erledigt'?archiveFolder():undefined
+    const archive=field==='status' && value==='Erledigt'?archiveFolder(false):undefined
     const archiving=archive?todo.filter(isInInbox):[]
-    if(isLive() && moving.length && !mayMove()){
-      if(selected)fillDetail(selected)
-      throw new Error('Verschieben ist gesperrt. In den Einstellungen „Echte Mails verschieben erlauben“ aktivieren.')
-    }
     const label=todo.length===1?'„'+todo[0].subject+'“':todo.length+' Mails'
     let question=''
     if(moving.length)question=label+' nach „'+(dest!.path||dest!.name)+'“ verschieben'+(action.status?' und auf „'+action.status+'“ setzen':'')+'?'
     if(archiving.length)question=label+' als erledigt markieren und '+archiving.length+' aus dem Posteingang nach „'+archive!.path+'“ archivieren?'
-    if(isLive() && question && !await confirmMove(question)) {
+    const needsAllow=isLive() && !mayMove() && (moving.length>0 || archiving.length>0)
+    if(needsAllow)question='Das Board darf noch keine Mails in Outlook verschieben. Jetzt erlauben und '+question
+    if(isLive() && question && !await confirmMove(question,needsAllow?'Erlauben und verschieben':'Verschieben')) {
       if(selected)fillDetail(selected)
       return
+    }
+    if(needsAllow){
+      updateConfig({allow_move:true})
+      const toggle=document.querySelector<HTMLInputElement>('#allowMove')
+      if(toggle)toggle.checked=true
+      render()
     }
     if(!isLive()) {
       const events:Counter[]=field==='move'?moving.filter(()=>dest?.name!=='Posteingang').map(()=>'filed'):

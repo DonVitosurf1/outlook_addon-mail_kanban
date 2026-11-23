@@ -1,4 +1,5 @@
 import {categoryColor} from './category-colors'
+import {dateHint} from './date-terms'
 import {dueReasons, FOCUS_TAG, localDay, matchesSplit, type ViewMail} from './views-logic'
 
 type Mail = ViewMail & {aiSummary?:string;hasStatus?:boolean}
@@ -107,11 +108,11 @@ export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<str
   else if(preview)card.title=preview
 
   const {attention,scheduled}=cardDates(mail,Number(config.overdue_days??5),now)
-  if(attention.length)card.append(node('em',attention.join(' · '),'card-attention'))
+  if(attention.length){const em=node('em',attention.join(' · '),'card-attention');em.title=dateHint(attention);card.append(em)}
   const meta=[]
   if(mail.hasStatus===false)meta.push('Ohne Status')
   meta.push(...scheduled)
-  if(meta.length)card.append(node('em',meta.join(' · ')))
+  if(meta.length){const em=node('em',meta.join(' · '));em.title=dateHint(scheduled);card.append(em)}
 
   // Kennzeichen als Pillen über dem Betreff, wie die Prioritäten der Vorlage.
   const flags:HTMLElement[]=[]

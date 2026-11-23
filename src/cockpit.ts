@@ -1,3 +1,4 @@
+import {dateTerms} from './date-terms'
 import metadata from '../package.json'
 import {renderLearningDashboard} from './ai'
 import { getLegacyConfig } from './data-settings'
@@ -28,7 +29,8 @@ const help = [
   ['Was zeigt „Heute dran“?', 'Hier stehen fällige Wiedervorlagen, wartende Mails mit Antwort, heutige oder überfällige Nachfassfristen und fällige KI-Fristen. Eine Mail kann aus mehreren Gründen fällig sein.'],
   ['Wie funktioniert die Morgen-Triage?', 'Strg+T oder Start → „Morgen-Triage starten“ blendet über dem Board ein Banner mit Briefing ein. Das Board zeigt nacheinander „Heute dran“, „Offen durchgehen“ und „Rest parken“. Du arbeitest mit den gewohnten Kartenaktionen. Eine Karte verlässt den Schritt, sobald sich ihr Status, ihre Wiedervorlage oder ihr Ordner ändert. Beenden oder Abbrechen stellt deine vorherige Ansicht wieder her.'],
   ['Was zeigt das Briefing?', 'Zahlen zu fälligen, wartenden und zu beantwortenden Mails, die seit der letzten beendeten Triage eingegangenen Mails sowie fällige Routinen und Checklistenpunkte. Beim ersten Mal gelten die letzten 24 Stunden als neu.'],
-  ['Was bewirkt die Taste F?', 'F nimmt die markierten Karten in den Fokus oder wieder heraus. Dafür setzt das Board die Outlook-Kategorie „Fokus“. Sie bleibt beim Verschieben erhalten und ist mit Strg+Z rücknehmbar. Die Seitenleiste zeigt unter „Fokus“ alle nicht erledigten Fokuskarten.'],
+  ['Was bewirkt die Taste F?', 'F nimmt die markierten Karten in den Fokus oder wieder heraus. Dafür setzt das Board die Outlook-Kategorie „Fokus“. Sie bleibt beim Verschieben erhalten und ist mit Strg+Z rücknehmbar. Die Seitenleiste zeigt unter „Ansichten“ in der Ansicht „Fokus“ alle nicht erledigten Fokuskarten.'],
+  ['Welche Datumsarten gibt es?', 'Wiedervorlage: '+dateTerms.wiedervorlage+' Nachfassen: '+dateTerms.nachfassen+' Frist: '+dateTerms.frist+' KI-Frist: '+dateTerms.kiFrist],
   ['Wie funktionieren Routinen?', 'Im Tab „Routinen“ legst du wiederkehrende Aufgaben an: täglich, werktags, wöchentlich oder monatlich. Eine Routine kann eine Ansicht wie die Warten-Hygiene öffnen. Eine verpasste Routine bleibt fällig, bis du sie abhakst.'],
   ['Was zeigt der Wochenkalender?', 'Der Tab „Kalender“ zeigt Nachfasstermine, Wiedervorlagen, KI-Fristen, Routinen und Checklistenpunkte einer Woche, Überfälliges gesammelt vorn. Ziehst du eine Mail auf einen Tag, erhält eine wartende Mail dort ihren Nachfasstermin und jede andere eine Wiedervorlage.'],
   ['Was ist ein Vorgang?', 'Ein Vorgang bündelt zusammengehörige Mails über die Outlook-Kategorie „Vorgang: Name“ und führt eine lokale Checkliste mit optionalen Terminen. Zuordnen lässt sich über das Kontextmenü einer Karte, Strg+K oder den Tab „Vorgänge“.'],

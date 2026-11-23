@@ -1,6 +1,7 @@
 import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderCards} from './views-logic'
 import {BoardLayout} from './views-layout'
 import {cardRow, counter} from './card-content'
+import {dateTerms} from './date-terms'
 import {getLegacyConfig, textSnippets,updateConfig} from './data-settings'
 import type {Focus, Group, Sort, Split, ViewMail} from './views-logic'
 export {matchesQuery} from './views-logic'
@@ -380,6 +381,7 @@ export class BoardViews {
     if(input instanceof HTMLInputElement)input.type='date'
     input.value=field==='tags'?mail.tags.join('\n'):isDate?(mail[field as Field]||'').slice(0,10):mail.note||''
     label.append(input);form.append(element('p',mail.subject),label)
+    if(field==='followUp'||field==='snoozeUntil'){const hint=element('p',field==='followUp'?dateTerms.nachfassen:dateTerms.wiedervorlage);hint.className='field-hint';input.setAttribute('aria-describedby','dateHint');hint.id='dateHint';form.append(hint)}
     if(field==='tags'){
       const names=[...new Set([...this.categories,...this.all.flatMap(m=>m.tags)])].sort((a,b)=>a.localeCompare(b,'de'))
       if(names.length){

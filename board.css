@@ -445,3 +445,4 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .case-detail .planning-list li { background: var(--surface); }
 .case-new label:has(input[type=checkbox]) { display: block; }
 @media(max-width: 44rem) { .case-layout { grid-template-columns: 1fr; } }
+.field-hint { margin: .3rem 0 0; font-size: .85em; color: var(--muted, inherit); }

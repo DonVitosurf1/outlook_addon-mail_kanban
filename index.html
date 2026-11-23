@@ -11,7 +11,7 @@
   <aside aria-label="Postfachnavigation" class="sidebar">
     <div class="brand"><span aria-hidden="true" class="board-mark"><i></i><i></i><i></i><i></i></span>Mail-Board</div>
     <div class="side-scroll">
-      <section class="focus-section"><h2>Fokus</h2><nav id="focusViews" aria-label="Fokus"></nav></section>
+      <section class="focus-section"><h2>Ansichten</h2><nav id="focusViews" aria-label="Ansichten"></nav></section>
       <section id="casesSection" hidden><h2>Vorgänge</h2><nav id="caseViews" aria-label="Vorgänge"></nav></section>
       <section><h2>Ordner</h2><nav id="folders" aria-label="Ordner"></nav></section>
       <div id="sideActions"></div>
@@ -113,7 +113,7 @@
   <dialog id="moveConfirm" aria-labelledby="moveHeading">
     <h2 id="moveHeading">Verschieben bestätigen</h2><p id="moveQuestion"></p>
     <form method="dialog" class="dialog-actions">
-      <button value="cancel" autofocus>Abbrechen</button><button value="confirm" class="primary">Verschieben</button>
+      <button value="cancel" autofocus>Abbrechen</button><button value="confirm" id="moveConfirmOk" class="primary">Verschieben</button>
     </form>
   </dialog>
   <script src="board.js" defer></script>
