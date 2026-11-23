@@ -266,7 +266,7 @@ registerStep('E4',async ctx=>{
     const parent=g.parent===root?{id:root,path:''}:learners.find(f=>f.id===g.parent)
     const name=cleanFolderName(g.name)
     if(!parent){ctx.status('Der Elternordner ist nicht mehr geladen. Bitte Outlook aktualisieren.');return}
-    let created=g.created
+    let created=g.created,saveProblem=''
     if(!created){
       if(!name){ctx.status('Bitte einen Namen für '+title+' eingeben.');return}
       if(name.startsWith('_')){ctx.status('Ordnernamen mit „_“ am Anfang sind für Ablageordner reserviert.');return}
@@ -282,7 +282,7 @@ registerStep('E4',async ctx=>{
       if(!made){ctx.status('Nicht angelegt. '+problem);return}
       created=g.created=made
       try{updateConfig({suggestion_folders:[...new Set([...(getLearningScope()??getBoardScope()),made.path])]})}
-      catch(e){ctx.status('Ordner angelegt, aber nicht als Lernziel gespeichert. '+errorText(e))}
+      catch(e){saveProblem='Nicht als Lernziel gespeichert. '+errorText(e)}
       showToast('Ordner '+quoted(made.path)+' angelegt')
     }
     // Nach dem Anlegen lädt das Board die Ordner neu. Solange es beschäftigt ist, noch einmal versuchen.
@@ -293,7 +293,7 @@ registerStep('E4',async ctx=>{
     }
     focusSection='inbox'
     if(moved===g.mails.length)inboxGroups=inboxGroups!.filter(x=>x!==g)
-    const base=quoted(created.path)+' angelegt. '
+    const base=quoted(created.path)+' angelegt. '+(saveProblem?saveProblem+' ':'')
     ctx.refresh(moved?base+mails(moved)+' verschoben.'+(problem?' '+problem:''):base+'Es wurde keine Mail verschoben.'+(problem?' '+problem:' Mit „Anlegen und verteilen …“ kannst du es noch einmal versuchen.'))
   }
   async function merge(o:Overlap){
