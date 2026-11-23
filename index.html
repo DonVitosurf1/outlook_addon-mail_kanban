@@ -42,9 +42,6 @@
           <summary>Werkzeuge</summary>
           <div class="tools-panel">
             <button id="paletteTrigger" aria-keyshortcuts="Control+K">Befehl suchen (Strg+K)</button>
-            <button id="openCalendar">Wochenkalender</button>
-            <button id="openCases">Vorgänge</button>
-            <button id="openRoutines">Routinen</button>
             <button id="openSettings">Outlook und lokale KI</button>
             <button id="cockpit-help">Hilfe und Tastenkürzel</button>
             <button id="dataSettings">Lokale Daten und Textbausteine</button>
@@ -58,6 +55,10 @@
     <div class="board-heading">
       <div class="board-title"><h1 id="title">Outlook-Postfach</h1><p id="summary" aria-live="polite"></p></div>
       <span class="selection-count" id="selectionCount" aria-live="polite"></span>
+      <button id="triageStart" class="accent" type="button" aria-keyshortcuts="Control+T" hidden>Morgen-Triage starten</button>
+    </div>
+    <div class="view-bar">
+      <div id="viewTabs" class="view-tabs" role="tablist" aria-label="Ansichten"></div>
       <details id="viewMenu" hidden>
         <summary>Ansicht<span id="activeViewCount"></span></summary>
         <div id="viewControls" role="group" aria-label="Ansicht und Filter"></div>

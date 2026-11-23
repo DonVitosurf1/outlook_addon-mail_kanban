@@ -1,5 +1,6 @@
 import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderCards} from './views-logic'
 import {BoardLayout} from './views-layout'
+import {cardRow, counter} from './card-content'
 import {getLegacyConfig, textSnippets,updateConfig} from './data-settings'
 import type {Focus, Group, Sort, Split, ViewMail} from './views-logic'
 export {matchesQuery} from './views-logic'
@@ -263,13 +264,16 @@ export class BoardViews {
     const mail=this.byId.get(id)
     if(this.marks.returned.has(id)||this.marks.fresh.has(id)){
       const marker=element('b',this.marks.returned.has(id)?'Wieder da':'Neu')
-      marker.className='arrival-mark';card.append(marker)
+      marker.className='arrival-mark';cardRow(card,'flags').prepend(marker)
     }
     if(mail) {
-      const details=mail.note?['Notiz · '+mail.note]:[]
+      if(mail.note){
+        const note=element('em','Notiz · '+mail.note);note.className='card-note'
+        const foot=card.querySelector(':scope > .card-foot')
+        if(foot)foot.before(note);else card.append(note)
+      }
       const hidden=this.hiddenThreads.get(mail.id)
-      if(hidden)details.push('Unterhaltung +'+hidden)
-      if(details.length){const note=element('em',details.join(' · '));card.append(note)}
+      if(hidden)cardRow(card,'counters').append(counter('+'+hidden,hidden===1?'Eine weitere Mail der Unterhaltung':hidden+' weitere Mails der Unterhaltung','thread'))
     }
     card.setAttribute('aria-pressed',String(this.selected.has(id)))
     card.addEventListener('click',e=>{

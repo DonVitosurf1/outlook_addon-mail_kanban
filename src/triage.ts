@@ -2,6 +2,7 @@
 import {briefing, inTriageStep, triageSteps, type Case, type Routine} from './planning-logic'
 import {lastTriage, rememberTriage} from './planning-store'
 import type {ViewState} from './views'
+import {showView} from './tabs'
 import {localDay, type ViewMail} from './views-logic'
 
 type Options = {
@@ -33,7 +34,16 @@ export function initTriage(options:Options){
   let saved:ViewState|undefined, undoScope:(()=>void)|undefined
   const banner=make('section');banner.id='triage';banner.className='triage-banner';banner.hidden=true
   banner.setAttribute('aria-label','Morgen-Triage')
-  document.querySelector('.board-heading')?.after(banner)
+  document.getElementById('board')?.before(banner)
+  // Der gelbe Hauptbutton im Kopf startet die Triage oder führt zu ihr zurück.
+  const trigger=document.getElementById('triageStart') as HTMLButtonElement|null
+  if(trigger)trigger.onclick=()=>start()
+  function syncTrigger(){
+    if(!trigger)return
+    trigger.hidden=!options.hasMailbox()
+    trigger.textContent=active?'Zur Triage':'Morgen-Triage starten'
+    trigger.setAttribute('aria-pressed',String(active))
+  }
 
   const predicate=()=>{
     const today=localDay(),overdue=options.overdueDays(),current=step
@@ -46,6 +56,7 @@ export function initTriage(options:Options){
     banner.querySelector<HTMLElement>('h2')?.focus()
   }
   function start(){
+    showView('board')
     if(active){banner.querySelector<HTMLElement>('h2')?.focus();return}
     if(!options.hasMailbox()){
       const message=document.getElementById('message')
@@ -109,6 +120,7 @@ export function initTriage(options:Options){
   }
 
   function refresh(){
+    syncTrigger()
     if(!active)return
     const focused=banner.contains(document.activeElement)?(document.activeElement as HTMLElement).textContent:''
     const info=triageSteps[step]

@@ -1,6 +1,7 @@
 /** Wiederkehrende Routinen bearbeiten und abhaken. Die Daten liegen lokal, die Sicherung erfasst sie mit. */
 import {describeRhythm, routineActions, routineDue, rhythms, weekdayNames, type Routine, type RoutineAction, type Rhythm} from './planning-logic'
 import {loadRoutines, newId, saveRoutines} from './planning-store'
+import {currentView, showView, viewPanel} from './tabs'
 import {localDay} from './views-logic'
 
 type Options = {run(action:RoutineAction):void}
@@ -23,12 +24,15 @@ export function markRoutine(id:string,day=localDay()){
 }
 
 export function initRoutines(options:Options){
-  const dialog=make('dialog');dialog.className='view-dialog planning-dialog';dialog.id='routinesDialog'
-  dialog.setAttribute('aria-labelledby','routinesTitle')
-  document.body.append(dialog)
+  const view=viewPanel('routines','Routinen');view.classList.add('routines-view')
+  document.addEventListener('mailboard:view',event=>{if((event as CustomEvent).detail==='routines')render()})
+  document.addEventListener('mailboard:planning',()=>{
+    // Abhaken im Briefing oder Kalender aktualisiert die Liste, ohne eine laufende Eingabe zu verwerfen.
+    if(currentView()==='routines'&&!view.querySelector('.routine-form')?.contains(document.activeElement))render()
+  })
   let editing:Routine|undefined
 
-  function open(){render();if(!dialog.open)dialog.showModal()}
+  function open(){showView('routines',true)}
   function form(){
     const box=make('form');box.className='routine-form'
     const current=editing
@@ -66,7 +70,6 @@ export function initRoutines(options:Options){
   }
   function render(){
     const routines=loadRoutines(),today=localDay()
-    const close=button('Schließen',()=>dialog.close());close.className='close'
     const title=make('h2','Routinen');title.id='routinesTitle'
     const intro=make('p','Routinen erinnern an wiederkehrende Arbeit. Eine verpasste Routine bleibt fällig, bis du sie abhakst. Fällige Routinen stehen im Briefing der Morgen-Triage, in Start und im Wochenkalender.')
     const list=make('ul');list.className='planning-list'
@@ -81,14 +84,13 @@ export function initRoutines(options:Options){
       item.append(text)
       const tools=make('div');tools.className='planning-tools'
       if(state.due)tools.append(button('Erledigt',()=>{markRoutine(routine.id);render()}))
-      if(routine.action)tools.append(button('Öffnen',()=>{dialog.close();options.run(routine.action!)}))
-      tools.append(button('Bearbeiten',()=>{editing=routine;render();dialog.querySelector<HTMLInputElement>('.routine-form input')?.focus()}),
+      if(routine.action)tools.append(button('Öffnen',()=>options.run(routine.action!)))
+      tools.append(button('Bearbeiten',()=>{editing=routine;render();view.querySelector<HTMLInputElement>('.routine-form input')?.focus()}),
         button('Löschen',()=>{saveRoutines(loadRoutines().filter(r=>r.id!==routine.id));if(editing?.id===routine.id)editing=undefined;render()}))
       item.append(tools);list.append(item)
     }
-    dialog.replaceChildren(close,title,intro,list,form())
+    view.replaceChildren(title,intro,list,form())
   }
   // Der Werkzeuge-Eintrag erscheint auch in der Befehlspalette.
-  document.getElementById('openRoutines')?.addEventListener('click',open)
   return {open,due:()=>loadRoutines().filter(r=>routineDue(r).due)}
 }

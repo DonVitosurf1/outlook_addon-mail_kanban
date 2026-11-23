@@ -1,6 +1,6 @@
 import {undoLimit} from './undo-limit'
 import './shell'
-import {renderCardContent} from './card-content'
+import {renderCardContent, type CaseState} from './card-content'
 import {colorSettings,applyLaneColor} from './category-colors'
 import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, updateConfig } from './data-settings'
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
@@ -14,8 +14,9 @@ import { initTriage } from './triage'
 import { initRoutines, markRoutine } from './routines'
 import { initCalendar } from './calendar'
 import { allCases, initCases, toggleCaseItem } from './cases'
-import { caseTag, focusTarget, FOCUS_TAG, withTag, type RoutineAction } from './planning-logic'
+import { caseProgress, caseTag, focusTarget, FOCUS_TAG, withTag, type RoutineAction } from './planning-logic'
 import { loadRoutines, useSamplePlanning } from './planning-store'
+import { initTabs } from './tabs'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -51,6 +52,7 @@ let cockpit:ReturnType<typeof initCockpit>
 let views:BoardViews
 let triage:ReturnType<typeof initTriage>|undefined
 let cases:ReturnType<typeof initCases>|undefined
+let calendarView:ReturnType<typeof initCalendar>|undefined
 let suggestionVersion=0
 let currentSuggestion:((apply:boolean)=>Promise<void>)|undefined
 let reloadPending=false
@@ -398,11 +400,11 @@ function pick(id:string) {
   selected=m;fillDetail(m)
   if(!dialog.open)dialog.showModal()
 }
-function makeCard(mail:Mail,config:Record<string,unknown>,hint?:string) {
+function makeCard(mail:Mail,config:Record<string,unknown>,hint?:string,caseStates:readonly CaseState[]=[]) {
   const card=tag('button','')
   card.className='card';card.id='mail-'+mail.id;card.draggable=true
   card.ondragstart=e=>e.dataTransfer?.setData('application/x-mailboard-item',mail.id)
-  renderCardContent(card,mail,config,hint)
+  renderCardContent(card,mail,config,hint,caseStates)
   card.onclick=()=>pick(mail.id)
   views.bindCard(card,mail.id)
   return card
@@ -434,6 +436,7 @@ function render() {
   cockpit?.refresh()
   triage?.refresh()
   cases?.refresh()
+  calendarView?.refresh()
   views.sync(mails)
   const visible=views.filter(mails.filter(m=>(isLive()||!scope||m.folder===scope)&&matchesQuery(m,search.value)))
   el('title').textContent=!hasMailbox()?'Outlook-Postfach':isLive()?'Outlook · '+(scope==='__backlog'?'Aufräumen':folders.find(f=>f.id===scope)?.name||'Alle Mails'):scope||'Alle Mails'
@@ -443,7 +446,8 @@ function render() {
   if(!hasMailbox()){controls();return}
   const config=getLegacyConfig()
   const suggest=config.suggestions===false?undefined:trustedFolderBatch(learnerFolders().map(f=>f.path))
-  const card=(m:Mail)=>makeCard(m,config,(isLive()?isInInbox(m):m.folder==='Posteingang')?suggest?.(m)?.folder:undefined)
+  const caseStates:CaseState[]=allCases(mails).filter(c=>!c.closed).map(c=>({name:c.name,tag:caseTag(c.name),...caseProgress(c)}))
+  const card=(m:Mail)=>makeCard(m,config,(isLive()?isInInbox(m):m.folder==='Posteingang')?suggest?.(m)?.folder:undefined,caseStates)
   for(const status of states) {
     const lane=tag('section','');lane.className='lane';applyLaneColor(lane,status)
     const matches=visible.filter(m=>m.status===status)
@@ -496,7 +500,8 @@ async function start() {
   // Lokale Planungsdaten (Routinen, Vorgänge) ändern Banner, Seitenleiste und offene Dialoge.
   document.addEventListener('mailboard:planning',()=>render())
   const toggleItem=toggleCaseItem
-  const calendar=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
+  initTabs()
+  const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
   cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})

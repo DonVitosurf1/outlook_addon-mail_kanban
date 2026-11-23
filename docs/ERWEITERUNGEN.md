@@ -4,11 +4,11 @@ Die Stufen folgen der Roadmap der Python-Referenz. Umgesetzt sind sie nur in die
 
 | Stufe | Bedienung | Daten |
 |---|---|---|
-| 0.16 Morgen-Triage auf dem Board | **Strg+T**, Start → „Morgen-Triage starten“ oder Strg+K | Zeitpunkt der letzten beendeten Triage, lokal je Demo und Outlook |
+| 0.16 Morgen-Triage auf dem Board | **Strg+T**, gelber Button oben rechts, Start oder Strg+K | Zeitpunkt der letzten beendeten Triage, lokal je Demo und Outlook |
 | 0.17 Fokus | **F** auf markierten Karten, Seitenleiste → Fokus | Outlook-Kategorie „Fokus“ |
-| 0.18 Routinen | Werkzeuge → Routinen | Lokal unter `mailboard-routines-v1` |
-| 0.19 Wochenkalender | Werkzeuge → Wochenkalender, Start, Wochenblick | Liest Fristen der Mails, Routinen und Checklisten |
-| 0.20 Vorgänge mit Checklisten | Werkzeuge → Vorgänge, Kontextmenü → „Vorgang zuordnen …“, Strg+K | Zuordnung als Outlook-Kategorie „Vorgang: Name“, Checkliste und Notiz lokal unter `mailboard-cases-v1` |
+| 0.18 Routinen | Tab **Routinen** | Lokal unter `mailboard-routines-v1` |
+| 0.19 Wochenkalender | Tab **Kalender**, Start, Wochenblick | Liest Fristen der Mails, Routinen und Checklisten |
+| 0.20 Vorgänge mit Checklisten | Tab **Vorgänge**, Kontextmenü → „Vorgang zuordnen …“, Strg+K | Zuordnung als Outlook-Kategorie „Vorgang: Name“, Checkliste und Notiz lokal unter `mailboard-cases-v1` |
 
 Die ZIP-Sicherung unter **Lokale Daten und Textbausteine** enthält die lokalen Schlüssel automatisch. Beim Import wird geprüft, dass Routinen und Vorgänge Listen sind.
 
@@ -59,3 +59,7 @@ Bisher war die Triage ein Dialog mit drei Schritten. Ein Klick auf eine Mail sch
 - `npm test` → `tests/planning.test.ts`: Triage-Schritte, „neu seit“, Fokuslogik, Routinenrhythmen, Kalenderzuordnung, Vorgangsnamen, Bereinigung gespeicherter Daten, Briefing. `tests/backup.test.ts` prüft die neuen Sicherungsschlüssel.
 - `python tests/planning-smoke.py`: Ablauf im Demo-Postfach mit Triage, Rückkehr zur Ansicht, Fokus und Undo, Routine im Briefing, Vorgang mit Checkliste, Kalender-Drag-and-drop mit Undo. Dazu kommt ein simuliertes Outlook, das die geschriebenen Kategorien für F und die Vorgangszuordnung prüft.
 - Auf Windows mit echtem Outlook noch zu prüfen: das Schreiben der Kategorien „Fokus“ und „Vorgang: …“ in Konten mit verwalteter Hauptkategorienliste sowie deren Anzeige in Outlook-Ansichten.
+
+## Gestaltung
+
+Seit dem Redesign im NovaBoard-Stil sind Kalender, Vorgänge und Routinen keine Dialoge mehr. Sie sind Ansichten neben dem Board und über die Pillen-Tabs unter dem Titel erreichbar (Pfeiltasten wechseln den Tab, Strg+K bietet „Ansicht · …“). Strg+T und der gelbe Button führen aus jeder Ansicht zurück auf das Board in die Triage. Karten zeigen Kennzeichen-Pillen (Fällig, Antwort nötig, Fokus, VIP, Neu), den Fortschritt eines Vorgangs mit Checkliste und Zähler für Anhänge und weitere Mails der Unterhaltung. Die gestalterischen Regeln stehen in [DESIGN.md](../DESIGN.md).

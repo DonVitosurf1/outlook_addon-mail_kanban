@@ -23,7 +23,9 @@ def lane(page, index):
 def check_focus(page):
     page.locator('#mail-DEMO0000').click(modifiers=['Control'])
     page.keyboard.press('f')
-    expect(page.locator('#mail-DEMO0000 .card-chip', has_text='Fokus')).to_have_count(1)
+    # Der Fokus erscheint als Kennzeichen-Pille über dem Betreff, nicht zusätzlich als Kategorie-Chip.
+    expect(page.locator('#mail-DEMO0000 .card-flags .flag-focus')).to_have_text('Fokus')
+    expect(page.locator('#mail-DEMO0000 .card-chip', has_text='Fokus')).to_have_count(0)
     focus = page.locator('#focusViews button', has_text='Fokus')
     expect(focus).to_have_text('Fokus · 1')
     # Gemischte Auswahl: F setzt den Fokus für alle, ein zweites F löst ihn für alle. Beides ist rücknehmbar.
@@ -76,15 +78,16 @@ def check_triage(page):
 
 
 def check_routine(page):
-    page.locator('#moreTools summary').click()
-    page.locator('#openRoutines').click()
-    d = page.locator('#routinesDialog')
+    page.get_by_role('tab', name='Routinen').click()
+    d = page.locator('#routinesView')
+    expect(d).to_be_visible()
+    expect(page.locator('#board')).to_be_hidden()
     d.get_by_label('Titel').fill('Ablage prüfen')
     d.get_by_role('combobox', name='Rhythmus').select_option('daily')
     d.get_by_role('combobox', name='Verknüpfte Ansicht').select_option('hygiene')
     d.get_by_role('button', name='Routine anlegen').click()
     expect(d.get_by_text('Täglich · heute fällig · öffnet Warten-Hygiene')).to_be_visible()
-    d.get_by_role('button', name='Schließen', exact=True).click()
+    page.get_by_role('tab', name='Board').click()
 
 
 def check_case_and_calendar(page, today, next_monday):
@@ -105,24 +108,25 @@ def check_case_and_calendar(page, today, next_monday):
     page.locator('#viewControls').get_by_role('button', name='Zurücksetzen').click()
     page.keyboard.press('Escape')
 
-    page.locator('#moreTools summary').click()
-    page.locator('#openCases').click()
-    cases = page.locator('#casesDialog')
+    page.get_by_role('tab', name='Vorgänge').click()
+    cases = page.locator('#casesView')
     cases.get_by_role('button', name='Wartung Zentrifuge · 1 Mails').click()
     cases.get_by_role('textbox', name='Neuer Checklistenpunkt').fill('Techniker bestätigen')
     cases.get_by_label('Termin für den neuen Punkt').fill(today)
     cases.get_by_role('button', name='Punkt hinzufügen').click()
     expect(cases.get_by_text('0 von 1 Punkten erledigt')).to_be_visible()
-    cases.get_by_role('button', name='Schließen', exact=True).click()
+    page.get_by_role('tab', name='Board').click()
+    # Mit Checkliste zeigt die Karte den Fortschritt statt des Vorgangs-Chips.
+    expect(page.locator('#mail-DEMO0003 .card-progress')).to_contain_text('0/1')
+    expect(page.locator('#mail-DEMO0003 .card-chip', has_text='Vorgang')).to_have_count(0)
 
     # Wiedervorlage in der nächsten Woche setzen und im Kalender per Drag-and-drop zwei Tage später legen.
     page.locator('#mail-DEMO0004').focus()
     page.keyboard.press('w')
     page.locator('.view-dialog[open] input[type=date]').fill(next_monday)
     page.locator('.view-dialog[open]').get_by_role('button', name='Übernehmen').click()
-    page.locator('#moreTools summary').click()
-    page.locator('#openCalendar').click()
-    cal = page.locator('#calendarDialog')
+    page.get_by_role('tab', name='Kalender').click()
+    cal = page.locator('#calendarView')
     item = cal.locator('.calendar-day.today li', has_text='Techniker bestätigen')
     item.get_by_role('checkbox').check()
     expect(item).to_have_class('calendar-entry kind-checklist done')
@@ -132,7 +136,8 @@ def check_case_and_calendar(page, today, next_monday):
     entry.drag_to(cal.locator('.calendar-day').nth(2))
     expect(cal.get_by_role('status')).to_contain_text('Wiedervorlage für „Rückfrage Bestellung 2026-118“')
     expect(cal.locator('.calendar-day').nth(2)).to_contain_text('Rückfrage Bestellung')
-    cal.get_by_role('button', name='Schließen', exact=True).click()
+    page.get_by_role('tab', name='Board').click()
+    expect(page.locator('#mail-DEMO0003 .card-progress')).to_contain_text('1/1')
     wednesday = (dt.date.fromisoformat(next_monday) + dt.timedelta(days=2)).isoformat()
     page.locator('#focusViews button', has_text='Wiedervorlage').click()
     short = lambda day: dt.date.fromisoformat(day).strftime('%d.%m.')
@@ -205,8 +210,15 @@ def check_start(page):
     start = page.locator('#cockpit-dialog')
     expect(start.get_by_text('Keine Routine fällig.')).to_be_visible()
     start.get_by_role('button', name='Vorgänge').click()
-    expect(page.locator('#casesDialog')).to_be_visible()
-    page.locator('#casesDialog').get_by_role('button', name='Schließen', exact=True).click()
+    expect(page.locator('#casesView')).to_be_visible()
+    expect(page.get_by_role('tab', name='Vorgänge')).to_have_attribute('aria-selected', 'true')
+    # Die Triage holt aus jeder Ansicht zurück auf das Board.
+    page.keyboard.press('Control+t')
+    expect(page.locator('#board')).to_be_visible()
+    expect(page.get_by_role('region', name='Morgen-Triage')).to_be_visible()
+    expect(page.locator('#triageStart')).to_have_text('Zur Triage')
+    page.get_by_role('region', name='Morgen-Triage').get_by_role('button', name='Triage abbrechen').click()
+    expect(page.locator('#triageStart')).to_have_text('Morgen-Triage starten')
 
 
 if __name__ == '__main__':

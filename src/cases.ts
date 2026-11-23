@@ -2,6 +2,7 @@
 import {ask} from './data-settings'
 import {caseMails, caseNameProblem, caseProgress, caseTag, knownCases, type Case} from './planning-logic'
 import {loadCases, newId, saveCases, updateCase} from './planning-store'
+import {currentView, showView, viewPanel} from './tabs'
 import {localDay, type ViewMail} from './views-logic'
 
 type Options = {
@@ -26,13 +27,15 @@ export function toggleCaseItem(name:string,itemId:string){
 
 export function initCases(options:Options){
   let chosen=''
-  const dialog=make('dialog');dialog.id='casesDialog';dialog.className='view-dialog planning-dialog cases-dialog'
-  dialog.setAttribute('aria-labelledby','casesTitle')
+  const view=viewPanel('cases','Vorgänge');view.classList.add('cases-view')
+  const active=()=>currentView()==='cases'
+  // Ein Neuzeichnen während der Eingabe würde Text und Fokus verwerfen.
+  const editing=()=>view.contains(document.activeElement)&&!!document.activeElement?.matches('input:not([type=checkbox]),textarea,select')
   const status=make('p');status.setAttribute('role','status')
-  document.body.append(dialog)
-  document.addEventListener('mailboard:planning',()=>{if(dialog.open)render()})
+  document.addEventListener('mailboard:planning',()=>{if(active()&&!editing())render()})
+  document.addEventListener('mailboard:view',event=>{if((event as CustomEvent).detail==='cases')render()})
 
-  function open(name=''){chosen=name;status.textContent='';render();if(!dialog.open)dialog.showModal()}
+  function open(name=''){chosen=name;status.textContent='';if(active())render();else showView('cases',true)}
   async function assign(ids:string[],name:string,on:boolean){
     if(!options.canAssign()){status.textContent='Für Zuordnungen müssen Kategorien in Outlook schreibbar sein.';return}
     try{await options.assign(ids,name,on)}catch(error){status.textContent='Zuordnung fehlgeschlagen: '+String(error)}
@@ -98,7 +101,7 @@ export function initCases(options:Options){
       if(!text.value.trim())return
       const item={id:newId(),text:text.value.trim(),done:false,...(due.value?{due:due.value}:{})}
       update(x=>({...x,items:[...x.items,item]}))
-      dialog.querySelector<HTMLInputElement>('.checklist-add input')?.focus()
+      view.querySelector<HTMLInputElement>('.checklist-add input')?.focus()
     }
     box.append(list,add)
 
@@ -107,7 +110,7 @@ export function initCases(options:Options){
     if(!linked.length)mailList.append(make('li','Keine geladene Mail gehört zu diesem Vorgang.'))
     for(const mail of linked){
       const row=make('li')
-      row.append(button([mail.subject||'(ohne Betreff)',mail.isSent?'An '+(mail.recipients||mail.sender):mail.sender,mail.status].join(' · '),()=>{dialog.close();options.onPick(mail.id)}),
+      row.append(button([mail.subject||'(ohne Betreff)',mail.isSent?'An '+(mail.recipients||mail.sender):mail.sender,mail.status].join(' · '),()=>options.onPick(mail.id)),
         button('Zuordnung lösen',()=>void assign([mail.id],c.name,false)))
       mailList.append(row)
     }
@@ -115,12 +118,12 @@ export function initCases(options:Options){
 
     const actions=make('div');actions.className='cockpit-actions'
     const selected=options.selection().filter(id=>!linked.some(m=>m.id===id))
-    if(linked.length)actions.append(button('Auf dem Board zeigen',()=>{dialog.close();options.showOnBoard(c.name)}))
+    if(linked.length)actions.append(button('Auf dem Board zeigen',()=>{showView('board');options.showOnBoard(c.name)}))
     if(selected.length)actions.append(button(selected.length+' markierte Karten zuordnen',()=>void assign(selected,c.name,true)))
     actions.append(c.closed?button('Wieder öffnen',()=>update(x=>{delete x.closed;return x})):button('Vorgang abschließen',()=>update(x=>({...x,closed:localDay()}))))
     actions.append(button('Vorgang löschen',async()=>{
       if(linked.length){status.textContent='Bitte zuerst die Zuordnung der '+linked.length+' Mails lösen.';return}
-      if(!await ask(dialog,'Vorgang „'+c.name+'“ mit Checkliste und Notiz löschen?'))return
+      if(!await ask(view,'Vorgang „'+c.name+'“ mit Checkliste und Notiz löschen?'))return
       saveCases(loadCases().filter(x=>!same(x.name,c.name)));chosen='';render()
     }))
     box.append(actions)
@@ -128,7 +131,6 @@ export function initCases(options:Options){
   }
   function render(){
     const mails=options.getMails(),cases=allCases(mails)
-    const close=button('Schließen',()=>dialog.close());close.className='close'
     const title=make('h2','Vorgänge');title.id='casesTitle'
     const current=cases.find(c=>same(c.name,chosen))
     const nav=make('nav');nav.className='case-list';nav.setAttribute('aria-label','Vorgänge')
@@ -142,7 +144,7 @@ export function initCases(options:Options){
     const layout=make('div');layout.className='case-layout'
     const side=make('div');side.append(nav,newCaseForm())
     layout.append(side,current?detail(current,mails):make('p','Wähle links einen Vorgang oder lege einen neuen an.'))
-    dialog.replaceChildren(close,title,layout,status)
+    view.replaceChildren(title,layout,status)
   }
   function openAssign(ids:string[]){
     if(!ids.length){document.getElementById('message')!.textContent='Bitte zuerst eine Karte markieren.';return}
@@ -187,23 +189,22 @@ export function initCases(options:Options){
     if(!section||!nav)return
     const mails=options.getMails(),cases=allCases(mails).filter(c=>!c.closed)
     section.hidden=!cases.length
-    const active=(document.querySelector('#viewControls select[aria-label="Kategorie"]') as HTMLSelectElement|null)?.value
+    const filtered=(document.querySelector('#viewControls select[aria-label="Kategorie"]') as HTMLSelectElement|null)?.value
     nav.replaceChildren(...cases.map(c=>{
       const count=caseMails(mails,c.name).length
       const item=button(c.name,()=>options.showOnBoard(c.name))
       item.title=count?'Mails des Vorgangs „'+c.name+'“ zeigen':'Keine geladene Mail gehört zu „'+c.name+'“'
       item.disabled=!count
       item.append(make('b',String(count)))
-      item.setAttribute('aria-pressed',String(active===caseTag(c.name)))
+      item.setAttribute('aria-pressed',String(filtered===caseTag(c.name)))
       return item
     }))
-    if(dialog.open)render()
+    if(active()&&!editing())render()
   }
   document.addEventListener('mailboard:planning',refresh)
   document.addEventListener('board-commands',event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
     for(const c of allCases(options.getMails()).filter(c=>!c.closed))entries.push({label:'Vorgang öffnen · '+c.name,run:()=>open(c.name)})
   })
-  document.getElementById('openCases')?.addEventListener('click',()=>open())
   return {open,openAssign,refresh}
 }

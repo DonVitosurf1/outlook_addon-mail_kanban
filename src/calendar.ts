@@ -1,5 +1,6 @@
 /** Wochenkalender für Fristen: Nachfassen, Wiedervorlage, KI-Fristen, Routinen und Checklistenpunkte von Vorgängen. */
 import {addDays, calendarEntries, entryKinds, isoWeek, plannedField, routineDue, weekDays, type CalendarEntry, type Case, type Routine} from './planning-logic'
+import {currentView, showView, viewPanel} from './tabs'
 import {localDay, type ViewMail} from './views-logic'
 
 type Options = {
@@ -21,20 +22,22 @@ function dayLabel(day:string,options:Intl.DateTimeFormatOptions){return new Date
 
 export function initCalendar(options:Options){
   let anchor=localDay()
-  const dialog=make('dialog');dialog.id='calendarDialog';dialog.className='planning-dialog calendar-dialog'
-  dialog.setAttribute('aria-labelledby','calendarTitle')
+  const view=viewPanel('calendar','Wochenkalender');view.classList.add('calendar-view')
+  const active=()=>currentView()==='calendar'
   const status=make('p');status.setAttribute('role','status')
-  document.body.append(dialog)
-  document.addEventListener('mailboard:planning',()=>{if(dialog.open)render()})
+  document.addEventListener('mailboard:planning',()=>{if(active())render()})
+  document.addEventListener('mailboard:view',event=>{if((event as CustomEvent).detail==='calendar')render()})
 
-  function open(day=localDay()){anchor=day;render();if(!dialog.open)dialog.showModal()}
+  function open(day=localDay()){anchor=day;showView('calendar',true)}
+  /** Nach Änderungen an Mails aktualisieren, solange niemand gerade zieht. */
+  function refresh(){if(active()&&!view.querySelector('.over'))render()}
 
   function entryNode(entry:CalendarEntry,today:string,late:boolean){
     const item=make('li');item.className='calendar-entry kind-'+entry.kind+(entry.done?' done':'')
     const kind=entryKinds[entry.kind]+(late?' seit '+dayLabel(entry.day,{day:'2-digit',month:'2-digit'}):'')
     if(entry.mailId){
       const mail=options.getMails().find(m=>m.id===entry.mailId)
-      const open=button(kind+' · '+entry.label,()=>{dialog.close();options.onPick(entry.mailId!)})
+      const open=button(kind+' · '+entry.label,()=>options.onPick(entry.mailId!))
       open.title=mail?(mail.isSent?'An '+(mail.recipients||mail.sender):mail.sender):''
       if(entry.kind!=='deadline' && options.canPlan()){
         open.draggable=true
@@ -52,7 +55,7 @@ export function initCalendar(options:Options){
       const box=make('input');box.type='checkbox';box.checked=!!entry.done
       box.onchange=()=>{options.toggleItem(entry.caseName!,entry.itemId!);render()}
       const label=make('label');label.append(box,' '+kind+' · '+entry.label)
-      item.append(label,button('Vorgang '+entry.caseName,()=>{dialog.close();options.openCase(entry.caseName!)}))
+      item.append(label,button('Vorgang '+entry.caseName,()=>options.openCase(entry.caseName!)))
     }
     return item
   }
@@ -87,7 +90,6 @@ export function initCalendar(options:Options){
   function render(){
     const today=localDay(),days=weekDays(anchor)
     const {overdue,byDay}=calendarEntries(options.getMails(),options.routines(),options.cases(),days,today)
-    const close=button('Schließen',()=>dialog.close());close.className='close'
     const title=make('h2','Wochenkalender · KW '+isoWeek(days[0]));title.id='calendarTitle'
     const range=make('p',dayLabel(days[0],{day:'2-digit',month:'2-digit'})+' bis '+dayLabel(days[6],{day:'2-digit',month:'2-digit',year:'numeric'}))
     const nav=make('div');nav.className='cockpit-actions'
@@ -99,8 +101,7 @@ export function initCalendar(options:Options){
     const late=overdue.length?column('Überfällig',overdue,today):undefined
     late?.classList.add('calendar-overdue')
     for(const day of days)grid.append(column(dayLabel(day,{weekday:'short',day:'2-digit',month:'2-digit'})+(day===today?' · heute':''),byDay.get(day)||[],today,day))
-    dialog.replaceChildren(close,title,range,nav,hint,...(late?[late]:[]),grid,status)
+    view.replaceChildren(title,range,nav,hint,...(late?[late]:[]),grid,status)
   }
-  document.getElementById('openCalendar')?.addEventListener('click',()=>open())
-  return {open}
+    return {open,refresh}
 }

@@ -90,18 +90,20 @@ export class BoardLayout{
       handle.setAttribute('aria-valuenow',String(px));handle.setAttribute('aria-valuemin',String(min));handle.setAttribute('aria-valuemax',String(Math.round(max)))
       if(persist)store('sidebar',String(px))
     }
+    // Die Rasterspalte umfasst auch den Außenabstand der schwebenden Leiste. Maßgeblich ist daher ihr rechter Rand.
+    const edge=()=>Math.round(sidebar.getBoundingClientRect().right-document.body.getBoundingClientRect().left)
     const remembered=Number(saved('sidebar'))
     if(remembered)size(remembered,false)
-    else{handle.setAttribute('aria-valuenow',String(Math.round(sidebar.offsetWidth)));handle.setAttribute('aria-valuemin','120');handle.setAttribute('aria-valuemax',String(Math.round(bounds().max)))}
+    else{handle.setAttribute('aria-valuenow',String(edge()));handle.setAttribute('aria-valuemin','120');handle.setAttribute('aria-valuemax',String(Math.round(bounds().max)))}
     handle.onpointerdown=e=>{if(e.button===0){e.preventDefault();handle.setPointerCapture(e.pointerId)}}
     handle.onpointermove=e=>{if(handle.hasPointerCapture(e.pointerId))size(e.clientX,false)}
     handle.onpointerup=e=>{if(handle.hasPointerCapture(e.pointerId)){handle.releasePointerCapture(e.pointerId);size(e.clientX,true)}}
     handle.onkeydown=e=>{
       if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
-        size(sidebar.offsetWidth+(e.key==='ArrowLeft'?-12:12),true);e.preventDefault()
+        size(edge()+(e.key==='ArrowLeft'?-12:12),true);e.preventDefault()
       }
     }
-    window.addEventListener('resize',()=>{if(document.body.style.gridTemplateColumns)size(sidebar.offsetWidth,false)})
+    window.addEventListener('resize',()=>{if(document.body.style.gridTemplateColumns)size(edge(),false)})
     sidebar.append(handle)
   }
 }

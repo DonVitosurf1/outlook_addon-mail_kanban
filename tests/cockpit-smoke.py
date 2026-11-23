@@ -14,7 +14,7 @@ def check_cockpit(page, base_url):
     page.locator('#moreTools summary').click()
     page.locator('#backDemo').click()
     page.locator('#cockpit-start').click()
-    page.get_by_role('button', name='Morgen-Triage starten').click()
+    page.locator('#cockpit-dialog').get_by_role('button', name='Morgen-Triage starten').click()
     # Die Triage läuft im Banner auf dem Board, der Startdialog schließt sich.
     expect(page.locator('#cockpit-dialog')).to_be_hidden()
     banner = page.get_by_role('region', name='Morgen-Triage')
