@@ -653,7 +653,7 @@ function renderVotes(host:HTMLElement,mail:AiMail,model:string){
       const b=document.createElement('button');b.type='button';b.className='ai-vote-button'
       b.textContent=value==='ok'?'passt':'passt nicht'
       b.setAttribute('aria-label',label+(value==='ok'?' passt':' passt nicht'))
-      b.onclick=()=>{const now=vote(id,field,model,value);for(const x of buttons)x.setAttribute('aria-pressed',String(x===b&&now===value))}
+      b.onclick=()=>{const now=vote(id,field,model,value);buttons[0].setAttribute('aria-pressed',String(now==='ok'));buttons[1].setAttribute('aria-pressed',String(now==='bad'))}
       return b
     })
     const now=currentVote(id,field)

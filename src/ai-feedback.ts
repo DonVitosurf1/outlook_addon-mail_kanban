@@ -224,14 +224,14 @@ export function currentVote(id:string,field:VoteField):'ok'|'bad'|undefined{retu
 export function vote(id:string,field:VoteField,model:string,value:'ok'|'bad'):'ok'|'bad'|undefined{
   if(!id)return
   const all=votes(),key=voteKey(id,field),old=all[key]
-  if(old)countFeedback(FEEDBACK_FUNCTIONS[field],old.m,old.v,-1,old.d)
   delete all[key]
-  if(old?.v===value){write(VOTES,all);return}
-  const entry:Vote={v:value,d:localDay(),m:name(model,120)}
-  countFeedback(FEEDBACK_FUNCTIONS[field],entry.m,value)
-  all[key]=entry
+  const entry:Vote|undefined=old?.v===value?undefined:{v:value,d:localDay(),m:name(model,120)}
+  if(entry)all[key]=entry
   const keys=Object.keys(all)
   for(const k of keys.slice(0,Math.max(0,keys.length-VOTE_LIMIT)))delete all[k]
-  write(VOTES,all)
-  return value
+  // Erst den Merker schreiben: Scheitert das, bleiben Stimme und Zähler unverändert und passen zueinander.
+  if(!write(VOTES,all))return old?.v
+  if(old)countFeedback(FEEDBACK_FUNCTIONS[field],old.m,old.v,-1,old.d)
+  if(entry)countFeedback(FEEDBACK_FUNCTIONS[field],entry.m,value)
+  return entry?.v
 }

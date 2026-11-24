@@ -121,3 +121,14 @@ test('Aufgaben: später doch übernommene Aufgabe bucht den Fehlgriff um, Rückg
   assert.deepEqual(feedbackSummary(),{})
   assert.deepEqual(JSON.parse(map.get(SKIPPED_TASKS)!),{})
 })
+
+test('„passt“: Lässt sich der Merker nicht schreiben, ändert sich auch kein Zähler',()=>{
+  const map=storage()
+  assert.equal(vote('sig','summary','m','ok'),'ok')
+  const real=localStorage.setItem
+  Object.defineProperty(globalThis,'localStorage',{configurable:true,value:{getItem:(k:string)=>map.get(k)??null,
+    setItem:(k:string,v:string)=>{if(k===VOTES)throw Error('voll');real(k,v)}}})
+  assert.equal(vote('sig','summary','m','bad'),'ok')
+  assert.equal(currentVote('sig','summary'),'ok')
+  assert.deepEqual(feedbackSummary(),{zusammenfassung:{m:{ok:1}}})
+})
