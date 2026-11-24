@@ -4,3 +4,5 @@ src-tauri/target/
 src-tauri/gen/
 outlook-test/tests/bin/
 outlook-test/tests/obj/
+outlook-test/Mail-Board-Outlook.exe
+downloads/

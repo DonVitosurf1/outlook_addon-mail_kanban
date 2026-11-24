@@ -8,7 +8,7 @@ Mail-Board ist eine eigenständige Windows-App für das tägliche Sichten, Nachv
 
 ## Unter Windows ausprobieren
 
-1. [Windows-x64-ZIP herunterladen](downloads/Mail-Board-Windows-x64.zip?raw=true) und den **gesamten Inhalt** in einen beschreibbaren Ordner entpacken.
+1. [Windows-x64-ZIP herunterladen](https://github.com/DonVitosurf1/outlook_addon-mail_kanban/releases/latest/download/Mail-Board-Windows-x64.zip) und den **gesamten Inhalt** in einen beschreibbaren Ordner entpacken. GitHub baut das ZIP nach jeder Änderung an `main` automatisch neu (Release „aktuell“). App und Outlook-Helfer passen darin immer zusammen.
 2. **Mail-Board.exe** starten. Die App verbindet sich beim Start automatisch mit dem eingerichteten Profil in **klassischem Outlook für Windows**. Der mitgelieferte Outlook-Helfer muss neben der EXE liegen.
 3. Falls die Verbindung fehlschlägt, zeigt das leere Board den Grund an. Klassisches Outlook mit dem gewünschten Profil öffnen, eventuelle Outlook-Dialoge schließen und die Verbindung im Board erneut versuchen.
 4. Unter **Werkzeuge → Projektordner verwalten** einen vorhandenen Testordner als Board- und Lernziel wählen. Unter **Werkzeuge → Outlook und lokale KI** „Echte Mails verschieben erlauben“ einschalten.
@@ -32,16 +32,19 @@ Der normale Start aus dem entpackten Ordner benötigt keine Administratorrechte,
 
 ## Unter Windows selbst bauen
 
-Voraussetzungen für den Build sind Node.js mit npm, Rust stable mit dem MSVC-Toolchain für x64, Visual Studio Build Tools mit C++ und Windows SDK sowie die WebView2 Runtime. Der C#-Helfer und seine Quellen liegen in outlook-test/. Für einen vollständigen Neubau vom Repository-Stamm aus in der Windows-Eingabeaufforderung ausführen:
+Für die normale Nutzung ist das nicht nötig, das fertige ZIP kommt aus dem Release „aktuell“.
+
+Voraussetzungen für den Build sind Node.js mit npm, Rust stable mit dem MSVC-Toolchain für x64, Visual Studio Build Tools mit C++ und Windows SDK sowie die WebView2 Runtime. Den Outlook-Helfer übersetzt der in Windows enthaltene C#-Compiler von .NET Framework 4.8, seine Quellen liegen in outlook-test/.
+
+Doppelklick auf **Mail-Board-bauen.cmd** im Repository-Stamm prüft die Voraussetzungen, installiert die Abhängigkeiten, führt die Tests aus und baut Outlook-Helfer, Desktop-App und ZIP. Dasselbe von Hand:
 
 ```cmd
 npm ci
-outlook-test\build.cmd
 npm test
 npm run portable
 ```
 
-Das Paket liegt anschließend unter `downloads/Mail-Board-Windows-x64.zip`. Für die Entwicklung startet `npm run dev` das Desktopfenster. `npm run build` prüft TypeScript und erzeugt die Weboberfläche in dist/.
+`npm run portable` baut den Outlook-Helfer immer mit (`npm run helper`). Das Paket liegt anschließend unter `downloads/Mail-Board-Windows-x64.zip`. Für die Entwicklung startet `npm run dev` das Desktopfenster. `npm run build` prüft TypeScript und erzeugt die Weboberfläche in dist/.
 
 ### Automatisierte Prüfung
 
