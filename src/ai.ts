@@ -643,13 +643,14 @@ export function analysisModel(mail:AiMail){
 export function embeddingModelName(){return config().embedModel.trim()||NO_MODEL}
 const voteLabels:[VoteField,string][]=[['summary','Zusammenfassung'],['needsReply','„Antwort nötig“'],['deadline','Frist']]
 /**
- * B1: Knöpfe „passt“ und „passt nicht“ für Zusammenfassung, „Antwort nötig“ und Frist. Je Mail-Signatur eine Stimme je Feld,
+ * B1: Knöpfe „passt“ und „passt nicht“ für Zusammenfassung, „Antwort nötig“ und Frist (nur, wenn eine erkannt wurde). Je Mail-Signatur eine Stimme je Feld,
  * ein zweiter Klick auf dieselbe Stimme nimmt sie zurück.
  */
-function renderVotes(host:HTMLElement,mail:AiMail,model:string){
+function renderVotes(host:HTMLElement,mail:AiMail,model:string,deadline:boolean){
   host.replaceChildren()
   const id=embeddingId(mail)
-  for(const [field,label] of voteLabels){
+  // Ohne erkannte Frist gibt es nichts zu bewerten.
+  for(const [field,label] of voteLabels.filter(([field])=>deadline||field!=='deadline')){
     const group=document.createElement('span');group.className='ai-vote';group.setAttribute('role','group');group.setAttribute('aria-label','Rückmeldung: '+label)
     const buttons=(['ok','bad'] as const).map(value=>{
       const b=document.createElement('button');b.type='button';b.className='ai-vote-button'
@@ -810,7 +811,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
   const types=document.createElement('div')
   const votes=document.createElement('div');votes.className='ai-votes'
   const show=(result:Analysis)=>{
-    renderVotes(votes,mail,result.modell||configuredModel('analyze',cfg)||NO_MODEL)
+    renderVotes(votes,mail,result.modell||configuredModel('analyze',cfg)||NO_MODEL,!!result.frist)
     feedback.textContent=[result.zusammenfassung, result.antwort_noetig?'Antwort nötig':'Kein Antwortbedarf erkannt',
       result.frist?'Fristvorschlag: '+result.frist:'',result.arten.length?'Art-Vorschlag: '+result.arten.join(', '):''].filter(Boolean).join(' · ')
     types.replaceChildren()

@@ -42,7 +42,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   }
   if(name==='outlook_draft'){window.drafted=args.text;return}
   if(name==='ai_models')return ['hinter']
-  if(name==='ai_analyze')return {zusammenfassung:'Neue Messwerte',antwort_noetig:true,frist:'2026-11-27',ordner:null,arten:[],aufgaben:[]}
+  if(name==='ai_analyze')return {zusammenfassung:'Neue Messwerte',antwort_noetig:true,frist:args.mail.id==='a3'?null:'2026-11-27',ordner:null,arten:[],aufgaben:[]}
   if(name==='ai_reply')return 'Guten Tag, vielen Dank für die Messwerte der Charge. Ich prüfe sie bis Freitag. Viele Grüße'
   throw Error('Unerwarteter Befehl: '+name)
 }}}
@@ -108,6 +108,12 @@ def live(browser, base):
     page.get_by_role('button', name='Unpassend').click()
     assert today(page)['ablage:Regel'] == {'-': {'ok': 1, 'bad': 1}}, today(page)
     assert today(page)['frist'] == {'hinter': {'ok': 1}} and today(page)['antwort_noetig'] == {'hinter': {'bad': 1}}
+
+    # Ohne erkannte Frist fehlen die Knöpfe zur Frist.
+    page.keyboard.press('Escape')
+    page.locator('#mail-a3').click()
+    expect(page.get_by_role('group', name='Rückmeldung: Zusammenfassung')).to_be_visible()
+    expect(page.get_by_role('group', name='Rückmeldung: Frist')).to_have_count(0)
 
     # Dritte Mail: Der Kartenhinweis („Labor“) zählt auch ohne Anfrage. Abgelegt in einen anderen Lernordner ist ein Fehlgriff.
     page.keyboard.press('Escape')
