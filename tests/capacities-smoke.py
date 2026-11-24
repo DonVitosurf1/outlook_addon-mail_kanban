@@ -94,6 +94,7 @@ try:
         }""")
         detail.get_by_role('button', name='Notiz in Capacities vorhanden').click()
         expect(page.locator('#message')).to_contain_text('Nachtrag an die Capacities-Notiz angehängt')
+        page.screenshot(path='/opt/cursor/artifacts/capacities-nachtrag.png')
         assert sum(call['path']=='/object/markdown' for call in calls) == 2
         assert any('Nachtrag' in call['body'] for call in calls if call['path']=='/blocks/append')
         detail.get_by_role('button', name='Links in Capacities übernehmen').click()
