@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { FEEDBACK, VOTES, SKIPPED_TASKS, NO_MODEL, changeDegree, countDraft, countTasks, countFeedback, currentVote, editRatio, feedbackSummary, filingSource, oldestDay, useSampleFeedback, vote } from '../src/ai-feedback'
+import { FEEDBACK, VOTES, SKIPPED_TASKS, NO_MODEL, changeDegree, countDraft, countTasks, countFeedback, currentVote, editRatio, feedbackSummary, filingSource, oldestDay, qualityReport, useSampleFeedback, vote } from '../src/ai-feedback'
 import { localDay } from '../src/views-logic'
 
 function storage(){
@@ -131,4 +131,32 @@ test('„passt“: Lässt sich der Merker nicht schreiben, ändert sich auch kei
   assert.equal(vote('sig','summary','m','bad'),'ok')
   assert.equal(currentVote('sig','summary'),'ok')
   assert.deepEqual(feedbackSummary(),{zusammenfassung:{m:{ok:1}}})
+})
+
+test('KI-Qualität: Trefferquote der letzten 30 Tage je Funktion und Modell, mit Trend und Hinweis',()=>{
+  storage()
+  const put=(day:string,fn:string,model:string,ok:number,bad:number)=>countFeedback(fn,model,'ok',ok,day) && countFeedback(fn,model,'bad',bad,day)
+  put(daysAgo(0),'ablage:Regel',NO_MODEL,11,9)
+  put(daysAgo(29),'ablage:Bayes','bayes',8,2)
+  put(daysAgo(30),'ablage:Regel',NO_MODEL,18,2)
+  put(daysAgo(40),'vorgang','qwen3:8b',3,1)
+  put(daysAgo(60),'ablage:Regel',NO_MODEL,9,1)
+  put(daysAgo(0),'antwortentwurf','entwurf:14b',1,0)
+  const report=qualityReport()
+  const filing=report.rows.find(row=>row.fn==='ablage:Regel'&&row.model===NO_MODEL)
+  const bayes=report.rows.find(row=>row.fn==='ablage:Bayes')
+  const draft=report.rows.find(row=>row.fn==='antwortentwurf')
+  assert.equal(filing?.ok,11)
+  assert.equal(filing?.bad,9)
+  assert.equal(filing?.rate,0.55)
+  assert.equal(filing?.trend,'schlechter')
+  assert.equal(bayes?.ok,8)
+  assert.equal(bayes?.model,'bayes')
+  assert.equal(report.rows.some(row=>row.fn==='vorgang'),false)
+  assert.equal(draft?.trend,'')
+  assert.ok(report.hints.some(hint=>hint.includes('Ablagevorschläge nur 63 %')&&hint.includes('Steckbriefe')))
+  assert.equal(report.hints.some(hint=>hint.startsWith('Antwortentwürfe')),false)
+  assert.equal(qualityReport(daysAgo(0)).csv.split('\n')[0],'Funktion;Modell;Treffer;Fehlgriffe;Quote;Trend')
+  assert.match(report.csv,/Ablage: Regel;-;11;9;55 %;schlechter/)
+  assert.doesNotMatch(report.csv,/Betreff|@/)
 })

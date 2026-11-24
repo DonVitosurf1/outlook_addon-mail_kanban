@@ -2,6 +2,7 @@ import { showIntro } from './intro'
 import {dateTerms} from './date-terms'
 import metadata from '../package.json'
 import {renderLearningDashboard} from './ai'
+import {qualityReport} from './ai-feedback'
 import { getLegacyConfig } from './data-settings'
 import { initCleanup, type CleanupOptions } from './cleanup'
 import { dueRoutines, isFocusCard, snapshot, type Routine } from './planning-logic'
@@ -25,7 +26,7 @@ type Options = CleanupOptions & {
   showFocus: (key: 'today' | 'focus') => void
   showOverdue: () => void
 }
-export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning' | 'shortcuts'
+export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning' | 'quality' | 'shortcuts'
 
 const states = ['Offen', 'In Bearbeitung', 'Warten', 'Erledigt']
 const help = [
@@ -48,7 +49,7 @@ const help = [
   ['Was passiert bei fehlender KI?', 'Die lokale KI ist optional. Du kannst dein Board auch bei ausgeschaltetem oder langsamem Modell weiter bedienen.'],
   ['Welches Modell macht was?', 'In den Einstellungen unter „Lokale KI“ wählst du zwei Sprachmodelle. Das Modell für Hintergrund analysiert Mails, entscheidet die KI-Stichwahl zwischen zwei Ordnern und findet Aufgaben. Das Modell für Entwürfe schreibt Antworten, Steckbriefe und Ordnernamen. Bleibt das Feld für Entwürfe leer, nutzt das Board für beides dasselbe Modell. Unter jedem Modell steht, was der lokale Modellserver meldet: Größe, Quantisierung, Kontextlänge und ob das Modell auf der GPU läuft oder noch nicht geladen ist. „Verbindung testen“ prüft, dass beide Modelle lokal laufen. Mailinhalte gehen nie an ein Modell, das extern ausgeführt wird.'],
   ['Was ist die KI-Stichwahl?', 'Liegen zwei Ordner beim Vergleich mit den Ordnerprofilen fast gleichauf, fragt das Board das Modell für Hintergrund kurz, welcher der beiden passt. Es bekommt nur Betreff, den Anfang der Mail und die Steckbriefe der beiden Ordner. Der Grund steht im Vorschlag hinter „KI-Stichwahl“. Nennt das Modell keinen der beiden, bleibt der gemessene Vorschlag stehen.'],
-  ['Was bewirken „passt“ und „passt nicht“?', 'In den Maildetails bewertest du Zusammenfassung, „Antwort nötig“ und Frist der lokalen KI. Ein zweiter Klick nimmt deine Stimme zurück. Zusätzlich zählt das Board, ob du Ablage- und Vorgangsvorschläge übernimmst, welche erkannten Aufgaben du übernimmst und wie stark du einen Antwortentwurf vor dem Öffnen in Outlook änderst. Gespeichert werden nur Zahlen je Tag, Funktion und Modell, keine Mailinhalte, höchstens 90 Tage lang. Im Beispielpostfach wird nichts gespeichert. Daraus entsteht später eine Auswertung der KI-Qualität.'],
+  ['Was bewirken „passt“ und „passt nicht“?', 'In den Maildetails bewertest du Zusammenfassung, „Antwort nötig“ und Frist der lokalen KI. Ein zweiter Klick nimmt deine Stimme zurück. Zusätzlich zählt das Board, ob du Ablage- und Vorgangsvorschläge übernimmst, welche erkannten Aufgaben du übernimmst und wie stark du einen Antwortentwurf vor dem Öffnen in Outlook änderst. Gespeichert werden nur Zahlen je Tag, Funktion und Modell, keine Mailinhalte, höchstens 90 Tage lang. Im Beispielpostfach wird nichts gespeichert. Start → KI-Qualität zeigt die Trefferquote der letzten 30 Tage je Funktion und Modell, den Trend gegen die 30 Tage davor und einen Export als CSV.'],
   ['Einführung erneut zeigen', 'Die kurze Einführung zeigt in drei Schritten das Board, die Karten und die Tab-Leiste. Sie startet mit dem Knopf „Einführung erneut zeigen“ unter den Hilfethemen und ist über Weiter, Überspringen oder Escape bedienbar.'],
   ['Warum fehlen Zahlen im Wochenblick?', 'Der Wochenblick zählt die aktuell geladenen Karten. Die Aktivitätszahlen sammeln erfolgreich im Board ausgeführte Aktionen der laufenden Woche lokal.'],
 ]
@@ -209,6 +210,35 @@ export function initCockpit(options: Options) {
     } else if (page === 'learning') {
       title.textContent='Ablage-Auswertung'
       renderLearningDashboard(body)
+    } else if (page === 'quality') {
+      title.textContent='KI-Qualität'
+      const report=qualityReport()
+      body.append(element('p','Trefferquote der letzten 30 Tage. Der Trend vergleicht sie mit den 30 Tagen davor. Gespeichert sind nur Zahlen, keine Mailinhalte.'))
+      if(!report.rows.length)body.append(element('p','In den letzten 30 Tagen gibt es noch keine bewerteten Rückmeldungen.'))
+      else{
+        for(const hint of report.hints)body.append(element('p',hint))
+        const table=element('table');table.className='shortcut-table'
+        table.append(element('caption','Letzte 30 Tage'))
+        const head=element('tr')
+        for(const label of ['Funktion','Modell','Treffer','Quote','Trend']){const th=element('th',label);th.scope='col';head.append(th)}
+        const thead=element('thead');thead.append(head)
+        const tbody=element('tbody')
+        for(const row of report.rows){
+          const tr=element('tr')
+          tr.append(element('td',row.label),element('td',row.model==='-'?'ohne Modell':row.model),
+            element('td',row.ok+' von '+(row.ok+row.bad)),element('td',Math.round(row.rate*100)+' %'),element('td',row.trend||'–'))
+          tbody.append(tr)
+        }
+        table.append(thead,tbody)
+        const save=button('Als CSV exportieren',()=>{
+          const blob=new Blob([report.csv],{type:'text/csv;charset=utf-8'})
+          const link=document.createElement('a')
+          link.href=URL.createObjectURL(blob);link.download='Mail-Board-KI-Qualitaet.csv'
+          body.append(link);link.click();link.remove()
+          setTimeout(()=>URL.revokeObjectURL(link.href),60000)
+        })
+        body.append(table,save)
+      }
     } else if (page === 'week') {
       title.textContent = 'Wochenblick'
       const list = element('ul')
@@ -245,7 +275,7 @@ export function initCockpit(options: Options) {
         row.lastElementChild?.setAttribute('aria-label',routine.title+' erledigt')
         body.append(row)
       }
-      const more=actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}))
+      const more=actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),go('KI-Qualität','quality'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}))
       body.append(element('h3','Weitere Ansichten'),more)
       const startup=element('input');startup.type='checkbox';startup.checked=preference(launchKey)
       startup.onchange=()=>remember(launchKey,startup.checked)
@@ -278,7 +308,7 @@ export function initCockpit(options: Options) {
   document.addEventListener('board-commands', event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
     if(!options.hasMailbox())return
-    entries.push({label:'Wochenblick',run:()=>open('week')},{label:'Ablage-Auswertung',run:()=>open('learning')},
+    entries.push({label:'Wochenblick',run:()=>open('week')},{label:'Ablage-Auswertung',run:()=>open('learning')},{label:'KI-Qualität',run:()=>open('quality')},
       {label:'Warten-Hygiene',run:()=>open('hygiene')},{label:'Posteingang aufräumen',run:()=>void openCleanup()})
   })
   document.addEventListener('mailboard:source-changed',()=>{
