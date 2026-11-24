@@ -3,9 +3,12 @@
  * Ausreißern (E3) und den neuen Steckbriefen (E5). Das Ergebnis liegt unter `measurements.after`, der Ausgangswert bleibt unberührt.
  * Die Vergleichstabelle (`compareMeasurements`) zeigt je Quelle und je Ordner Ausgangswert, jetzt und die Differenz in Prozentpunkten.
  * Ordner mit schlechterer Trefferquote sind hervorgehoben (Farbe für „fällig“) und tragen zusätzlich den Text „schlechter“.
+ * Verlässt du den Schritt vor Messende, läuft das Lernen weiter und das Ergebnis wird trotzdem gespeichert. Steht der Schritt dann
+ * nicht mehr offen, meldet eine Rückmeldung das Ende. Beim erneuten Öffnen während des Laufs ist der Knopf gesperrt.
  */
 import {measureLearning, trainFromFolders} from './ai'
-import {registerStep} from './setup'
+import {registerStep, type StepContext} from './setup'
+import {showToast} from './toast'
 import {compareMeasurements, diffText, type CompareRow} from './setup-logic'
 
 function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
@@ -26,24 +29,38 @@ function table(caption:string,first:string,rows:CompareRow[]){
   return node
 }
 
+/** Läuft gerade ein Lern- und Messlauf? Gilt über das Neuzeichnen des Schritts hinweg. */
+let running=false
+/** Zuletzt gezeichnete Ansicht von E6. `active()` ist nur wahr, solange sie angezeigt wird. */
+let view:StepContext|undefined
+
 registerStep('E6',ctx=>{
+  view=ctx
   const folders=ctx.host.learnerFolders()
   const baseline=ctx.state.measurements.baseline,after=ctx.state.measurements.after
   ctx.body.append(make('p',baseline?'Ausgangswert vom '+baseline.date+'. Neu gelernt wird mit '+folders.length+' Lernordnern, ohne ausgeschlossene Mails und mit deinen übernommenen Steckbriefen.'
     :'Es gibt noch keinen Ausgangswert. Miss zuerst in Schritt 2.'))
   const start=make('button',after?'Erneut lernen und vergleichen':'Neu lernen und vergleichen');start.type='button';start.className='primary'
-  start.disabled=!folders.length||!baseline
+  start.disabled=running||!folders.length||!baseline
+  if(running){start.textContent='Lernen und Messen läuft …';ctx.status('Neu lernen und vergleichen läuft noch. Das Ergebnis erscheint hier.')}
   start.onclick=async()=>{
-    start.disabled=true
+    if(running)return
+    running=true;start.disabled=true
+    // Fortschritt in die gerade angezeigte Ansicht von E6, sonst nirgends.
+    const report=(text:string)=>{if(view?.active())view.status(text)}
     try{
-      const trained=await trainFromFolders(folders,text=>ctx.status(text))
-      if(!ctx.active())return
-      const measured=await measureLearning(folders,text=>ctx.status(text))
-      if(!ctx.active())return
+      const trained=await trainFromFolders(folders,report)
+      const measured=await measureLearning(folders,report)
       ctx.save(state=>{state.measurements.after=measured})
-      ctx.refresh(trained.failures.length?'Nicht gelesen: '+trained.failures.join(' · '):'Neu gelernt und gemessen.'+measured.note)
-    }catch(e){ctx.status(errorText(e))}
-    finally{start.disabled=false}
+      running=false
+      const message=trained.failures.length?'Nicht gelesen: '+trained.failures.join(' · '):'Neu gelernt und gemessen.'+measured.note
+      if(view?.active())view.refresh(message)
+      else showToast('Neu lernen und vergleichen ist fertig. Das Ergebnis steht in Schritt 6 der Einrichtung.')
+    }catch(e){
+      running=false
+      if(view?.active())view.refresh(errorText(e))
+      else showToast('Neu lernen und vergleichen ist abgebrochen. '+errorText(e))
+    }
   }
   ctx.body.append(start)
   if(baseline&&after){

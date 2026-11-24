@@ -46,7 +46,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_folders')return JSON.stringify(folders)
   if(name==='outlook_board')return '[]'
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
-  if(name==='outlook_training')return JSON.stringify(window.training[args.folder]||[])
+  if(name==='outlook_training'){if(window.trainGate)await window.trainGate;return JSON.stringify(window.training[args.folder]||[])}
   if(name==='ai_profile'){
     if(window.gate)await window.gate()
     if(args.key==='Reisen'&&!window.reisenOk)throw Error('Modell antwortet nicht')
@@ -139,6 +139,30 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert state['measurements']['baseline'] and state['measurements']['after'], state
             view.get_by_role('button', name='Schritt abschließen', exact=True).click()
             assert page.evaluate("JSON.parse(localStorage.getItem('mailboard-setup-v1'))")['status']['E6'] == 'done'
+
+            # Schritt vor Messende verlassen: Das Ergebnis wird trotzdem gespeichert, eine Rückmeldung meldet das Ende.
+            page.evaluate("""(()=>{const s=JSON.parse(localStorage.getItem('mailboard-setup-v1'));delete s.measurements.after;
+              localStorage.setItem('mailboard-setup-v1',JSON.stringify(s))})()""")
+            steps = view.locator('.setup-steps button')
+            steps.nth(5).click()
+            start = view.get_by_role('button', name='Neu lernen und vergleichen', exact=True)
+            expect(start).to_be_enabled()
+            page.evaluate("(()=>{window.trainGate=new Promise(r=>{window.trainRelease=r})})()")
+            start.click()
+            steps.nth(6).click()
+            expect(view.get_by_role('heading', name='Schritt 7 · Posteingang abarbeiten')).to_be_visible()
+            steps.nth(5).click()
+            expect(view.get_by_role('button', name='Lernen und Messen läuft …')).to_be_disabled()
+            expect(view.locator('.setup-status')).to_have_text('Neu lernen und vergleichen läuft noch. Das Ergebnis erscheint hier.')
+            steps.nth(6).click()
+            page.evaluate("window.trainRelease()")
+            expect(page.locator('.toast')).to_contain_text('Neu lernen und vergleichen ist fertig. Das Ergebnis steht in Schritt 6 der Einrichtung.')
+            assert page.evaluate("JSON.parse(localStorage.getItem('mailboard-setup-v1'))")['measurements'].get('after'), 'Ergebnis gespeichert'
+            expect(view.get_by_role('heading', name='Schritt 7 · Posteingang abarbeiten')).to_be_visible()
+            steps.nth(5).click()
+            expect(view.locator('table.setup-compare')).to_have_count(2)
+            expect(view.get_by_role('button', name='Erneut lernen und vergleichen')).to_be_enabled()
+            page.evaluate("window.trainGate=null")
 
             # Quellenwechsel während eines laufenden Entwurfs: Der Knopf ist danach sofort wieder frei,
             # das Ergebnis des alten Entwurfs landet nicht in der Liste.
