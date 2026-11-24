@@ -16,7 +16,7 @@ Ausgangslage: Das Sprachmodell liefert heute Analyse (Zusammenfassung, Antwort n
 
 | Entscheidung | Gewählt |
 |---|---|
-| Pakete | Nur **D: neue KI-Funktionen**. A (Einrichtung und Modellwahl), B (Qualität messbar machen) und C (bessere Eingaben) sind zurückgestellt, siehe Abschnitt 3. |
+| Pakete | **D: neue KI-Funktionen**. A (Einrichtung und Modellwahl), B (Qualität messbar machen) und C (bessere Eingaben) folgen in Abschnitt 3. |
 | Funktionen | Aufgaben → Checkliste, Briefing-Text, Vorgang-Vorschlag, Suche nach Bedeutung |
 | Aufgaben erkennen | Als Teil der vorhandenen Mail-Analyse, kein eigener KI-Aufruf |
 | Briefing-Text | Fester Satzbau aus gespeicherten Analysen, **ohne** KI-Aufruf |
@@ -72,12 +72,41 @@ Für alle Punkte gilt:
 - [x] **„Ähnliche Mails“** in den Maildetails: die fünf ähnlichsten geladenen Mails ohne dieselbe Unterhaltung, als Links.
 - [x] **Tests**: Smoke-Test mit simuliertem Ranking: Umschalten, Treffer ohne gemeinsames Wort, Zurückschalten stellt die Wortsuche wieder her.
 
-## 3. Zurückgestellt
+## 3. KI-Ausbau A–C (entschieden am 24.11.2026)
 
-- **A Einrichtung und Modellwahl:** Modell mit Größe und Tempo anzeigen, „Modell testen“, Empfehlung für GPU-Rechner, getrennte Modelle für Hintergrund und Entwürfe. Wieder aufgreifen, sobald klar ist, welches Modell läuft (Abschnitt 1).
-- **B Qualität messbar machen:** „Passt / passt nicht“ an KI-Ergebnissen und eine Auswertung je Funktion. Sinnvoll, sobald es Praxiserfahrung gibt.
-- **C Bessere Eingaben:** Verlauf der Unterhaltung und Anhangnamen für die Analyse, eigener schneller Prompt für die KI-Stichwahl (heute startet sie eine volle Analyse), Stil aus eigenen früheren Antworten für Entwürfe.
-- **Weitere Ideen:** KI-Vorschläge für den Tagesfokus in der Triage, vorgeschlagene Nachfasstermine.
+Ausgangslage: Die Analyse sieht nur die neueste Nachricht (bis 3.000 Zeichen). Die KI-Stichwahl startet eine komplette Analyse, um zwischen zwei Ordnern zu wählen. Antwortentwürfe kennen den eigenen Schreibstil nicht. Ob die KI-Ergebnisse taugen, ist nicht messbar.
+
+| Entscheidung | Gewählt |
+|---|---|
+| Verlauf und Anhänge (C1) | Standardmäßig an, in den Einstellungen abschaltbar |
+| Schreibstil (C3) | Einmal per Knopf „Stil aus gesendeten Mails lernen“, Ergebnis prüfen und speichern, kein automatisches Nachlernen |
+| Rückmeldungen (B1) | Automatisch gemessen, Knöpfe „passt / passt nicht“ nur für Zusammenfassung, „Antwort nötig“ und Frist |
+| Reihenfolge | Phasen 1–4 wie unten, Phase 1 zuerst |
+
+Für alle Punkte gelten die Regeln aus Abschnitt 2: nur lokale Modelle mit `check_local_model`, Mailinhalte sind Daten, keine Modellaufrufe im Beispielpostfach.
+
+### Phase 1 – Grundlage, keine neuen Daten ans Modell
+
+- [ ] **C2 Schnelle Stichwahl:** eigener Aufruf `choose` im Rust-Crate statt voller Analyse. Eingabe: Betreff, Anfang der Mail (1.000 Zeichen), die zwei Kandidaten mit Steckbrief (je 400 Zeichen). Ausgabe nach Schema: `ordner` (einer der beiden oder null) und kurzer `grund`. Ergebnis je Mail-Signatur zwischengespeichert.
+- [ ] **A1 Modellinfo:** In den Einstellungen neben dem Modell Größe, Quantisierung, Kontextlänge und ob es auf der GPU läuft (Ollama `/api/show`, `/api/ps`; LM Studio und llama.cpp soweit verfügbar).
+- [ ] **A4 Zwei Modelle:** „Modell für Hintergrund“ (Analyse, Stichwahl, Aufgaben) und „Modell für Entwürfe“ (Antworten, Steckbriefe, Ordnernamen). Standard: dasselbe Modell. Beide werden mit `check_local_model` geprüft.
+- [ ] **B1 Rückmeldungen automatisch:** Zähler je Funktion, Modell und Tag, ohne Mailinhalte: Ablagevorschlag übernommen, abgelehnt oder anders abgelegt; Vorgangsvorschlag angenommen oder abgelehnt; erkannte Aufgaben übernommen oder nicht; Antwortentwurf unverändert, leicht oder stark geändert geöffnet. Dazu „passt / passt nicht“ an Zusammenfassung, „Antwort nötig“ und Frist in den Maildetails.
+
+### Phase 2 – bessere Eingaben und Auswertung
+
+- [ ] **C1 Verlauf und Anhänge:** Die Analyse bekommt bis zu 3 frühere Nachrichten derselben Unterhaltung (eingehend und gesendet, je höchstens 600 Zeichen, zitierter Text entfernt) und die Namen der Anhänge (höchstens 10, je 80 Zeichen). Der Outlook-Helfer liefert dafür Textauszüge der Unterhaltung. Der Prompt kennzeichnet alles als Daten.
+- [ ] **B2 Auswertung „KI-Qualität“:** Tabelle je Funktion mit Trefferquote der letzten 30 Tage, getrennt nach Modell, mit Trend. Hinweise wie „Ablagevorschläge nur 55 %: Steckbriefe für Einkauf und Labor prüfen“. Export als CSV.
+
+### Phase 3 – Stil und Modellwahl
+
+- [ ] **C3 Schreibstil:** Knopf „Stil aus gesendeten Mails lernen“ liest die letzten etwa 30 gesendeten Mails und leitet einen bearbeitbaren Stilsteckbrief ab (Anrede, Du oder Sie, Grußformel, Länge, typische Wendungen). Antwortentwürfe bekommen Stilsteckbrief und zwei eigene frühere Antworten auf ähnliche Mails (über die Einbettung) als Beispiel. Du oder Sie je Empfänger aus den bisherigen Mails.
+- [ ] **A2 „Modell testen“:** 5–10 Mails aus dem Beispielpostfach mit Sollwerten. Gemessen werden Antwortzeit, gültige Antworten und Treffer. Ergebnis als Note mit Tempo, keine echten Mails.
+- [ ] **A3 Empfehlung:** Tabelle nach Grafikspeicher für Chat- und Embedding-Modell mit kopierbarem `ollama pull`-Befehl. Das Board lädt nichts selbst herunter.
+
+### Phase 4 – weitere Ideen
+
+- [ ] **Tagesfokus:** In Triage-Schritt 1 bis zu 3 Vorschläge für den Fokus aus Fristen von heute, Aufgaben mit Frist, VIP-Absendern und überfälligem Warten. Ein Klick übernimmt, einzeln abwählbar.
+- [ ] **Nachfasstermine:** Beim Setzen auf „Warten“ ein Vorschlag aus einer Frist in der Mail oder der typischen Antwortzeit des Absenders (aus dem Mailverlauf), sonst der Standard aus den Einstellungen.
 
 ## 4. Einrichtungsassistent (entschieden am 23.11.2026)
 
