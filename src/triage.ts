@@ -1,6 +1,7 @@
 /** Morgen-Triage direkt auf dem Board: Ein Banner führt durch drei Schritte, das Board zeigt nur die Karten des Schritts. */
+import {focusReasonText, focusSuggestions} from './focus-suggest'
 import {briefing, briefingText, inTriageStep, triageSteps, type Case, type Routine} from './planning-logic'
-import {lastTriage, rememberTriage} from './planning-store'
+import {lastTriage, rememberTriage, skippedFocus} from './planning-store'
 import type {ViewState} from './views'
 import {showView} from './tabs'
 import {localDay, type ViewMail} from './views-logic'
@@ -20,6 +21,9 @@ type Options = {
   runRoutine(routine:Routine):void
   cases():Case[]
   toggleItem(caseName:string,itemId:string):void
+  vips():readonly string[]
+  adoptFocus(id:string):void
+  dismissFocus(id:string):void
 }
 
 function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
@@ -121,6 +125,33 @@ export function initTriage(options:Options){
     return details
   }
 
+  function renderFocus(){
+    if(step!==0)return
+    const today=localDay()
+    const mails=options.getMails()
+    const picks=focusSuggestions(mails,{today,overdueDays:options.overdueDays(),vips:options.vips(),dismissed:skippedFocus(today)})
+    if(!picks.length)return
+    const byId=new Map(mails.map(mail=>[mail.id,mail]))
+    const box=make('section');box.className='triage-focus';box.setAttribute('aria-label','Tagesfokus')
+    box.append(make('h3','Fokus für heute'))
+    const list=make('ul')
+    for(const pick of picks){
+      const mail=byId.get(pick.id)
+      if(!mail)continue
+      const item=make('li')
+      const title=mail.subject||'(ohne Betreff)'
+      item.append(
+        button(mail.sender?title+' · '+mail.sender:title,()=>options.onPick(pick.id)),
+        make('span',focusReasonText[pick.reason]),
+        button('In den Fokus',()=>options.adoptFocus(pick.id)),
+        button('Nicht vorschlagen',()=>options.dismissFocus(pick.id)),
+      )
+      list.append(item)
+    }
+    box.append(list)
+    return box
+  }
+
   function refresh(){
     syncTrigger()
     if(!active)return
@@ -136,7 +167,8 @@ export function initTriage(options:Options){
     const next=step===triageSteps.length-1?button('Triage beenden',()=>stop(true)):button('Nächster Schritt',()=>go(step+1))
     next.className='primary'
     actions.append(next,button('Triage abbrechen',()=>stop(false)))
-    banner.replaceChildren(head,make('p',info.hint),renderBriefing(),actions)
+    const focus=renderFocus()
+    banner.replaceChildren(head,make('p',info.hint),renderBriefing(),...(focus?[focus]:[]),actions)
     if(focused)Array.from(banner.querySelectorAll<HTMLElement>('button,summary')).find(n=>n.textContent===focused)?.focus()
   }
 
