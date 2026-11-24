@@ -1,6 +1,7 @@
 import { getLegacyConfig, getLegacyProfiles, getLegacyFile, updateConfig } from './data-settings'
 import type { Folder, Invoke } from './live'
 import { openTasks, type Task } from './tasks-taken'
+import { formatModelInfo } from './model-info'
 
 export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
 export type Suggestion = {folder:string;reason:string}
@@ -988,6 +989,30 @@ function renderOfflineAiSettings(container:HTMLElement) {
   container.append(note,test)
 }
 const sampleMail:AiMail={subject:'Rückfrage zur Lieferung',sender:'Beispiel Lieferant',body:'Guten Tag, wann wird unsere Bestellung 4711 geliefert? Bitte um kurze Rückmeldung bis Freitag.'}
+/**
+ * Zeile unter einem Modellfeld mit Größe, Quantisierung, Kontextlänge und Ladezustand (`ai_model_info`). Sendet nur den
+ * Modellnamen an den lokalen Server. Lädt bei Modellwechsel neu, ältere Antworten werden verworfen.
+ */
+function modelInfoLine(input:HTMLInputElement,address:()=>string,enabled:()=>boolean,fallback=''){
+  const line=document.createElement('p');line.className='field-hint model-info'
+  line.id='model-info-'+(++modelInfoIds);input.setAttribute('aria-describedby',line.id)
+  input.closest('label')?.after(line)
+  let version=0
+  const load=()=>{
+    const mine=++version, name=input.value.trim()
+    if(!name){line.textContent=fallback;return}
+    if(!enabled()){line.textContent='';return}
+    line.textContent='Modellangaben werden geladen …'
+    const failed=(error:unknown)=>{if(mine===version)line.textContent='Keine Modellangaben: '+(error instanceof Error?error.message:String(error))}
+    try{
+      native()<unknown>('ai_model_info',{url:address().trim(),model:name})
+        .then(info=>{if(mine===version)line.textContent=formatModelInfo(info)},failed)
+    }catch(error){failed(error)}
+  }
+  input.addEventListener('change',load)
+  return load
+}
+let modelInfoIds=0
 function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   const epoch=sourceEpoch
   const cfg=config()
@@ -1028,6 +1053,16 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen'
   const feedback=document.createElement('p');feedback.setAttribute('role','status')
   section.append(list,check,test,save,feedback);container.append(section)
+  // A1: Angaben zu jedem gewählten Modell, beim Öffnen der Einstellungen und nach einem Modellwechsel.
+  const infos=[modelInfoLine(model,()=>url.value,()=>on.checked),modelInfoLine(embedModel,()=>embedUrl.value,()=>on.checked)]
+  const loadInfos=()=>{if(current(epoch))for(const load of infos)load()}
+  const dialog=container.closest('dialog')
+  if(dialog){
+    new MutationObserver(()=>{if(dialog.open&&section.isConnected)loadInfos()}).observe(dialog,{attributes:true,attributeFilter:['open']})
+    if(dialog.open)loadInfos()
+  }else loadInfos()
+  for(const input of [url,embedUrl])input.addEventListener('change',loadInfos)
+  on.addEventListener('change',loadInfos)
   learningContainer.append(learnSection)
   renderLearning(learningContainer,getTrainingFolders)
   test.onclick=async()=>{

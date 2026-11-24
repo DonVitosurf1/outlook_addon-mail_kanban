@@ -910,3 +910,110 @@ async fn choose_limits_tokens_on_openai_compatible_servers() {
     let calls = server.join().unwrap();
     assert!(calls[3].contains("POST /v1/chat/completions") && calls[3].contains("\"max_tokens\":96"));
 }
+
+#[tokio::test]
+async fn model_info_reads_ollama_show_and_ps() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"details":{"parameter_size":"8.0B","quantization_level":"Q4_K_M"},
+                "model_info":{"general.architecture":"llama","llama.context_length":8192}}),
+        ),
+        (
+            "200 OK",
+            json!({"models":[{"name":"anderes:7b","size":10,"size_vram":10},
+                {"name":"lokal:latest","model":"lokal:latest","size":8000,"size_vram":6000}]}),
+        ),
+    ]);
+    let info = Ollama::new(&url).unwrap().model_info("lokal").await.unwrap();
+    assert_eq!(info.parameters, Some(8e9));
+    assert_eq!(info.quantization.as_deref(), Some("Q4_K_M"));
+    assert_eq!(info.context, Some(8192));
+    assert_eq!(info.loaded, Some(true));
+    assert_eq!(info.gpu, Some(0.75));
+    let calls = server.join().unwrap();
+    assert!(calls[0].contains("POST /api/show"));
+    assert!(calls[1].contains("GET /api/ps"));
+}
+
+#[tokio::test]
+async fn model_info_omits_missing_details_and_reports_unloaded_models() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"llama","general.parameter_count":4022468096u64}}),
+        ),
+        ("200 OK", json!({"models":[]})),
+    ]);
+    let info = Ollama::new(&url).unwrap().model_info("lokal").await.unwrap();
+    assert_eq!(info.parameters, Some(4022468096.0));
+    assert_eq!(info.quantization, None);
+    assert_eq!(info.context, None);
+    assert_eq!(info.loaded, Some(false));
+    assert_eq!(info.gpu, None);
+    let value = serde_json::to_value(&info).unwrap();
+    assert!(value.get("quantization").is_none() && value.get("gpu").is_none());
+    server.join().unwrap();
+    // Ein fehlendes /api/ps ist kein Fehler.
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"llama"}}),
+        ),
+        ("404 Not Found", Value::Null),
+    ]);
+    let info = Ollama::new(&url).unwrap().model_info("lokal").await.unwrap();
+    assert_eq!(info.loaded, None);
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn model_info_refuses_remote_models() {
+    let (url, server) = mock(vec![(
+        "200 OK",
+        json!({"remote_host":"https://elsewhere.invalid","model_info":{"x":1}}),
+    )]);
+    assert!(Ollama::new(&url).unwrap().model_info("alias").await.is_err());
+    assert_eq!(server.join().unwrap().len(), 1);
+    let (url, server) = mock(vec![]);
+    assert!(Ollama::new(&url).unwrap().model_info("qwen:cloud").await.is_err());
+    assert!(server.join().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn model_info_for_lm_studio_and_llama_cpp() {
+    let listing = json!({"data":[
+        {"id":"qwen2.5-7b-instruct","type":"llm","compatibility_type":"gguf","quantization":"Q4_K_M","state":"loaded","max_context_length":32768}
+    ]});
+    let (url, server) = mock(vec![
+        ("200 OK", unexpected("POST /api/show")),
+        ("200 OK", unexpected("GET /props")),
+        ("200 OK", listing.clone()),
+        ("200 OK", listing),
+    ]);
+    let info = Ollama::new(&url)
+        .unwrap()
+        .model_info("qwen2.5-7b-instruct")
+        .await
+        .unwrap();
+    assert_eq!(info.quantization.as_deref(), Some("Q4_K_M"));
+    assert_eq!(info.context, Some(32768));
+    assert_eq!(info.loaded, Some(true));
+    assert_eq!(info.gpu, None);
+    server.join().unwrap();
+    let props = json!({"model_path":"C:/Models/Qwen2.5-7B-Instruct-Q5_K_M.gguf","default_generation_settings":{"n_ctx":4096}});
+    let models = json!({"data":[{"id":"lokal","meta":{"n_params":7615616512u64}}]});
+    let (url, server) = mock(vec![
+        ("404 Not Found", Value::Null),
+        ("200 OK", props.clone()),
+        ("200 OK", models.clone()),
+        ("200 OK", props),
+        ("200 OK", models),
+    ]);
+    let info = Ollama::new(&url).unwrap().model_info("lokal").await.unwrap();
+    assert_eq!(info.quantization.as_deref(), Some("Q5_K_M"));
+    assert_eq!(info.context, Some(4096));
+    assert_eq!(info.parameters, Some(7615616512.0));
+    assert_eq!(info.loaded, Some(true));
+    server.join().unwrap();
+}

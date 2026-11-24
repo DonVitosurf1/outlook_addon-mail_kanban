@@ -22,6 +22,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_categories')return '[]'
   if(name==='ai_models')return ['embed-x','qwen3-embedding:0.6b','llama3:8b']
+  if(name==='ai_model_info'){window.infoArgs=(window.infoArgs||[]).concat([args]);return args.model==='llama3:8b'?{parameters:8030261248,quantization:'Q4_K_M',context:8192,loaded:true,size:1,gpu:1}:{parameters:6e8,quantization:'Q8_0',context:32768,loaded:false}}
   if(name==='ai_analyze'){await new Promise(r=>setTimeout(r,60));return {zusammenfassung:'x',antwort_noetig:true,arten:[],ordner:null,frist:null}}
   return '[]'
 }}}
@@ -49,6 +50,19 @@ try:
         hint = dialog.get_by_label("Geladene Outlook-Mails im Hintergrund analysieren")
         assert "Belastet Rechner" in page.locator("#" + hint.get_attribute("aria-describedby")).inner_text()
         expect(dialog.get_by_role("navigation", name="Abschnitte der Einstellungen")).to_be_visible()
+        # A1: Modellangaben beim Öffnen und nach einem Modellwechsel, nur mit dem Modellnamen.
+        embed_info = page.locator("#" + dialog.get_by_label("Embedding-Modell").get_attribute("aria-describedby"))
+        expect(embed_info).to_have_text("600 M · Q8_0 · 32.768 Token · noch nicht geladen")
+        chat = dialog.get_by_label("Sprachmodell", exact=True)
+        chat_info = page.locator("#" + chat.get_attribute("aria-describedby"))
+        expect(chat_info).to_have_text("")
+        chat.fill("llama3:8b")
+        chat.dispatch_event("change")
+        expect(chat_info).to_have_text("8 B · Q4_K_M · 8.192 Token · GPU")
+        assert page.evaluate("window.infoArgs.map(a=>Object.keys(a).sort().join(','))") == ["model,url"] * 2
+        chat.fill("")
+        chat.dispatch_event("change")
+        expect(chat_info).to_have_text("")
         dialog.get_by_role("navigation").get_by_role("button", name="Darstellung").click()
         expect(dialog.get_by_role("heading", name="Darstellung")).to_be_focused()
         dialog.get_by_role("button", name="Verbindung testen").click()

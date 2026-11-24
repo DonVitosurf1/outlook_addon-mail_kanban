@@ -259,6 +259,12 @@ impl Ollama {
     }
 
     async fn check_local_model(&self, model: &str) -> Result<()> {
+        self.local_metadata(model).await.map(|_| ())
+    }
+
+    /// Lokalitätsnachweis wie vor jedem Modellaufruf. Bei Ollama liefert er die Metadaten aus `/api/show`,
+    /// bei llama.cpp und LM Studio `None`.
+    async fn local_metadata(&self, model: &str) -> Result<Option<Value>> {
         if model.trim().is_empty() || is_cloud_name(model) {
             return Err("Bitte ein lokal installiertes Modell wählen.".into());
         }
@@ -279,7 +285,7 @@ impl Ollama {
                 }
                 self.backend
                     .store(backend as u8, std::sync::atomic::Ordering::Relaxed);
-                return Ok(());
+                return Ok(None);
             }
             Err(err) => return Err(err),
         };
@@ -296,7 +302,88 @@ impl Ollama {
                 "Dieses Modell wird extern ausgeführt. Bitte ein lokales Modell wählen.".into(),
             );
         }
-        Ok(())
+        Ok(Some(metadata))
+    }
+
+    /// Größe, Quantisierung, Kontextlänge und Ladezustand eines lokalen Modells (A1), nach demselben
+    /// Lokalitätsnachweis wie vor jedem Modellaufruf. Fehlende Angaben bleiben leer und sind kein Fehler.
+    pub async fn model_info(&self, model: &str) -> Result<ModelInfo> {
+        let Some(show) = self.local_metadata(model).await? else {
+            return Ok(match self.backend() {
+                Backend::LlamaCpp => self.llama_info(model).await,
+                _ => self.lm_studio_info(model).await,
+            });
+        };
+        let meta = &show["model_info"];
+        let details = &show["details"];
+        let mut info = ModelInfo {
+            parameters: meta["general.parameter_count"]
+                .as_f64()
+                .filter(|n| *n > 0.0)
+                .or_else(|| parameter_size(details["parameter_size"].as_str().unwrap_or(""))),
+            quantization: text(&details["quantization_level"]),
+            context: meta.as_object().and_then(|m| {
+                m.iter()
+                    .find(|(k, _)| k.ends_with(".context_length"))
+                    .and_then(|(_, v)| v.as_u64())
+            }),
+            ..ModelInfo::default()
+        };
+        if let Ok(ps) = self.http_json("/api/ps", None).await {
+            if let Some(list) = ps["models"].as_array() {
+                let running = list.iter().find(|m| {
+                    [&m["name"], &m["model"]]
+                        .iter()
+                        .any(|n| n.as_str().is_some_and(|n| same_model(n, model)))
+                });
+                info.loaded = Some(running.is_some());
+                if let Some(m) = running {
+                    let size = m["size"].as_f64().unwrap_or(0.0);
+                    let vram = m["size_vram"].as_f64().unwrap_or(0.0);
+                    if size > 0.0 {
+                        info.gpu = Some((vram / size).clamp(0.0, 1.0));
+                    }
+                }
+            }
+        }
+        Ok(info)
+    }
+
+    async fn lm_studio_info(&self, model: &str) -> ModelInfo {
+        let Ok(listing) = self.http_json("/api/v0/models", None).await else {
+            return ModelInfo::default();
+        };
+        let Some(entry) = listing["data"]
+            .as_array()
+            .and_then(|list| list.iter().find(|m| m["id"].as_str() == Some(model)))
+        else {
+            return ModelInfo::default();
+        };
+        ModelInfo {
+            quantization: text(&entry["quantization"]),
+            context: entry["max_context_length"].as_u64(),
+            loaded: entry["state"].as_str().map(|s| s == "loaded"),
+            ..ModelInfo::default()
+        }
+    }
+
+    async fn llama_info(&self, model: &str) -> ModelInfo {
+        let mut info = ModelInfo {
+            loaded: Some(true),
+            ..ModelInfo::default()
+        };
+        if let Ok(props) = self.http_json("/props", None).await {
+            info.context = props["default_generation_settings"]["n_ctx"].as_u64();
+            info.quantization = gguf_quantization(props["model_path"].as_str().unwrap_or(""));
+        }
+        if let Ok(listing) = self.http_json("/v1/models", None).await {
+            info.parameters = listing["data"]
+                .as_array()
+                .and_then(|list| list.iter().find(|m| m["id"].as_str() == Some(model)))
+                .and_then(|m| m["meta"]["n_params"].as_f64())
+                .filter(|n| *n > 0.0);
+        }
+        info
     }
 
     pub async fn analyze(&self, model: &str, mail: &Mail, folders: &[Folder]) -> Result<Analysis> {
@@ -562,6 +649,51 @@ impl Ollama {
     }
 }
 
+fn text(value: &Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| clip(s, 40))
+}
+
+/// Ollama nennt Modelle mit und ohne `:latest`.
+fn same_model(a: &str, b: &str) -> bool {
+    let base = |s: &str| s.strip_suffix(":latest").unwrap_or(s).to_string();
+    base(a) == base(b)
+}
+
+/// „8.0B“, „137M“ → Anzahl der Parameter.
+fn parameter_size(raw: &str) -> Option<f64> {
+    let raw = raw.trim();
+    let unit = raw.chars().last()?;
+    let number = &raw[..raw.len() - unit.len_utf8()];
+    let factor = match unit.to_ascii_uppercase() {
+        'B' => 1e9,
+        'M' => 1e6,
+        'K' => 1e3,
+        _ => return None,
+    };
+    number
+        .parse::<f64>()
+        .ok()
+        .filter(|n| n.is_finite() && *n > 0.0)
+        .map(|n| n * factor)
+}
+
+/// Quantisierung aus dem GGUF-Dateinamen, etwa „Qwen2.5-7B-Instruct-Q4_K_M.gguf“ → „Q4_K_M“.
+fn gguf_quantization(path: &str) -> Option<String> {
+    let name = path.rsplit(['/', '\\']).next()?;
+    let stem = name.strip_suffix(".gguf").or_else(|| name.strip_suffix(".GGUF"))?;
+    stem.split(['-', '.']).rev().find_map(|part| {
+        let upper = part.to_ascii_uppercase();
+        let digits = upper.strip_prefix("IQ").or_else(|| upper.strip_prefix('Q'));
+        let quant = digits.is_some_and(|d| d.starts_with(|c: char| c.is_ascii_digit()))
+            || ["F16", "BF16", "F32"].contains(&upper.as_str());
+        quant.then(|| clip(&upper, 40))
+    })
+}
+
 fn endpoint_missing(error: &str) -> bool {
     error.contains("HTTP 404.") || error.contains("HTTP 405.")
 }
@@ -663,6 +795,21 @@ pub struct Analysis {
     pub aufgaben: Vec<Task>,
 }
 
+/// Angaben zu einem lokalen Modell (A1). `gpu`: Anteil des geladenen Modells im Grafikspeicher (0 bis 1).
+#[derive(Serialize, Default, Debug, PartialEq)]
+pub struct ModelInfo {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameters: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantization: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loaded: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<f64>,
+}
+
 /// Ergebnis der Stichwahl: einer der beiden Kandidaten und ein kurzer Grund.
 #[derive(Serialize)]
 pub struct Choice {
@@ -713,6 +860,22 @@ mod tests {
         for due in ["2027-02-29", "2026-12-31", "2030-05-18"] {
             assert!(!plausible_deadline(due, "2027-01-01T12:45:00"));
         }
+    }
+    #[test]
+    fn model_details_from_names() {
+        assert_eq!(parameter_size("8.0B"), Some(8e9));
+        assert_eq!(parameter_size("137M"), Some(137e6));
+        assert_eq!(parameter_size("groß"), None);
+        assert_eq!(parameter_size(""), None);
+        assert_eq!(
+            gguf_quantization("C:\\Models\\Qwen2.5-7B-Instruct-Q4_K_M.gguf").as_deref(),
+            Some("Q4_K_M")
+        );
+        assert_eq!(gguf_quantization("/m/llama-3-8b.IQ3_XS.gguf").as_deref(), Some("IQ3_XS"));
+        assert_eq!(gguf_quantization("/m/phi-f16.gguf").as_deref(), Some("F16"));
+        assert_eq!(gguf_quantization("/m/model.gguf"), None);
+        assert!(same_model("qwen3:8b", "qwen3:8b") && same_model("lokal:latest", "lokal"));
+        assert!(!same_model("qwen3:8b", "qwen3:4b"));
     }
     #[test]
     fn invalid_vectors_rejected() {

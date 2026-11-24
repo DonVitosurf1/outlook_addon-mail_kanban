@@ -1,6 +1,6 @@
 use mailboard_ollama::cache::{Evaluation, EvaluationFolder, SampleIndex};
 use mailboard_ollama::index::{Cluster, Group, GroupMatch, Item, Outlier};
-use mailboard_ollama::{Analysis, Choice, Folder, Mail, Ollama, Sample, Score};
+use mailboard_ollama::{Analysis, Choice, Folder, Mail, ModelInfo, Ollama, Sample, Score};
 use tauri::Manager;
 
 #[tauri::command]
@@ -16,6 +16,12 @@ pub async fn ai_analyze(
     folders: Vec<Folder>,
 ) -> Result<Analysis, String> {
     Ollama::new(&url)?.analyze(&model, &mail, &folders).await
+}
+
+/// Größe, Quantisierung, Kontextlänge und Ladezustand eines lokalen Modells (A1). Sendet nur den Modellnamen.
+#[tauri::command]
+pub async fn ai_model_info(url: String, model: String) -> Result<ModelInfo, String> {
+    Ollama::new(&url)?.model_info(&model).await
 }
 
 /// Schnelle Stichwahl zwischen zwei Ordnern (C2).

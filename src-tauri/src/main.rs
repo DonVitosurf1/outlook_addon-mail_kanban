@@ -334,6 +334,7 @@ fn main() {
             projects::project_rename,
             projects::project_move,
             ai::ai_models,
+            ai::ai_model_info,
             ai::ai_analyze,
             ai::ai_choose,
             ai::ai_suggest,
