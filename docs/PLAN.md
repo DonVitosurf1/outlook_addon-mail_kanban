@@ -149,7 +149,7 @@ Für alle Schritte gilt:
 
 ### E7 Posteingang abarbeiten
 
-- [x] **Lesen:** Alle Posteingangsmails ohne Status werden gelesen. Heute liest `__backlog` die ältesten 300 (`outlook_backlog`). Der Befehl bekommt Grenze und Versatz, damit bis zu 2.000 Mails in Seiten gelesen werden. Das betrifft den C#-Helfer und braucht einen Vertragstest in `outlook-test/tests`.
+- [x] **Lesen:** Alle Posteingangsmails ohne Status werden gelesen. Heute liest `__backlog` die ältesten 300 (`outlook_backlog`). Der Befehl bekommt eine Grenze und einen Fortsetzungspunkt (Empfangszeit und EntryID der zuletzt geprüften Mail, `--backlog-page`), damit bis zu 2.000 Mails in Seiten gelesen werden, ohne die vorigen Seiten erneut zu lesen. Das betrifft den C#-Helfer und braucht einen Vertragstest in `outlook-test/tests`.
 - [x] **Einteilen** jeder Mail in **sicher** (Vorschlag mit hoher Sicherheit, wie `trustedFolderBatch`), **unsicher** oder **ohne Ziel**.
 - [x] **Sicher:** Stapel je Zielordner mit Betreffliste, je Stapel bestätigen (wie die sicheren Sammelvorschläge beim Aufräumen).
 - [x] **Unsicher:** öffnet „Posteingang aufräumen“ mit genau diesen Mails.
