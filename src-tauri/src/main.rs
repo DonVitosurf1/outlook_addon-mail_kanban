@@ -266,6 +266,13 @@ async fn outlook_training(folder: String, limit: u32, days: u32) -> Result<Strin
 }
 
 #[tauri::command]
+async fn outlook_thread(id: String, folder: String) -> Result<String, String> {
+    validate_id(&id)?;
+    validate_id(&folder)?;
+    run_helper(vec!["--thread".into(), id, folder]).await
+}
+
+#[tauri::command]
 async fn outlook_correspondence(days: u32, folders: Vec<String>) -> Result<String, String> {
     for id in &folders {
         validate_id(id)?;
@@ -324,6 +331,7 @@ fn main() {
             outlook_status,
             outlook_board,
             outlook_training,
+            outlook_thread,
             outlook_correspondence,
             backlog::outlook_backlog,
             outlook_field,
