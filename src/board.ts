@@ -7,7 +7,7 @@ import {colorSettings,applyLaneColor} from './category-colors'
 import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, updateConfig } from './data-settings'
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
 import demo from './demo.json'
-import { countsAsFiling, LiveBoard, type Folder, type Invoke } from './live'
+import { countsAsFiling, LiveBoard, omittedFolderNote, type Folder, type Invoke } from './live'
 import { BUSY_UNDO, UNDO_FAILED, offerUndoSkip } from './undo-ui'
 import { initSemanticSearch, renderSimilar } from './semantic-search'
 import { type FeedbackRevert, setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
@@ -217,7 +217,8 @@ async function connect(startOutlook=false) {
       const rows=await readRows(key,list)
       if(connection!==request)return
       sourceUpdated(rows,'outlook',list,key)
-      notify(mails.length+' Mails geladen.')
+      const note=omittedFolderNote(list)
+      notify(mails.length+' Mails geladen.'+(note?' '+note:''))
     }catch(error){
       if(connection!==request)return
       sourceUpdated([],'offline',[],'')
@@ -663,6 +664,8 @@ async function reloadFolders() {
     const list=await service.json<Folder[]>('outlook_folders')
     folders=list
     await refresh(list.some(f=>f.id===scope)?scope:'')
+    const note=omittedFolderNote(list)
+    if(note) notify(mails.length+' Mails geladen. '+note)
   })
 }
 async function start() {

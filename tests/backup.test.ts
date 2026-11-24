@@ -32,6 +32,13 @@ test('Eine erschöpfte Speicherquote lässt den Ausgangszustand intakt',()=>{
 test('Unlesbare native Optionen werden vor dem Wiederherstellen abgewiesen',()=>{
   assert.throws(()=>parseBackup(archive({'kanban-board-options-v1':'['})))
 })
+test('Unbekannte Schlüssel in der Sicherung werden nicht übernommen',()=>{
+  const values={'kanban-board-options-v1':'{}','fremder-schlüssel':'pflanz'}
+  const parsed=parseBackup(archive(values))
+  assert.equal(parsed.values['kanban-board-options-v1'],'{}')
+  assert.equal('fremder-schlüssel' in parsed.values,false)
+  assert.throws(()=>parseBackup(archive({'fremder-schlüssel':'allein'})),/Mail-Board/)
+})
 test('Routinen und Vorgänge reisen in der nativen Sicherung mit und werden als Liste geprüft',()=>{
   const values={'mailboard-routines-v1':'[{"id":"r","title":"Ablage","rhythm":"daily","created":"2026-11-20"}]','mailboard-cases-v1':'[]'}
   assert.deepEqual(parseBackup(archive(values)).values,values)

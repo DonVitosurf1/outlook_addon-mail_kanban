@@ -1,0 +1,8 @@
+[package]
+name = "mailboard-args"
+version = "0.2.2"
+edition = "2021"
+description = "Argument checks for the Outlook helper, without a desktop toolkit"
+
+[dependencies]
+serde_json = "1"

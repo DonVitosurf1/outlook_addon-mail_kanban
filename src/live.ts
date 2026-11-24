@@ -1,6 +1,13 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
 import {showToast} from './toast'
-export type Folder = {id:string; name:string; path:string; isInbox?:boolean}
+export type Folder = {id:string; name:string; path:string; isInbox?:boolean; omitted?:number}
+/** Satz für die Statuszeile, wenn der Ordnerlauf unterhalb der achten Ebene abbricht. Leer, wenn nichts fehlt. */
+export function omittedFolderNote(folders: readonly {omitted?: unknown}[]): string {
+  const count=folders.reduce((sum,folder)=>sum+(typeof folder.omitted==='number'&&folder.omitted>0?folder.omitted:0),0)
+  if(count===0)return ''
+  if(count===1)return '1 Ordner liegt tiefer als acht Ebenen und wird nicht angezeigt.'
+  return count+' Ordner liegen tiefer als acht Ebenen und werden nicht angezeigt.'
+}
 /** Höchstens so viele Ordner-IDs je Aufruf von `outlook_folder_counts`, damit die Befehlszeile des Helfers kurz bleibt (Windows: 32.767 Zeichen). */
 export const COUNT_CHUNK=150
 let countsReported=false

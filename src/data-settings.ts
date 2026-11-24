@@ -9,10 +9,29 @@ export function getLegacyFile(name:string):string|undefined {
 }
 let previousImport:string|null|undefined
 let parsedFiles:Snapshot={}
+function objectSetting(raw:string|null):Record<string,unknown> {
+  if(!raw)return {}
+  try {
+    const value:unknown=JSON.parse(raw)
+    return isRecord(value)?value:{}
+  } catch { return {} }
+}
+function stringList(raw:string|null):string[] {
+  try {
+    const value:unknown=JSON.parse(raw||'[]')
+    return Array.isArray(value)&&value.every(item=>typeof item==='string')?value:[]
+  } catch { return [] }
+}
 function importedFiles():Snapshot {
   const raw=localStorage.getItem(LEGACY)
   if(previousImport!==raw){
-    parsedFiles=raw?JSON.parse(raw):{}
+    parsedFiles={}
+    if(raw){
+      try {
+        const value:unknown=JSON.parse(raw)
+        if(isRecord(value)&&Object.values(value).every(item=>typeof item==='string')) parsedFiles=value as Snapshot
+      } catch { /* Beschädigter Import bleibt leer, das Board bleibt nutzbar. */ }
+    }
     previousImport=raw
   }
   return parsedFiles
@@ -26,20 +45,20 @@ export function getLegacyConfig():Record<string,unknown> {
   if(sampleMode)return {...sampleOptions}
   const source=importedFiles()
   if(source!==cachedSource){
-    cachedConfig=readLegacyConfig(source)
+    try { cachedConfig=readLegacyConfig(source) } catch { cachedConfig={} }
     cachedSource=source
   }
   const raw=localStorage.getItem(OPTIONS)
-  if(raw!==cachedOptions){options=JSON.parse(raw||'{}');cachedOptions=raw}
+  if(raw!==cachedOptions){options=objectSetting(raw);cachedOptions=raw}
   return {...cachedConfig,...options}
 }
 const REVISIONS='kanban-config-revisions-v1'
 export function updateConfig(values:Record<string,unknown>){
   if(sampleMode){sampleOptions={...sampleOptions,...values};return}
   const previous=localStorage.getItem(OPTIONS)||'{}'
-  const next=JSON.stringify({...JSON.parse(previous),...values})
+  const next=JSON.stringify({...objectSetting(previous),...values})
   if(previous===next)return
-  const revisions:string[]=JSON.parse(localStorage.getItem(REVISIONS)||'[]')
+  const revisions=stringList(localStorage.getItem(REVISIONS))
   localStorage.setItem(REVISIONS,JSON.stringify([previous,...revisions].slice(0,5)))
   localStorage.setItem(OPTIONS,next)
 }
@@ -59,7 +78,10 @@ export function getLegacyProfiles():Record<string,string> {
   return {...Object.fromEntries(entries), ...profileEdits()}
 }
 const PROFILE_EDITS='kanban-profile-edits-v1'
-function profileEdits():Record<string,string>{return JSON.parse(localStorage.getItem(PROFILE_EDITS)||'{}')}
+function profileEdits():Record<string,string>{
+  const value=objectSetting(localStorage.getItem(PROFILE_EDITS))
+  return Object.values(value).every(item=>typeof item==='string')?value as Record<string,string>:{}
+}
 export function setProfile(key:string,markdown:string){
   const edits=profileEdits()
   edits[key]=markdown.includes('## ')?markdown:'## Zweck\n'+markdown
@@ -89,7 +111,9 @@ const defaults:Snippet[]=[
 function allSnippets():Snippet[]{
   if(sampleMode)return defaults
   const custom=localStorage.getItem(SNIPPETS)
-  const values:unknown=custom!==null?JSON.parse(custom):getLegacyConfig().text_snippets
+  let values:unknown
+  try { values=custom!==null?JSON.parse(custom):getLegacyConfig().text_snippets }
+  catch { return defaults }
   if(!Array.isArray(values))return defaults
   const valid=values.filter((s):s is Snippet=>isRecord(s)&&typeof s.label==='string' && typeof s.body==='string' && ['note','follow_up'].includes(String(s.kind)))
   return valid.length || custom!==null?valid:defaults
@@ -133,7 +157,7 @@ function showSettings(){
     }
   })
   rollback.disabled=!localStorage.getItem(PREVIOUS)
-  const revisions:string[]=JSON.parse(localStorage.getItem(REVISIONS)||'[]')
+  const revisions=stringList(localStorage.getItem(REVISIONS))
   const saved=make('select')
   saved.setAttribute('aria-label','Gesicherter Einstellungsstand')
   revisions.forEach((_,i)=>saved.add(new Option((i+1)+'. vorheriger Stand',String(i))))

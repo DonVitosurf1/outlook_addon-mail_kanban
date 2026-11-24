@@ -1,5 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use mailboard_args::{draft_args, folder_counts_args, validate_id};
+
 static STATUS_PREFIX: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 #[tauri::command]
@@ -52,13 +54,6 @@ async fn outlook_inbox() -> Result<String, String> {
     run_helper(vec!["--inbox".into()]).await
 }
 
-fn validate_id(id: &str) -> Result<(), String> {
-    if id.is_empty() || id.len() > 8192 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("Ungültige Outlook-ID.".into());
-    }
-    Ok(())
-}
-
 #[tauri::command]
 async fn outlook_folders() -> Result<String, String> {
     run_helper(vec!["--folders".into()]).await
@@ -69,25 +64,6 @@ async fn outlook_folders() -> Result<String, String> {
 #[tauri::command]
 async fn outlook_folder_counts(folders: Option<Vec<String>>) -> Result<String, String> {
     run_helper(folder_counts_args(folders)?).await
-}
-
-/// Höchstlänge der Ordnerliste auf der Befehlszeile (Rest für Programmpfad und andere Argumente).
-const MAX_FOLDER_LIST: usize = 24_000;
-
-fn folder_counts_args(folders: Option<Vec<String>>) -> Result<Vec<String>, String> {
-    let mut args = vec!["--folder-counts".into()];
-    if let Some(ids) = folders {
-        for id in &ids {
-            validate_id(id)?;
-        }
-        let list = serde_json::to_string(&ids).map_err(|e| e.to_string())?;
-        // Die Befehlszeile unter Windows hält höchstens 32.767 Zeichen. Größere Listen teilt der Aufrufer auf.
-        if list.len() > MAX_FOLDER_LIST {
-            return Err("Zu viele Ordner für einen Aufruf. Bitte in kleineren Teilen abfragen.".into());
-        }
-        args.push(list);
-    }
-    Ok(args)
 }
 
 #[tauri::command]
@@ -222,15 +198,7 @@ async fn outlook_draft(
     mode: String,
     text: String,
 ) -> Result<String, String> {
-    validate_id(&id)?;
-    validate_id(&folder)?;
-    if !matches!(
-        mode.as_str(),
-        "reply" | "reply-all" | "forward" | "follow-up"
-    ) {
-        return Err("Unbekannte Entwurfsart.".into());
-    }
-    run_helper(vec!["--draft".into(), id, folder, mode, text]).await
+    run_helper(draft_args(&id, &folder, &mode, &text)?).await
 }
 
 #[tauri::command]
@@ -353,22 +321,4 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("Das Mail-Board konnte nicht gestartet werden");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::folder_counts_args;
-
-    #[test]
-    fn folder_counts() {
-        assert_eq!(folder_counts_args(None).unwrap(), vec!["--folder-counts"]);
-        assert_eq!(
-            folder_counts_args(Some(vec!["00AB".into(), "01CD".into()])).unwrap(),
-            vec!["--folder-counts", r#"["00AB","01CD"]"#]
-        );
-        assert!(folder_counts_args(Some(vec!["kein".into()])).is_err());
-        // 150 lange Outlook-IDs passen, eine Liste über der Höchstlänge nicht.
-        assert!(folder_counts_args(Some(vec!["AB".repeat(70); 150])).is_ok());
-        assert!(folder_counts_args(Some(vec!["AB".repeat(70); 200])).is_err());
-    }
 }
