@@ -71,16 +71,21 @@ async fn outlook_folder_counts(folders: Option<Vec<String>>) -> Result<String, S
     run_helper(folder_counts_args(folders)?).await
 }
 
+/// Höchstlänge der Ordnerliste auf der Befehlszeile (Rest für Programmpfad und andere Argumente).
+const MAX_FOLDER_LIST: usize = 24_000;
+
 fn folder_counts_args(folders: Option<Vec<String>>) -> Result<Vec<String>, String> {
     let mut args = vec!["--folder-counts".into()];
     if let Some(ids) = folders {
-        if ids.len() > 2000 {
-            return Err("Zu viele Ordner.".into());
-        }
         for id in &ids {
             validate_id(id)?;
         }
-        args.push(serde_json::to_string(&ids).map_err(|e| e.to_string())?);
+        let list = serde_json::to_string(&ids).map_err(|e| e.to_string())?;
+        // Die Befehlszeile unter Windows hält höchstens 32.767 Zeichen. Größere Listen teilt der Aufrufer auf.
+        if list.len() > MAX_FOLDER_LIST {
+            return Err("Zu viele Ordner für einen Aufruf. Bitte in kleineren Teilen abfragen.".into());
+        }
+        args.push(list);
     }
     Ok(args)
 }
@@ -360,6 +365,8 @@ mod tests {
             vec!["--folder-counts", r#"["00AB","01CD"]"#]
         );
         assert!(folder_counts_args(Some(vec!["kein".into()])).is_err());
-        assert!(folder_counts_args(Some(vec!["AB".into(); 2001])).is_err());
+        // 150 lange Outlook-IDs passen, eine Liste über der Höchstlänge nicht.
+        assert!(folder_counts_args(Some(vec!["AB".repeat(70); 150])).is_ok());
+        assert!(folder_counts_args(Some(vec!["AB".repeat(70); 200])).is_err());
     }
 }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {LiveBoard, UndoConflict} from '../src/live'
+import {COUNT_CHUNK, LiveBoard, UndoConflict, folderCounts} from '../src/live'
 
 function fixture(onFiled?:(delta:number, occurredAt:Date)=>void){
   const rows=new Map([['11',{folder:'01',status:'Offen'}],['22',{folder:'01',status:'Warten'}]])
@@ -180,4 +180,28 @@ test('neue Mail-IDs aus Verschieben und Rücknahme gehen an die Projekt-Historie
   await board.undo()
   board.remapMail('x','x')
   assert.deepEqual(seen,['11→'+moved,moved+'→'+String(Number(moved)+1)])
+})
+
+test('Ordnerzahlen: alle ohne Liste, sonst in Stücken, Fehler einmal gemeldet',async()=>{
+  const calls:(string[]|undefined)[]=[],reports:string[]=[]
+  let fail=false
+  const api={json:async<T>(_command:string,args?:Record<string,unknown>)=>{
+    const ids=args?.folders as string[]|undefined
+    calls.push(ids)
+    if(fail&&ids?.includes('F200'))throw new Error('Outlook beschäftigt')
+    return (ids??['A','B']).map(id=>({id,count:id==='B'?null:7})) as T
+  }}
+  const all=await folderCounts(api,undefined,text=>reports.push(text))
+  assert.deepEqual([...all],[['A',7]])
+  assert.deepEqual(calls,[undefined])
+  calls.length=0
+  const ids=Array.from({length:2*COUNT_CHUNK+10},(_,i)=>'F'+i)
+  const many=await folderCounts(api,[...ids,'F0'],text=>reports.push(text))
+  assert.equal(many.size,ids.length)
+  assert.deepEqual(calls.map(c=>c!.length),[COUNT_CHUNK,COUNT_CHUNK,10])
+  fail=true
+  const partial=await folderCounts(api,ids,text=>reports.push(text))
+  assert.equal(partial.size,COUNT_CHUNK)
+  await folderCounts(api,ids,text=>reports.push(text))
+  assert.deepEqual(reports,['Ordnerzahlen konnten nicht gelesen werden. Outlook beschäftigt'])
 })

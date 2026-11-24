@@ -35,7 +35,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_categories')return '[]'
   if(name==='outlook_folders')return JSON.stringify(folders)
   // Zahlen nur auf Anfrage: Einkauf 120 Mails, Labor nicht zählbar (fehlt in der Antwort).
-  if(name==='outlook_folder_counts')return JSON.stringify(args.folders.filter(id=>id!=='03').map(id=>({id,count:id==='02'?120:7})))
+  if(name==='outlook_folder_counts')return JSON.stringify((args.folders??folders.map(f=>f.id)).filter(id=>id!=='03').map(id=>({id,count:id==='02'?120:7})))
   if(name==='outlook_board')return JSON.stringify([{id:'m1',folderId:'01',folder:'Posteingang',status:'Offen',subject:'Neue Anfrage',sender:'Anna',body:'',tags:[],attachments:[]}])
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_training')return JSON.stringify(training[args.folder]||[])
@@ -82,7 +82,8 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(rows.filter(has_text='Einkauf').locator('td').first).to_have_text('120')
             expect(rows.filter(has_text='Labor').locator('td').first).to_have_text('–')
             counted = page.evaluate("calls.filter(c=>c[0]==='outlook_folder_counts')")
-            assert len(counted) == 1 and '02' in counted[0][1]['folders'], counted
+            # E1 fragt alle Ordner ohne ID-Liste ab: die Befehlszeile bleibt kurz.
+            assert len(counted) == 1 and 'folders' not in counted[0][1], counted
             # E1: Vorbelegung.
             for name in ['Einkauf', 'Labor', 'Kleinkram']:
                 expect(view.get_by_label('Lernen: ' + name, exact=True)).to_be_checked()

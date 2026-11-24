@@ -1,15 +1,31 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
+import {showToast} from './toast'
 export type Folder = {id:string; name:string; path:string; isInbox?:boolean}
+/** Höchstens so viele Ordner-IDs je Aufruf von `outlook_folder_counts`, damit die Befehlszeile des Helfers kurz bleibt (Windows: 32.767 Zeichen). */
+export const COUNT_CHUNK=150
+let countsReported=false
 /**
- * Anzahl der Elemente je Ordner-ID über `outlook_folder_counts` (`--folders` zählt nicht mehr, damit das Ordnerlesen schnell bleibt).
- * Fehlt eine Zahl (unbekannter Ordner, älterer Helfer, Fehler), fehlt sie in der Map: Aufrufer zeigen dann keine oder eine Untergrenze.
+ * Anzahl der Elemente je Ordner-ID über `outlook_folder_counts` (`--folders` zählt nicht, damit das Ordnerlesen schnell bleibt).
+ * Ohne `ids` alle Ordner in einem Aufruf ohne Liste, sonst in Stücken zu `COUNT_CHUNK` IDs. Fehlt eine Zahl (unbekannter Ordner, Fehler),
+ * fehlt sie in der Map: Aufrufer zeigen dann keine Zahl oder eine Untergrenze. Ein Fehler wird einmal je Sitzung über `report` gemeldet.
  */
-export async function folderCounts(api:{json<T>(command:string,args?:Record<string,unknown>):Promise<T>},ids:readonly string[]):Promise<Map<string,number>>{
-  if(!ids.length)return new Map()
+export async function folderCounts(api:{json<T>(command:string,args?:Record<string,unknown>):Promise<T>},ids?:readonly string[],
+  report:(text:string)=>void=text=>showToast(text)):Promise<Map<string,number>>{
+  const result=new Map<string,number>()
+  const add=(rows:unknown)=>{
+    for(const row of Array.isArray(rows)?rows:[])
+      if(row&&typeof row.id==='string'&&typeof row.count==='number')result.set(row.id,row.count)
+  }
   try{
-    const rows=await api.json<{id:string;count:number|null}[]>('outlook_folder_counts',{folders:[...new Set(ids)]})
-    return new Map((Array.isArray(rows)?rows:[]).filter(r=>typeof r?.count==='number').map(r=>[r.id,r.count as number]))
-  }catch{return new Map()}
+    if(!ids)add(await api.json('outlook_folder_counts'))
+    else{
+      const unique=[...new Set(ids)]
+      for(let i=0;i<unique.length;i+=COUNT_CHUNK)add(await api.json('outlook_folder_counts',{folders:unique.slice(i,i+COUNT_CHUNK)}))
+    }
+  }catch(error){
+    if(!countsReported){countsReported=true;report('Ordnerzahlen konnten nicht gelesen werden. '+(error instanceof Error?error.message:String(error)))}
+  }
+  return result
 }
 export function countsAsFiling(folder:Folder, archivePath:string) {
   return !folder.isInbox && folder.path!==archivePath

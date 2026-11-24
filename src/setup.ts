@@ -231,7 +231,8 @@ registerStep('E1',ctx=>{
   async function countFolders(){
     const service=ctx.host.service()
     if(!service)return
-    const counts=await folderCounts(service,folders.map(f=>f.id))
+    // Alle Ordner ohne ID-Liste: die Befehlszeile bleibt kurz, egal wie viele Ordner es gibt.
+    const counts=await folderCounts(service)
     if(!ctx.active()||!counts.size)return
     folders=folders.map(f=>counts.has(f.id)?{...f,count:counts.get(f.id)}:f)
     for(const folder of folders){const cell=amounts.get(folder.id);if(cell)showAmount(folder,cell)}
