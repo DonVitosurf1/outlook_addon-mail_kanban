@@ -7,7 +7,8 @@ import {colorSettings,applyLaneColor} from './category-colors'
 import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, updateConfig } from './data-settings'
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
 import demo from './demo.json'
-import { countsAsFiling, LiveBoard, UndoSkippable, type Folder, type Invoke } from './live'
+import { countsAsFiling, LiveBoard, type Folder, type Invoke } from './live'
+import { BUSY_UNDO, offerUndoSkip } from './undo-ui'
 import { initSemanticSearch, renderSimilar } from './semantic-search'
 import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
 import { BoardViews, matchesQuery } from './views'
@@ -384,29 +385,49 @@ function reporting(failed:((text:string)=>void)|undefined,action:()=>Promise<voi
 }
 /** Kennung des letzten Rücknahme-Schritts, um einen eigenen Schritt später gezielt zurückzunehmen. */
 function undoMarker(){return isLive()?(service?.latest||0)+':'+projectUndoLatest():String(demoSteps)}
-async function undoIfLatest(marker:string){
-  if(undoMarker()!==marker)return false
+/**
+ * Nimmt den Schritt `marker` zurück, wenn er noch der neueste ist. `done`: zurückgenommen (oder die Rücknahme wurde versucht),
+ * `stale`: danach wurde etwas anderes geändert, `busy`: das Board ist beschäftigt, nichts geändert, später noch einmal versuchen.
+ */
+async function undoIfLatest(marker:string):Promise<UndoOutcome>{
+  if(undoMarker()!==marker)return 'stale'
+  if(busy)return 'busy'
   await undo()
-  return true
+  return 'done'
 }
+type UndoOutcome='done'|'stale'|'busy'
 /** Rückgängig für die Rückmeldung: nimmt nur den gerade aufgezeichneten Schritt zurück, nie einen späteren. */
 function undoThisStep(){
   const marker=undoMarker()
-  return ()=>void undoIfLatest(marker).then(done=>{if(!done)showToast('Rückgängig nicht mehr möglich, weil danach etwas anderes geändert wurde.')})
+  const run=()=>void undoIfLatest(marker).then(outcome=>{
+    // Beschäftigt: die Rückmeldung erscheint erneut mit Rückgängig, solange der Schritt der neueste bleibt.
+    if(outcome==='busy')showToast(BUSY_UNDO,run)
+    else if(outcome==='stale')showToast('Rückgängig nicht mehr möglich, weil danach etwas anderes geändert wurde.')
+  })
+  return run
+}
+/** Aufgaben nach der Rücknahme eines bestimmten Schritts (Rückmeldung oder Strg+Z), je Kennung. Nur für diese Sitzung. */
+const undoHooks=new Map<string,()=>void>()
+/** Merkt `run` für den zuletzt aufgezeichneten Schritt. Direkt nach der Änderung aufrufen. */
+function afterUndo(run:()=>void){
+  const marker=undoMarker(),previous=undoHooks.get(marker)
+  undoHooks.set(marker,previous?()=>{previous();run()}:run)
+  // Der Stapel hält höchstens `undoLimit` Schritte. Ältere Kennungen sind nicht mehr erreichbar.
+  for(const key of [...undoHooks.keys()].slice(0,Math.max(0,undoHooks.size-4*undoLimit)))undoHooks.delete(key)
+}
+function runUndoHook(marker:string){
+  const hook=undoHooks.get(marker)
+  undoHooks.delete(marker)
+  try{hook?.()}catch(e){notify(errorText(e))}
 }
 async function undo() {
   if(!hasMailbox())return
   await exclusive(async()=>{
-    const label=latestUndoLabel()
-    const done=()=>showToast(label?'Zurückgenommen: '+label:'Änderung rückgängig gemacht.')
+    const label=latestUndoLabel(),marker=undoMarker()
+    const done=()=>{showToast(label?'Zurückgenommen: '+label:'Änderung rückgängig gemacht.');runUndoHook(marker)}
     if(isLive()) {
       // Ein Schritt, der nicht ganz zurückgeht, lässt sich überspringen, damit er den Stapel nicht blockiert.
-      const offerSkip=async(error:unknown)=>{
-        if(!(error instanceof UndoSkippable))throw error
-        const skip=await ask(document.body,error.message+' Diesen Rückgängig-Schritt überspringen und den aktuellen Outlook-Wert behalten?', 'Schritt überspringen')
-        if(skip)error.skip()
-        notify(skip?'Rückgängig-Schritt übersprungen.':'Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
-      }
+      const offerSkip=async(error:unknown)=>notify(await offerUndoSkip(document.body,error))
       await service!.writeBatch(async()=>{
         try {if(await undoProjectIfLatest(service?.latest||0)){done();return}}
         catch(error){await offerSkip(error);return}
@@ -488,7 +509,7 @@ function initDetailBar() {
 }
 function showTasks(mail:Mail) {
   renderMailTasks(el('tasks'),mail,{cases:()=>allCases(mails),canAssign:hasMailbox,confirm:(question,label)=>ask(dialog,question,label),
-    assign:(m,name)=>assignCase([m.id],name,true),marker:undoMarker,undoIfLatest,
+    assign:(m,name)=>assignCase([m.id],name,true),marker:undoMarker,undoIfLatest,afterUndo,
     refresh:()=>{for(const m of mails)restoreAnalysis(m);if(selected)selected=mails.find(m=>m.id===selected!.id)||selected;window.dispatchEvent(new Event('kanban-analysis'))}})
 }
 window.addEventListener('kanban-analysis',()=>{if(selected&&dialog.open)showTasks(selected)})
@@ -662,6 +683,7 @@ async function start() {
       return problem
     },
     undoStep:undoThisStep,
+    afterUndo,
     review:(list,onClose)=>cockpit.openCleanup(list,onClose)})
   el('setupOpen').onclick=()=>setup?.open()
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,

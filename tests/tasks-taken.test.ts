@@ -1,6 +1,6 @@
 import {strict as assert} from 'node:assert'
 import test from 'node:test'
-import {openTasks, setTaken, takenTasks, TAKEN} from '../src/tasks-taken'
+import {openTasks, releaseTaken, setTaken, takenTasks, TAKEN} from '../src/tasks-taken'
 
 const data=new Map<string,string>()
 ;(globalThis as {localStorage?:unknown}).localStorage={getItem:(k:string)=>data.get(k)??null,setItem:(k:string,v:string)=>{data.set(k,v)},removeItem:(k:string)=>{data.delete(k)}}
@@ -29,6 +29,10 @@ test('Gleich lautende Aufgaben zählen einzeln',()=>{
   setTaken('m3',[...takenTasks('m3'),'Anrufen'])
   assert.deepEqual(takenTasks('m3'),['Anrufen','Anrufen'])
   assert.deepEqual(openTasks(twice,'m3'),[twice[2]])
+  releaseTaken('m3',['Anrufen','Unbekannt'])
+  assert.deepEqual(takenTasks('m3'),['Anrufen'])
+  releaseTaken('m3',['Anrufen'])
+  assert.equal(JSON.parse(data.get(TAKEN)!)['m3'],undefined)
 })
 test('Defekter Speicher gilt als leer',()=>{
   data.set(TAKEN,'{kaputt')

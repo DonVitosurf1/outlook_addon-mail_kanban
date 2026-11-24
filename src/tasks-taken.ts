@@ -22,6 +22,12 @@ export function setTaken(id:string,texts:readonly string[]){
   for(const k of keys.slice(0,Math.max(0,keys.length-LIMIT)))delete all[k]
   try{localStorage.setItem(TAKEN,JSON.stringify(all))}catch{ /* Der Merker ist nur eine Bequemlichkeit. */ }
 }
+/** Gibt je Text eine Übernahme wieder frei (Rückgängig). Spätere Übernahmen gleicher Texte bleiben gemerkt. */
+export function releaseTaken(id:string,texts:readonly string[]){
+  const left=[...takenTasks(id)]
+  for(const text of texts){const i=left.lastIndexOf(text);if(i>=0)left.splice(i,1)}
+  setTaken(id,left)
+}
 /** Noch nicht übernommene Aufgaben. Ohne Feld (ältere Analyse) bleibt das Ergebnis `undefined`. */
 export function openTasks(tasks:readonly Task[]|undefined,id:string){
   if(!Array.isArray(tasks))return undefined

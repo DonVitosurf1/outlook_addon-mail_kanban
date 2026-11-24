@@ -259,10 +259,19 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             stuck.get_by_role('button', name='Abbrechen').click()
             expect(page.locator('#message')).to_have_text('Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
             assert counts()['Laborbedarf'] == 4 and counts()['Labor'] == 41, counts()
-            view.locator('h3').focus()
-            page.keyboard.press('Control+z')
-            stuck.get_by_role('button', name='Schritt überspringen').click()
-            expect(page.locator('#message')).to_have_text('Rückgängig-Schritt übersprungen.')
+            # Im Projektdialog dieselbe Rückfrage: hier überspringen.
+            page.locator('#moreTools summary').click()
+            page.locator('#projectTools').click()
+            tools = page.get_by_role('dialog', name='Ordner und Steckbriefe')
+            expect(tools.get_by_role('status')).to_contain_text('Ordner geladen')
+            tools.get_by_role('button', name='Letzte Projektänderung zurücknehmen').click()
+            asked = tools.get_by_role('dialog').filter(has_text='1 Mail konnte nicht nach „Laborbedarf“ zurückverschoben werden')
+            expect(asked).to_contain_text('Diesen Rückgängig-Schritt überspringen und den aktuellen Outlook-Wert behalten?')
+            assert calls('outlook_undo')[-1][2], calls('outlook_undo')[-1]
+            asked.get_by_role('button', name='Schritt überspringen').click()
+            expect(tools.get_by_role('status')).to_have_text('Rückgängig-Schritt übersprungen.')
+            tools.get_by_role('button', name='Schließen', exact=True).last.click()
+            expect(tools).to_be_hidden()
             assert counts()['Laborbedarf'] == 4 and counts()['Labor'] == 41, counts()
             # Der nächste Schritt im Stapel ist wieder erreichbar: das Umbenennen.
             view.locator('h3').focus()

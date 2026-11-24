@@ -7,6 +7,7 @@ import {draftProfile, relabelLearning} from './ai'
 import {MERGED_FOLDER, mergePlan, restoreRules, restoreTargets, retarget, retargetRules} from './refine'
 import {profileDocument,profileName} from './profile-file'
 import {openStructure} from './structure'
+import {offerUndoSkip} from './undo-ui'
 let liveService:LiveBoard|undefined
 let generation=0
 const trigger=document.getElementById('projectTools') as HTMLButtonElement|null
@@ -458,7 +459,17 @@ async function showTools(){
   folders.onchange=fill
   controls.append(label('Ordner',folders),board.label,learn.label,archive.label,recursive.label,scopes,label('Neuer Name',name),create,rename,relocate,
     label('Steckbrief (Markdown)',note),importFile,button('Markdown laden',()=>importFile.click()),exportFile,draft,profile,structure,button('Mails in Zielordner verteilen …',()=>{if(current())distribute(service,current()!,all,changed)}),button('Letzte Projektänderung zurücknehmen',()=>run(async()=>{
-      if(!await undoProjectIfLatest(0)){status.textContent='Keine Projektänderung zum Zurücknehmen.';return}
+      // Im Schreibstapel wie beim Rückgängig des Boards, damit das Fenster eine laufende Rücknahme nicht abbricht.
+      let undone=false
+      try{await service.writeBatch(async()=>{undone=await undoProjectIfLatest(0)})}
+      catch(error){
+        // Teilweise gescheitert: dieselbe Rückfrage wie beim Rückgängig des Boards.
+        const text=await offerUndoSkip(d,error)
+        await reload()
+        status.textContent=text
+        return
+      }
+      if(!undone){status.textContent='Keine Projektänderung zum Zurücknehmen.';return}
       await reload()
     })))
   d.append(heading,controls,status,button('Schließen',()=>d.close()))

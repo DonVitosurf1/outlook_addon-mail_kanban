@@ -23,10 +23,11 @@ window.store=[
   {id:'a1',folderId:'01',folder:'Posteingang',status:'Offen',subject:'AW: Angebot Zentrifuge, Freigabe',sender:'Anna',body:'Bitte gib das Angebot frei und melde dich beim Techniker.',received:'2026-11-20T08:00:00',tags:[],attachments:[]},
 ]
 window.tagCalls=[];window.analyzed=0
+window.hold=Promise.resolve()
 window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_batch'){window.batchActive=args.active;return}
   if(name==='outlook_categories')return '[]'
-  if(name==='outlook_folders')return JSON.stringify(folders)
+  if(name==='outlook_folders'){await window.hold;return JSON.stringify(folders)}
   if(name==='outlook_board')return JSON.stringify(window.store)
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='ai_models')return ['lokal']
@@ -59,8 +60,11 @@ def open_tasks(page, base):
 
 
 def check_undo(browser, base, due):
-    """(a) Rückgängig stellt Kategorie, Punkte und Pille wieder her. (b) Nach einer anderen Änderung bleibt diese stehen."""
-    for stale in (False, True):
+    """(a) Rückgängig stellt Kategorie, Punkte und Pille wieder her. (b) Nach einer anderen Änderung bleibt diese stehen.
+    (c) Strg+Z statt der Rückmeldung nimmt Punkte, neuen Vorgang und Merker mit zurück. (d) Ist das Board beschäftigt, meldet
+    Rückgängig das und bietet es erneut an, statt still nichts zu tun."""
+    for variant in ('toast', 'stale', 'ctrlz', 'busy'):
+        stale = variant == 'stale'
         page = browser.new_page(viewport={'width': 1280, 'height': 900})
         page.add_init_script("localStorage.setItem('board.layout.intro','1')")
         page.add_init_script(f"window.DUE='{due}'")
@@ -78,12 +82,37 @@ def check_undo(browser, base, due):
             assert page.evaluate('store[0].tags') == ['Vorgang: Angebot Zentrifuge Freigabe', 'Fokus'], page.evaluate('store[0].tags')
             expect(page.locator('#mail-a1 .count-tasks')).to_have_text('2 Aufgaben')
         else:
-            page.locator('.toast').get_by_role('button', name='Rückgängig').click()
+            if variant == 'ctrlz':
+                page.keyboard.press('Escape')
+                page.locator('#mail-a1').focus()
+                page.keyboard.press('Control+z')
+                expect(page.locator('.toast')).to_contain_text('Zurückgenommen')
+            elif variant == 'busy':
+                page.evaluate("window.keep=document.querySelector('.toast button')")
+                page.evaluate("window.hold=new Promise(r=>window.release=r);0")
+                # Ein Neuladen der Ordner hält das Board beschäftigt.
+                page.evaluate("window.dispatchEvent(new Event('mailboard:foldersChanged'))")
+                expect(page.locator('#undo')).to_be_disabled()
+                page.evaluate('window.keep.click()')
+                busy = page.locator('.toast', has_text='Das Board ist gerade beschäftigt. Bitte gleich noch einmal.')
+                expect(busy).to_be_visible()
+                assert page.evaluate('store[0].tags') == ['Vorgang: Angebot Zentrifuge Freigabe']
+                assert page.evaluate("Object.keys(JSON.parse(localStorage.getItem('mailboard-tasks-taken-v1'))).length") == 1
+                page.evaluate('window.release()')
+                expect(page.locator('#undo')).to_be_enabled()
+                page.evaluate("document.querySelector('.toast button').click()")
+                expect(page.locator('.toast')).to_contain_text('Zurückgenommen')
+            else:
+                page.locator('.toast').get_by_role('button', name='Rückgängig').click()
             expect(page.locator('#mail-a1 .count-tasks')).to_have_text('2 Aufgaben')
             assert page.evaluate('store[0].tags') == []
             assert page.evaluate("localStorage.getItem('mailboard-tasks-taken-v1')") in (None, '{}')
+        page.keyboard.press('Escape')
         page.get_by_role('tab', name='Vorgänge').click()
         expect(page.locator('#casesView')).not_to_contain_text('Angebot freigeben')
+        if not stale:
+            # Kein leerer Vorgang ohne Mail bleibt zurück.
+            expect(page.locator('#casesView')).not_to_contain_text('Angebot Zentrifuge Freigabe')
         page.close()
 
 

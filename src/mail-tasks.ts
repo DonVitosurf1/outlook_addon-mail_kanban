@@ -2,8 +2,9 @@
 import {embeddingId} from './ai'
 import {caseNameFromSubject, caseNameProblem, caseNames, caseTag, type Case} from './planning-logic'
 import {newId, updateCase} from './planning-store'
-import {setTaken, takenTasks, type Task} from './tasks-taken'
+import {releaseTaken, setTaken, takenTasks, type Task} from './tasks-taken'
 import {showToast} from './toast'
+import {BUSY_UNDO} from './undo-ui'
 import {localDay} from './views-logic'
 
 type TaskMail = {subject:string;tags:string[];id:string;aiTasks?:Task[];received?:string;sender:string;body:string}
@@ -16,8 +17,10 @@ type Options = {
   confirm(question:string,label:string):Promise<boolean>
   /** Kennung des letzten Rücknahme-Schritts. */
   marker():string
-  /** Nimmt den letzten Schritt nur zurück, wenn er noch zur Kennung passt. Liefert, ob das geschah. */
-  undoIfLatest(marker:string):Promise<boolean>
+  /** Nimmt den letzten Schritt nur zurück, wenn er noch zur Kennung passt: `done`, sonst `stale` (später geändert) oder `busy` (Board beschäftigt). */
+  undoIfLatest(marker:string):Promise<'done'|'stale'|'busy'>
+  /** Ruft `run` auf, sobald der zuletzt aufgezeichnete Schritt zurückgenommen wird, ob über die Rückmeldung oder Strg+Z. */
+  afterUndo(run:()=>void):void
   /** Wendet die Analyse-Ergebnisse (ohne übernommene Aufgaben) neu auf die geladenen Mails an und zeichnet Karten und Details neu. */
   refresh():void
 }
@@ -78,21 +81,32 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
         if(outcome==='failed'||(outcome==='recorded'&&now===previous)){dropItems();status.textContent='Die Zuordnung zum Vorgang ist fehlgeschlagen. Die Punkte wurden nicht übernommen.';return}
         if(outcome==='recorded')marker=now
       }
-      const id=embeddingId(mail),before=takenTasks(id),originals=chosen.map(r=>r.task.text)
-      setTaken(id,[...before,...originals])
+      const id=embeddingId(mail),originals=chosen.map(r=>r.task.text)
+      setTaken(id,[...takenTasks(id),...originals])
+      // Punkte und Merker zurücknehmen. Ein neuer Vorgang verschwindet mit, wenn danach keine anderen Punkte hinzukamen.
+      const release=(keepCase:boolean)=>{
+        updateCase(name,c=>{const items=c.items.filter(i=>!ids.has(i.id));return isNew&&!keepCase&&!items.length?undefined:{...c,items}})
+        releaseTaken(id,originals)
+      }
+      // Die Zuordnung zum neuen Vorgang ist ein eigener Rückgängig-Schritt: auch Strg+Z nimmt Punkte, Vorgang und Merker mit zurück.
+      if(marker)options.afterUndo(()=>{release(false);options.refresh()})
       options.refresh()
-      showToast(added.length+(added.length===1?' Punkt':' Punkte')+' in „'+name+'“ übernommen.',()=>void (async()=>{
-        updateCase(name,c=>({...c,items:c.items.filter(i=>!ids.has(i.id))}))
-        setTaken(id,before)
+      const revert=async()=>{
         let kept=false
-        if(isNew&&!marker)dropItems()
-        else if(isNew){
-          try{if(await options.undoIfLatest(marker))dropItems();else kept=true}
-          catch(error){status.textContent=error instanceof Error?error.message:String(error);kept=true}
+        if(marker){
+          let outcome:'done'|'stale'|'busy'
+          try{outcome=await options.undoIfLatest(marker)}
+          catch(error){status.textContent=error instanceof Error?error.message:String(error);outcome='stale'}
+          if(outcome==='busy'){showToast(BUSY_UNDO,()=>void revert());return}
+          // Zurückgenommen: das Aufräumen übernimmt `afterUndo`.
+          if(outcome==='done')return
+          kept=true
         }
+        release(kept)
         options.refresh()
         if(kept)showToast('Die Zuordnung zum Vorgang bleibt, weil danach etwas anderes geändert wurde.')
-      })())
+      }
+      showToast(added.length+(added.length===1?' Punkt':' Punkte')+' in „'+name+'“ übernommen.',()=>void revert())
     }catch(error){status.textContent=error instanceof Error?error.message:String(error)}
     finally{take.disabled=false}
   }

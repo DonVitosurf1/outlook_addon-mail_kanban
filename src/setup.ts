@@ -65,6 +65,8 @@ export type SetupHost={
   exclusive(action:()=>Promise<void>):Promise<string>
   /** Rückgängig für die Rückmeldung: nimmt nur den zuletzt aufgezeichneten Schritt zurück. Direkt nach der Änderung holen. */
   undoStep():()=>void
+  /** Ruft `run` auf, sobald der zuletzt aufgezeichnete Schritt zurückgenommen wird (Rückmeldung oder Strg+Z). Direkt nach der Änderung aufrufen. */
+  afterUndo(run:()=>void):void
   /**
    * Öffnet „Posteingang aufräumen“ (cleanup.ts) mit genau diesen Mails, auch wenn sie nicht auf dem Board stehen.
    * Verschiebt die Durchsicht eine Mail, ändern sich `folderId` und `folder` der übergebenen Mail, bei einer Statusänderung `status`.
