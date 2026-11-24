@@ -123,7 +123,15 @@ export function initCases(options:Options){
     const selected=options.selection().filter(id=>!linked.some(m=>m.id===id))
     if(linked.length)actions.append(button('Auf dem Board zeigen',()=>{showView('board');options.showOnBoard(c.name)}))
     if(options.canPublish?.()&&options.publish){
-      const publish=button(c.capacitiesId?'Aufgaben in Capacities aktualisieren':'In Capacities anlegen',()=>void options.publish!(c.name))
+      const label=c.capacitiesId?'Aufgaben in Capacities aktualisieren':'In Capacities anlegen'
+      const publish=button('',()=>void options.publish!(c.name))
+      publish.className='icon-button'
+      publish.title=label
+      publish.setAttribute('aria-label',label)
+      if(c.capacitiesId)publish.setAttribute('aria-pressed','true')
+      publish.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'+(c.capacitiesId
+        ?'<path d="M8 12.2 10.3 14.5 16 8.8"/><path d="M6.5 6.5h11v11h-11z"/>'
+        :'<path d="M12 16V5"/><path d="M8 8.5 12 4.5l4 4"/><path d="M6 19.5h12"/>')+'</svg>'
       actions.append(publish)
     }
     if(selected.length)actions.append(button(selected.length+' markierte Karten zuordnen',()=>void assign(selected,c.name,true)))

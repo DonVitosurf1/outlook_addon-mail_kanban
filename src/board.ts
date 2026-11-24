@@ -523,6 +523,21 @@ function initDetailBar() {
     e.preventDefault()
   })
 }
+const glyphs={
+  note:'<path d="M7 3.5h7.2L19 8.2V20.5H7z"/><path d="M14.2 3.5V8.5H19"/><path d="M10 12.5h5M10 16h5"/>',
+  link:'<path d="M10 14.2 14.2 10"/><path d="M8.6 16.2 7.2 17.6a3.1 3.1 0 0 1-4.4-4.4l1.4-1.4"/><path d="M15.4 7.8 16.8 6.4a3.1 3.1 0 0 1 4.4 4.4l-1.4 1.4"/>',
+  sentence:'<path d="M5 8h14M5 12h8M5 16h14"/><path d="M15.2 10.6h4.2v3.2h-4.2z"/>',
+}
+function iconButton(label:string,glyph:string,run:()=>void){
+  const node=tag('button','')
+  node.type='button'
+  node.className='icon-button'
+  node.title=label
+  node.setAttribute('aria-label',label)
+  node.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'+glyph+'</svg>'
+  node.onclick=run
+  return node
+}
 let noting=false
 function fillCapacities(mail:Mail){
   let box=document.getElementById('capacitiesMail')
@@ -537,20 +552,13 @@ function fillCapacities(mail:Mail){
   box.hidden=!isLive()
   if(!isLive())return
   const saved=capacitiesMailRecord(mail.id)
-  const note=tag('button',saved.noteId?'Notiz in Capacities vorhanden':'Als Notiz in Capacities')
-  note.type='button'
-  note.onclick=()=>void publishMailNote(mail)
+  const noteLabel=saved.noteId?'Notiz in Capacities vorhanden':'Als Notiz in Capacities'
+  const note=iconButton(noteLabel,glyphs.note,()=>void publishMailNote(mail))
+  if(saved.noteId)note.setAttribute('aria-pressed','true')
   box.append(note)
-  if(saved.noteId&&capacitiesWebLinks(mail.body||'').length){
-    const links=tag('button','Links in Capacities übernehmen')
-    links.type='button'
-    links.onclick=()=>void publishMailLinks(mail)
-    box.append(links)
-  }
-  const atom=tag('button','Satz als atomare Notiz')
-  atom.type='button'
+  if(saved.noteId&&capacitiesWebLinks(mail.body||'').length)box.append(iconButton('Links in Capacities übernehmen',glyphs.link,()=>void publishMailLinks(mail)))
+  const atom=iconButton('Satz als atomare Notiz',glyphs.sentence,()=>void publishAtom(mail))
   atom.onmousedown=event=>event.preventDefault()
-  atom.onclick=()=>void publishAtom(mail)
   box.append(atom)
 }
 async function publishMailNote(mail:Mail){

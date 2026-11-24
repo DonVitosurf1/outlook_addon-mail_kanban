@@ -78,6 +78,12 @@ button, .tools > summary, #viewMenu > summary {
   background: var(--surface); min-height: 2.1rem; cursor: pointer;
   line-height: 1.35; overflow-wrap: anywhere;
 }
+button.icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.1rem; padding: 0;
+}
+button.icon-button svg { width: 1.05rem; height: 1.05rem; display: block; }
+button.icon-button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 :is(button, .tools > summary, #viewMenu > summary):hover:not(:disabled) { background-color: var(--soft); border-color: #b9ccc6; }
 button:disabled { color: #79878a; background: #f1f4f3; cursor: default; }
 button.primary { color: white; background-color: var(--accent-ink); border-color: var(--accent-ink); }
