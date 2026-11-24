@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { setAiLive, suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis, pendingEmbeddings, embeddingId, embeddingIndex } from '../src/ai'
+import { setAiLive, suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis, pendingEmbeddings, embeddingId, embeddingIndex, embedRetryDelay } from '../src/ai'
 import { LEGACY } from '../src/backup'
 
 function storage(files:Record<string,string>={}){
@@ -232,4 +232,46 @@ test('Hintergrund-Einbettung läuft nach der Analyse in Stapeln und nur mit akti
   setAiLive(false)
   assert.deepEqual(embeddingIndex.ready(ids),[])
   await assert.rejects(embeddingIndex.rank('Lieferung',ids),/Outlook/)
+})
+
+test('Einbettung: Wartezeit nach Fehlern wächst von 30 Sekunden bis höchstens 15 Minuten',()=>{
+  assert.equal(embedRetryDelay(0),0)
+  assert.deepEqual([1,2,3,4,5,6,7,8,50].map(embedRetryDelay),[30000,60000,120000,240000,480000,900000,900000,900000,900000])
+})
+
+test('Einbettung: nach einem Fehler erst nach der Wartezeit erneut, Erfolg und Quellenwechsel setzen zurück',async()=>{
+  storage()
+  let fail=true,clock=Date.parse('2026-11-24T10:00:00Z')
+  const realNow=Date.now
+  Date.now=()=>clock
+  const calls:string[]=[]
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{getElementById:()=>null}})
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{dispatchEvent:()=>{},__TAURI__:{core:{invoke:async(cmd:string,args:any)=>{
+    calls.push(cmd)
+    if(fail)throw new Error('Dienst nicht erreichbar')
+    return args.items.length
+  }}}}})
+  try{
+    const board=[{...mail,subject:'Eine',id:'W1',received:'2026-11-20T08:00:00'}]
+    bindAiBoard(()=>board,()=>['Labor'])
+    localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,embeddings:true,embedModel:'lokal-embed'}))
+    await queueAnalyses()
+    assert.equal(calls.length,1)
+    clock+=29000;await queueAnalyses()
+    assert.equal(calls.length,1,'innerhalb von 30 Sekunden kein neuer Versuch')
+    clock+=2000;await queueAnalyses()
+    assert.equal(calls.length,2,'nach 30 Sekunden neuer Versuch')
+    clock+=59000;await queueAnalyses()
+    assert.equal(calls.length,2,'zweiter Fehler: eine Minute warten')
+    clock+=2000;fail=false;await queueAnalyses()
+    assert.equal(calls.length,3)
+    assert.equal(embeddingIndex.ready([embeddingId(board[0])]).length,1)
+    // Erfolg setzt zurück: der nächste Fehler wartet wieder nur 30 Sekunden.
+    board.push({...mail,subject:'Zwei',id:'W2',received:'2026-11-21T08:00:00'});fail=true
+    await queueAnalyses();assert.equal(calls.length,4)
+    clock+=31000;await queueAnalyses();assert.equal(calls.length,5)
+    // Quellenwechsel setzt zurück: sofort neuer Versuch.
+    setAiLive(false);setAiLive(true)
+    await queueAnalyses();assert.equal(calls.length,6)
+  }finally{Date.now=realNow}
 })

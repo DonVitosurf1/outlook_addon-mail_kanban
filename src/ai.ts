@@ -23,7 +23,7 @@ export function setAiLive(live:boolean,mode:'offline'|'demo'|'outlook'=live?'out
   if(mode===mailboxMode&&live===liveSource)return
   mailboxMode=mode;liveSource=live;sourceEpoch++
   if(typeof window!=='undefined')window.clearTimeout?.(learnTimer)
-  training=undefined;processing=false;embedding=false;embedded.clear();retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
+  training=undefined;processing=false;embedding=false;embedded.clear();embedFailures=0;embedRetryAt=0;retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
   recent=undefined;legacyCache=undefined;importedCache.clear()
   refreshAiPanel?.()
   if(typeof document!=='undefined')document.dispatchEvent?.(new Event('mailboard:source-changed'))
@@ -817,22 +817,30 @@ export function pendingEmbeddings(mails:AiMail[],done:ReadonlySet<string>):AiMai
 }
 const embedBatch=16
 let embedding=false, embeddedStamp=''
+/** Fehler in Folge und frühester nächster Versuch der Hintergrund-Einbettung. Zurück auf 0 bei Erfolg, Quellen- oder Modellwechsel. */
+let embedFailures=0, embedRetryAt=0
+/** Wartezeit nach `failures` Fehlern in Folge: 30 Sekunden, dann 1, 2, 4 … Minuten, höchstens 15 Minuten. */
+export function embedRetryDelay(failures:number){return failures<1?0:Math.min(30000*2**Math.min(failures-1,10),15*60000)}
+const waitText=(ms:number)=>ms<60000?Math.ceil(ms/1000)+' s':Math.ceil(ms/60000)+' Min.'
 const embedded=new Set<string>()
 function embeddingsOn(cfg:Config){return mailboxMode==='outlook'&&cfg.enabled&&cfg.embeddings}
 const embeddingStamp=(cfg:Config)=>JSON.stringify([cfg.embedUrl,cfg.embedModel,embeddingOptions()])
 /** Vectors live in the Rust cache; this only remembers which contents were sent for the current model and text options. */
 function embeddedFor(cfg:Config){
   const stamp=embeddingStamp(cfg)
-  if(stamp!==embeddedStamp){embedded.clear();embeddedStamp=stamp}
+  if(stamp!==embeddedStamp){embedded.clear();embeddedStamp=stamp;embedFailures=0;embedRetryAt=0}
   return embedded
 }
 export async function queueEmbeddings(){
   if(!liveSource)return
   const epoch=sourceEpoch, cfg=config()
   if(!embeddingsOn(cfg)||embedding||!readBoard)return
+  const done=embeddedFor(cfg)
+  // Nach einem Fehler wartet der nächste Versuch, damit ein nicht erreichbarer Dienst nicht bei jedem Aktualisieren angefragt wird.
+  if(Date.now()<embedRetryAt)return
   embedding=true
   try{
-    const done=embeddedFor(cfg), pending=pendingEmbeddings(readBoard(),done)
+    const pending=pendingEmbeddings(readBoard(),done)
     if(!pending.length)return
     const invoke=native(), stamp=embeddedStamp
     for(let i=0;i<pending.length;i+=embedBatch){
@@ -842,8 +850,13 @@ export async function queueEmbeddings(){
       await invoke<number>('ai_embed',{url:cfg.embedUrl,model:cfg.embedModel,items:batch.map(m=>({id:embeddingId(m),text:embedText(m)}))})
       if(current(epoch)&&embeddedStamp===stamp){for(const m of batch)done.add(embeddingId(m));if(typeof document!=='undefined')document.dispatchEvent?.(new CustomEvent('mailboard:embedding-progress'))}
     }
-    if(current(epoch)){reportQueue('Einbettung abgeschlossen.');if(typeof document!=='undefined')document.dispatchEvent(new CustomEvent('mailboard:embedded'))}
-  }catch(error){if(current(epoch))reportQueue('Einbettung angehalten. '+String(error))}
+    if(current(epoch)){embedFailures=0;embedRetryAt=0;reportQueue('Einbettung abgeschlossen.');if(typeof document!=='undefined')document.dispatchEvent?.(new CustomEvent('mailboard:embedded'))}
+  }catch(error){
+    if(!current(epoch))return
+    const wait=embedRetryDelay(++embedFailures)
+    embedRetryAt=Date.now()+wait
+    reportQueue('Einbettung angehalten. '+String(error)+' · Neuer Versuch frühestens in '+waitText(wait)+'.')
+  }
   finally{if(current(epoch))embedding=false}
 }
 export type GroupMatch={id:string;best:string;score:number;margin:number}
