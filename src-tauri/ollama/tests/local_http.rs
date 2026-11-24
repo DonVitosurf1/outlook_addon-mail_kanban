@@ -845,7 +845,31 @@ async fn choose_sends_only_subject_start_and_two_profiles_after_local_check() {
     assert!(chat.contains(&"b".repeat(990)) && !chat.contains(&"b".repeat(1000)));
     assert!(chat.contains(&"l".repeat(380)) && !chat.contains(&"l".repeat(400)));
     assert!(!chat.contains("Anna Absender"));
-    assert!(chat.contains("num_predict") && chat.contains("\"enum\""));
+    assert!(chat.contains("\"num_predict\":256") && chat.contains("\"enum\""));
+    // Ohne die Fähigkeit „thinking“ bekommt Ollama kein `think`.
+    assert!(!chat.contains("\"think\""));
+}
+
+#[tokio::test]
+async fn choose_turns_off_thinking_for_thinking_models() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"capabilities":["completion","thinking"],"model_info":{"general.architecture":"qwen3"}}),
+        ),
+        (
+            "200 OK",
+            json!({"message":{"content":"{\"ordner\":\"/Labor\",\"grund\":\"Messgerät\"}"}}),
+        ),
+    ]);
+    let choice = Ollama::new(&url)
+        .unwrap()
+        .choose("qwen3:8b", &mail(), &two_folders())
+        .await
+        .unwrap();
+    assert_eq!(choice.unwrap().ordner, "/Labor");
+    let calls = server.join().unwrap();
+    assert!(calls[1].contains("\"think\":false"), "{}", calls[1]);
 }
 
 #[tokio::test]
@@ -908,7 +932,7 @@ async fn choose_limits_tokens_on_openai_compatible_servers() {
         .unwrap();
     assert_eq!(choice.ordner, "/Labor");
     let calls = server.join().unwrap();
-    assert!(calls[3].contains("POST /v1/chat/completions") && calls[3].contains("\"max_tokens\":96"));
+    assert!(calls[3].contains("POST /v1/chat/completions") && calls[3].contains("\"max_tokens\":256"));
 }
 
 #[tokio::test]

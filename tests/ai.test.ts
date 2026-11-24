@@ -114,6 +114,26 @@ test('Nahe semantische Treffer veranlassen nur eine schnelle Stichwahl zwischen 
   assert.ok(!calls.includes('ai_analyze'))
 })
 
+test('Eine gescheiterte Stichwahl fragt in dieser Sitzung nicht erneut',async()=>{
+  storage()
+  const calls:string[]=[],bodies:string[]=[]
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{__TAURI__:{core:{invoke:async(cmd:string,args:any)=>{
+    calls.push(cmd)
+    if(cmd==='ai_suggest')return [{folder:'Labor',score:0.90},{folder:'Einkauf',score:0.86}]
+    bodies.push(args.mail.body)
+    throw new Error('Das Modell hat keine verwertbare Stichwahl geliefert.')
+  }}}}})
+  localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,embeddings:true,model:'lokal'}))
+  const long={...mail,subject:'Zählung',body:'x'.repeat(999)+'😀'.repeat(5)}
+  for(let i=0;i<2;i++){
+    const hint=await suggestFolder(long,['Labor','Einkauf'])
+    assert.equal(hint.folder,'Labor');assert.ok(hint.reason.startsWith('Lokale Embeddings'))
+  }
+  assert.deepEqual(calls,['ai_suggest','ai_choose','ai_suggest'])
+  // Ein Emoji am Rand der 1.000 Zeichen wird nicht in der Mitte zerteilt.
+  assert.equal(bodies[0],'x'.repeat(999)+'😀')
+})
+
 test('Steckbrief-Ausschlüsse erhöhen die lokale Zuordnung nicht',async()=>{
   storage({'knowledge/labor.md':'---\nfolder: /LAB\n---\n## Zweck\nReinigung\n## Passt nicht hierher\nPipettenspitzen'})
   assert.equal((await suggestFolder(mail,['LAB'])).folder,'')

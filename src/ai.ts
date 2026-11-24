@@ -711,8 +711,14 @@ async function runoff(mail:AiMail,two:FolderInfo[],cfg:Config,model:string):Prom
   const invoke=native()
   const key=JSON.stringify([embeddingId(mail),cfg.url,model,...two.map(f=>[f.key,f.profile]).sort()])
   if(runoffs.has(key))return runoffs.get(key)!
-  const raw=await invoke<Choice|null>('ai_choose',{url:cfg.url,model,mail:{subject:mail.subject,sender:'',body:mail.body.slice(0,1000),received:mail.received||''},candidates:two})
-  const choice=raw&&typeof raw.ordner==='string'&&two.some(f=>f.key===raw.ordner)?{ordner:raw.ordner,grund:typeof raw.grund==='string'?raw.grund.trim().slice(0,120):''}:null
+  let choice:Choice|null=null
+  try{
+    // Nach Zeichen, nicht nach UTF-16-Einheiten kürzen. Rust kürzt ohnehin noch einmal.
+    const body=Array.from(mail.body).slice(0,1000).join('')
+    const raw=await invoke<Choice|null>('ai_choose',{url:cfg.url,model,mail:{subject:mail.subject,sender:'',body,received:mail.received||''},candidates:two})
+    if(raw&&typeof raw.ordner==='string'&&two.some(f=>f.key===raw.ordner))choice={ordner:raw.ordner,grund:typeof raw.grund==='string'?Array.from(raw.grund.trim()).slice(0,120).join(''):''}
+  }catch{ /* Ein Fehlschlag gilt für diese Sitzung wie „keiner der beiden“, damit nicht jede Anzeige erneut fragt. */ }
+  requireLive()
   runoffs.delete(key);runoffs.set(key,choice)
   if(runoffs.size>500)runoffs.delete(runoffs.keys().next().value!)
   return choice
