@@ -3,6 +3,7 @@ import type { Folder, Invoke } from './live'
 import { openTasks, type Task } from './tasks-taken'
 import { formatModelInfo } from './model-info'
 import { BENCH, benchGrade } from './model-bench'
+import { ADVICE, advicePull } from './model-advice'
 import { localDay } from './views-logic'
 import { NO_MODEL, countDraft, countFeedback, currentVote, filingFunction, filingSource, vote, type VoteField } from './ai-feedback'
 import { addressForm, formOf, styleKey, styleText, type SentSample, type StyleCard } from './style'
@@ -1209,6 +1210,30 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const roles=document.createElement('p');roles.className='field-hint'
   roles.textContent='Hintergrund: Analyse, Stichwahl und Aufgaben. Entwürfe: Antworten, Steckbriefe und Ordnernamen. Beide müssen lokal laufen.'
   section.append(roles)
+  const advice=document.createElement('table')
+  advice.className='shortcut-table'
+  const caption=document.createElement('caption');caption.textContent='Modell nach Grafikspeicher'
+  const head=document.createElement('tr')
+  for(const title of ['Grafikspeicher','Chat','Einbettung'])head.append(Object.assign(document.createElement('th'),{textContent:title,scope:'col'}))
+  advice.append(caption,head)
+  const adviceStatus=document.createElement('p');adviceStatus.className='field-hint';adviceStatus.setAttribute('role','status')
+  adviceStatus.textContent='Das Board lädt nichts herunter. Der Befehl ist zum Kopieren.'
+  for(const row of ADVICE){
+    const line=document.createElement('tr')
+    line.append(Object.assign(document.createElement('th'),{textContent:row.memory,scope:'row'}))
+    for(const kind of ['chat','embedding'] as const){
+      const cell=document.createElement('td')
+      const command=advicePull(row,kind)
+      const copy=document.createElement('button');copy.type='button';copy.textContent=command
+      copy.onclick=async()=>{
+        try{await navigator.clipboard.writeText(command)}catch{/* Der Befehl bleibt in der Meldung lesbar. */}
+        adviceStatus.textContent='Kopiert: '+command
+      }
+      cell.append(copy);line.append(cell)
+    }
+    advice.append(line)
+  }
+  section.append(advice,adviceStatus)
   const learnSection=document.createElement('div')
   const autoLearn=bool('Lernordner stündlich aktualisieren',cfg.autoLearn,'Liest die Lernordner jede Stunde neu ein.',learnSection)
   const trainingState=document.createElement('p');trainingState.id='aiTrainingState';trainingState.setAttribute('role','status')
