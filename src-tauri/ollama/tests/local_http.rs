@@ -62,7 +62,7 @@ async fn style_uses_thirty_sent_mails_as_data_after_the_local_check() {
     ]);
     let mut samples = vec![mail()];
     for i in 0..31 {
-        samples.push(Mail { sender: format!("a{i}@example.test"), subject: format!("Betreff {i}"), body: format!("Text {i} {}", "x".repeat(700)), received: String::new() });
+        samples.push(Mail { sender: format!("a{i}@example.test"), subject: format!("Betreff {i}"), body: format!("Text {i} {}", "x".repeat(700)), received: String::new(), earlier: Vec::new(), attachments: Vec::new() });
     }
     let card = Ollama::new(&url).unwrap().style("lokal", &samples).await.unwrap();
     assert_eq!(card.form, "Sie");
