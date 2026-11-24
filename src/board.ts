@@ -24,6 +24,7 @@ import { allCases, initCases, toggleCaseItem } from './cases'
 import { shortcutFor, type ShortcutAction } from './shortcuts'
 import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
 import { loadRoutines, useSamplePlanning } from './planning-store'
+import { useSampleFeedback } from './ai-feedback'
 import { initTabs } from './tabs'
 import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
 import './setup-outliers'
@@ -161,6 +162,7 @@ function sourceUpdated(rows:Mail[],source:Mailbox,items:Folder[],key:string) {
   mailbox=source;mails=rows;folders=items;scope=key;selected=undefined
   useSampleSettings(source==='demo')
   useSamplePlanning(source==='demo')
+  useSampleFeedback(source==='demo')
   setAiLive(outlook,source)
   bindProjectBoard(outlook?service:undefined)
   if(outlook)hydrate(rows,items)
@@ -319,6 +321,8 @@ async function applyChange(ids:string[],action:Mutation):Promise<ChangeOutcome> 
         else if(field==='tags')m.tags=[...wanted(m)]
         else m[field]=value
       }},events,summary)
+      // Rückmeldung zum Ablagevorschlag (B1), im Beispielpostfach nur im Speicher.
+      if(field==='move'&&dest!.name!=='Posteingang')for(const m of moving)recordFiling(m,dest!.path||dest!.name)
       outcome='recorded'
       showToast(summary,undoThisStep())
       if(selected)fillDetail(selected)
@@ -536,7 +540,7 @@ function fillDetail(mail:Mail) {
   const result=el('suggestionResult'), accept=el<HTMLButtonElement>('applySuggestion')
   result.textContent='';accept.hidden=true
   const choices=learnerFolders().filter(f=>f.id!==(mail.folderId||mail.folder)).map(f=>f.path)
-  renderAnalysis(el('analysis'),mail,choices,isLive()?async(text:string)=>{await draft(mail,'reply',text)}:undefined,
+  renderAnalysis(el('analysis'),mail,choices,isLive()?(text:string)=>draft(mail,'reply',text):undefined,
     async(tags:string[])=>{await change([mail.id],{kind:'tags',value:tags})})
   showTasks(mail)
   renderSimilar(el('similar'),mail,{mails:()=>mails,open:pick})
@@ -638,9 +642,12 @@ async function openOriginal(mail:Mail) {
   if(!isLive())return
   await exclusive(async()=>{await service!.invoke('outlook_open',{id:mail.id,folder:mail.folderId})})
 }
+/** Öffnet einen Entwurf in Outlook. Wahr, wenn Outlook ihn geöffnet hat. */
 async function draft(mail:Mail,mode:string,text:string) {
-  if(!isLive()){notify('Für einen Outlook-Entwurf zuerst Outlook-Mails laden.');return}
-  await exclusive(async()=>{await service!.invoke('outlook_draft',{id:mail.id,folder:mail.folderId,mode,text});notify('Entwurf in Outlook geöffnet.')})
+  if(!isLive()){notify('Für einen Outlook-Entwurf zuerst Outlook-Mails laden.');return false}
+  let opened=false
+  await exclusive(async()=>{await service!.invoke('outlook_draft',{id:mail.id,folder:mail.folderId,mode,text});opened=true;notify('Entwurf in Outlook geöffnet.')})
+  return opened
 }
 async function reloadFolders() {
   reloadPending=false
@@ -695,7 +702,7 @@ async function start() {
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
   cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
-  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:async(id,name)=>{await assignCase([id],name,true)},render})
+  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:async(id,name)=>(await assignCase([id],name,true))!=='failed',render})
   const runRoutine=(action:RoutineAction)=>{
     switch(action){
       case 'triage':triage?.start();break

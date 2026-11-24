@@ -2,11 +2,14 @@ import { getLegacyConfig, getLegacyProfiles, getLegacyFile, updateConfig } from 
 import type { Folder, Invoke } from './live'
 import { openTasks, type Task } from './tasks-taken'
 import { formatModelInfo } from './model-info'
+import { NO_MODEL, countDraft, countFeedback, currentVote, filingFunction, filingSource, vote, type VoteField } from './ai-feedback'
 
 export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
-export type Suggestion = {folder:string;reason:string}
+/** `model`: Modell, von dem der Vorschlag stammt (für die Rückmeldungen B1), fehlt bei Regeln, Bayes und Begriffen. */
+export type Suggestion = {folder:string;reason:string;model?:string}
 type FolderInfo = {key:string;profile:string}
-type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[];aufgaben?:Task[]}
+/** `modell`: Hintergrundmodell der Analyse, fehlt bei älteren gespeicherten Analysen. */
+type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[];aufgaben?:Task[];modell?:string}
 /** `model`: Modell für Hintergrund (Analyse, Stichwahl, Aufgaben). `draftModel`: Modell für Entwürfe, leer = wie `model`. */
 type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;draftModel:string;embedModel:string}
 const settingsKey='outlook-kanban-ai-settings-v1'
@@ -141,8 +144,18 @@ function rejected(mail:AiMail):string[] {
   const value=native??object(imported('vorschlag-statistik.json').rejected)[legacyId(mail)]
   return Array.isArray(value)?value.filter(v=>typeof v==='string'):[]
 }
+/** B1: Ein Ablagevorschlag wurde übernommen (`ok`), verworfen oder anders abgelegt (`bad`). Zählt je Quelle und Modell. */
+function countFiling(hint:Suggestion,ok:boolean){
+  countFeedback(filingFunction(filingSource(hint.reason)),hint.model||NO_MODEL,ok?'ok':'bad')
+}
+/** Im Beispielpostfach zählt nur die Rückmeldung zum Vorschlag (im Speicher), Lernen und Statistik bleiben unberührt. */
+function settleSampleHint(mail:AiMail,folder:string,rejectedOnly:boolean){
+  const hint=sourceHints.get(mail)
+  if(!hint?.folder||(rejectedOnly&&hint.folder!==folder))return
+  countFiling(hint,!rejectedOnly&&hint.folder===folder);sourceHints.delete(mail)
+}
 export function rejectSuggestion(mail:AiMail, folder:string) {
-  if(!liveSource)return
+  if(!liveSource){settleSampleHint(mail,folder,true);return}
   const id=feedbackId(mail)
   if(!id||!allowed(folder)||rejected(mail).includes(folder))return
   const stats=stored(statisticsKey)
@@ -151,10 +164,10 @@ export function rejectSuggestion(mail:AiMail, folder:string) {
   mapping[id]=[...rejected(mail),folder]
   localStorage.setItem(statisticsKey,JSON.stringify({...stats,rejected:Object.fromEntries(Object.entries(mapping).slice(-500))}))
   const hint=sourceHints.get(mail)
-  if(hint && hint.folder===folder){rate(hint.reason,false);sourceHints.delete(mail)}
+  if(hint && hint.folder===folder){countFiling(hint,false);rate(hint.reason,false);sourceHints.delete(mail)}
 }
 export function recordFiling(mail:AiMail,folder:string) {
-  if(!liveSource)return
+  if(!liveSource){settleSampleHint(mail,folder,false);return}
   if(!allowed(folder))return
   const rows=history()
   rows.push({folder,features:features(mail),id:mail.id,received:mail.received})
@@ -164,7 +177,7 @@ export function recordFiling(mail:AiMail,folder:string) {
     // Lernbeispiel umhängen: Ein Lernbeispiel derselben Mail aus dem bisherigen Ordner zählt nicht mehr.
     if(mail.id)dropTrainingRows(r=>r.id===mail.id&&r.folder!==folder)
     const hint=sourceHints.get(mail)
-    if(hint?.folder){rate(hint.reason,hint.folder===folder);sourceHints.delete(mail)}
+    if(hint?.folder){countFiling(hint,hint.folder===folder);rate(hint.reason,hint.folder===folder);sourceHints.delete(mail)}
   }catch{ /* Local statistics are best effort if WebView storage is full. */ }
 }
 function dropTrainingRows(drop:(row:LearnRow)=>boolean){
@@ -507,7 +520,7 @@ export async function localDraftModel() {
 async function analyze(m:AiMail, folders:FolderInfo[],cfg:Config) {
   const invoke=native(), model=await activeModel(cfg,'analyze')
   const result=await invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
-  return {...result,aufgaben:Array.isArray(result.aufgaben)?result.aufgaben:[]}
+  return {...result,aufgaben:Array.isArray(result.aufgaben)?result.aufgaben:[],modell:model}
 }
 
 const cacheKey='outlook-kanban-ai-cache-v1'
@@ -595,6 +608,35 @@ function retainAnalysis(mail:AiMail,result:Analysis){
   applyAnalysis(mail,result)
   window.dispatchEvent(new Event('kanban-analysis'))
 }
+/** Hintergrundmodell der gespeicherten Analyse dieser Mail, sonst das eingestellte (für die Rückmeldungen B1). */
+export function analysisModel(mail:AiMail){
+  return (liveSource?lookupAnalysis(mail)?.modell:undefined)||configuredModel('analyze',config())||NO_MODEL
+}
+/** Eingestelltes Embedding-Modell (für die Rückmeldungen B1). */
+export function embeddingModelName(){return config().embedModel.trim()||NO_MODEL}
+const voteLabels:[VoteField,string][]=[['summary','Zusammenfassung'],['needsReply','„Antwort nötig“'],['deadline','Frist']]
+/**
+ * B1: Knöpfe „passt“ und „passt nicht“ für Zusammenfassung, „Antwort nötig“ und Frist. Je Mail-Signatur eine Stimme je Feld,
+ * ein zweiter Klick auf dieselbe Stimme nimmt sie zurück.
+ */
+function renderVotes(host:HTMLElement,mail:AiMail,model:string){
+  host.replaceChildren()
+  const id=embeddingId(mail)
+  for(const [field,label] of voteLabels){
+    const group=document.createElement('span');group.className='ai-vote';group.setAttribute('role','group');group.setAttribute('aria-label','Rückmeldung: '+label)
+    const buttons=(['ok','bad'] as const).map(value=>{
+      const b=document.createElement('button');b.type='button';b.className='ai-vote-button'
+      b.textContent=value==='ok'?'passt':'passt nicht'
+      b.setAttribute('aria-label',label+(value==='ok'?' passt':' passt nicht'))
+      b.onclick=()=>{const now=vote(id,field,model,value);for(const x of buttons)x.setAttribute('aria-pressed',String(x===b&&now===value))}
+      return b
+    })
+    const now=currentVote(id,field)
+    buttons[0].setAttribute('aria-pressed',String(now==='ok'));buttons[1].setAttribute('aria-pressed',String(now==='bad'))
+    const name=document.createElement('span');name.textContent=label.replace(/[„“]/g,'')
+    group.append(name,...buttons);host.append(group)
+  }
+}
 export function restoreAnalysis(mail:AiMail){
   if(!liveSource)return
   const result=lookupAnalysis(mail)
@@ -645,21 +687,28 @@ export async function suggestFolder(mail:AiMail, folders:string[]):Promise<Sugge
   const epoch=sourceEpoch
   if(!liveSource){
     const match=lexical(mail,folders.filter(allowed).map(key=>({key,profile:''})))
-    return match?{folder:match.folder,reason:'Begriff aus dem Beispielordner'}:{folder:'',reason:'Kein eindeutiger Beispielordner gefunden.'}
+    if(!match)return {folder:'',reason:'Kein eindeutiger Beispielordner gefunden.'}
+    const hint={folder:match.folder,reason:'Begriff aus dem Beispielordner'}
+    if(mailboxMode==='demo')sourceHints.set(mail,hint)
+    return hint
   }
   const dismissed=rejected(mail)
   const targets=folderInfo(folders.filter(f=>!dismissed.includes(f)))
   const hint=await chooseFolder(mail,targets)
   requireLive(epoch)
-  if(hint.folder)sourceHints.set(mail,hint)
+  if(hint.folder){
+    const source=filingSource(hint.reason)
+    if(!hint.model&&(source==='Embedding'||source==='Hybrid'))hint.model=config().embedModel
+    sourceHints.set(mail,hint)
+  }
   return hint
 }
 type Choice={ordner:string;grund:string}
 /** Stichwahl-Ergebnisse je Mail-Signatur, Modell und Kandidatenpaar, nur im Speicher. `null`: Modell nannte keinen der beiden. */
 const runoffs=new Map<string,Choice|null>()
 /** Schnelle Stichwahl (C2) zwischen genau zwei Ordnern über `ai_choose` statt einer vollen Analyse. */
-async function runoff(mail:AiMail,two:FolderInfo[],cfg:Config):Promise<Choice|null>{
-  const invoke=native(), model=await activeModel(cfg,'choose')
+async function runoff(mail:AiMail,two:FolderInfo[],cfg:Config,model:string):Promise<Choice|null>{
+  const invoke=native()
   const key=JSON.stringify([embeddingId(mail),cfg.url,model,...two.map(f=>[f.key,f.profile]).sort()])
   if(runoffs.has(key))return runoffs.get(key)!
   const raw=await invoke<Choice|null>('ai_choose',{url:cfg.url,model,mail:{subject:mail.subject,sender:'',body:mail.body.slice(0,1000),received:mail.received||''},candidates:two})
@@ -692,8 +741,9 @@ async function chooseFolder(mail:AiMail, targets:FolderInfo[]):Promise<Suggestio
         if(scores[1]&&gap<0.05&&!hidden.has('KI-Stichwahl')){
           const two=targets.filter(f=>[best.folder,scores[1].folder].includes(f.key))
           try{
-            const choice=two.length===2?await runoff(mail,two,cfg):null
-            if(choice&&two.some(f=>f.key===choice.ordner))return {folder:choice.ordner,reason:'KI-Stichwahl · '+(choice.grund||detail)}
+            const model=await activeModel(cfg,'choose')
+            const choice=two.length===2?await runoff(mail,two,cfg,model):null
+            if(choice&&two.some(f=>f.key===choice.ordner))return {folder:choice.ordner,reason:'KI-Stichwahl · '+(choice.grund||detail),model}
           }catch{ /* Keep the measured embedding result when the chat model is unavailable. */ }
         }
         return {folder:best.folder,reason:'Lokale Embeddings · '+detail}
@@ -705,14 +755,14 @@ async function chooseFolder(mail:AiMail, targets:FolderInfo[]):Promise<Suggestio
   if(cfg.enabled&&!hidden.has('KI')) {
     try{
       const insight=await analyze(mail,shortlist,cfg)
-      if(insight.ordner && targets.some(f=>f.key===insight.ordner))return {folder:insight.ordner,reason:'Vorschlag der lokalen KI'}
+      if(insight.ordner && targets.some(f=>f.key===insight.ordner))return {folder:insight.ordner,reason:'Vorschlag der lokalen KI',model:insight.modell}
     }catch(error){issues.push(String(error))}
   }
   if(local)return {...local,reason:local.reason+(issues.length?' · KI nicht verfügbar':'')}
   return {folder:'',reason:['Kein eindeutiger Ablagevorschlag.',...new Set(issues)].join(' ')}
 }
 export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:string[],
-    openDraft?:(text:string)=>Promise<void>, applyTags?:(tags:string[])=>Promise<void>) {
+    openDraft?:(text:string)=>Promise<boolean|void>, applyTags?:(tags:string[])=>Promise<void>) {
   container.replaceChildren()
   if(!liveSource)return
   const epoch=sourceEpoch, cfg=config()
@@ -722,7 +772,9 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
   const feedback=document.createElement('p')
   feedback.setAttribute('role','status')
   const types=document.createElement('div')
+  const votes=document.createElement('div');votes.className='ai-votes'
   const show=(result:Analysis)=>{
+    renderVotes(votes,mail,result.modell||configuredModel('analyze',cfg)||NO_MODEL)
     feedback.textContent=[result.zusammenfassung, result.antwort_noetig?'Antwort nötig':'Kein Antwortbedarf erkannt',
       result.frist?'Fristvorschlag: '+result.frist:'',result.arten.length?'Art-Vorschlag: '+result.arten.join(', '):''].filter(Boolean).join(' · ')
     types.replaceChildren()
@@ -737,7 +789,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
       types.append(apply)
     }
   }
-  container.append(button,feedback,types)
+  container.append(button,feedback,votes,types)
   const cached=lookupAnalysis(mail)
   if(cached)show(cached)
   const run=async()=>{
@@ -759,13 +811,16 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
     const generate=document.createElement('button');generate.type='button';generate.textContent='KI-Antwort entwerfen'
     const draft=document.createElement('textarea');draft.hidden=true;draft.rows=6;draft.setAttribute('aria-label','KI-Antwort vor dem Öffnen bearbeiten')
     const open=document.createElement('button');open.type='button';open.hidden=true;open.textContent='Als Entwurf in Outlook öffnen'
+    // B1: Der erzeugte Entwurf und sein Modell. Beim ersten Öffnen in Outlook zählt, wie stark er geändert wurde.
+    let generated:{text:string;model:string}|undefined
     generate.onclick=async()=>{
       if(!current(epoch))return
       generate.disabled=true; feedback.textContent='Antwortvorschlag wird erstellt …'
       try{
         const key=mail.folderPath||mail.folder||''
-        const profiles=getLegacyProfiles()
-        draft.value=await native()<string>('ai_reply',{url:cfg.url,model:await activeModel(cfg,'reply'),mail,profile:profiles[key]||profiles[key.replace(/^\//,'')]||''})
+        const profiles=getLegacyProfiles(), model=await activeModel(cfg,'reply')
+        draft.value=await native()<string>('ai_reply',{url:cfg.url,model,mail,profile:profiles[key]||profiles[key.replace(/^\//,'')]||''})
+        generated={text:draft.value,model}
         draft.hidden=false;open.hidden=false;feedback.textContent='Antwortvorschlag prüfen und bei Bedarf bearbeiten.'
       }catch(error){feedback.textContent=String(error)}
       finally{generate.disabled=false}
@@ -773,7 +828,11 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
     open.onclick=async()=>{
       if(!current(epoch)||!draft.value.trim())return
       open.disabled=true
-      try{await openDraft(draft.value)}catch(error){feedback.textContent=String(error)}
+      try{
+        const text=draft.value
+        const opened=await openDraft(text)
+        if(opened!==false&&generated&&current(epoch)){countDraft(generated.model,generated.text,text);generated=undefined}
+      }catch(error){feedback.textContent=String(error)}
       finally{open.disabled=false}
     }
     container.append(generate,draft,open)

@@ -310,6 +310,10 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .ai-section:not(:empty), #analysis:not(:empty), #detailActions:not(:empty) { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .75rem; }
 #aiSettings { clear: both; }
 #aiSettings :is(button,input,select), #analysis button { margin: .2rem 0; }
+.ai-votes { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: .2rem 0 .4rem; font-size: .85em; color: var(--muted); }
+.ai-vote { display: inline-flex; align-items: center; gap: .3rem; }
+#analysis .ai-vote-button { margin: 0; padding: .1rem .45rem; font-size: inherit; }
+.ai-vote-button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .ai-feedback, #suggestionResult { color: var(--muted); font-size: .85rem; overflow-wrap: anywhere; }
 #suggestionResult:not(:empty) { margin-block: .4rem; }
 @media(max-width: 60rem) {
@@ -324,7 +328,7 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 @media(forced-colors: active) {
   .card[aria-pressed=true],.over { outline-color: Highlight; }
   .column-toggle::before { border: 1px solid ButtonText; }
-  .sidebar nav button[aria-pressed=true], .view-tabs [aria-selected=true] { border-color: Highlight; }
+  .sidebar nav button[aria-pressed=true], .view-tabs [aria-selected=true], .ai-vote-button[aria-pressed=true] { border-color: Highlight; }
   .group-cell.over, .lane.over { outline-color: Highlight; }
 }
 

@@ -1,4 +1,5 @@
 """Vorgang-Vorschlag (K4) mit simuliertem Outlook und simuliertem ai_groups: Pille, Zuordnen mit Undo, Ablehnen bleibt nach Neuladen und neuer EntryID."""
+import datetime as dt
 import json
 import os
 import shutil
@@ -70,6 +71,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             calls = lambda name: page.evaluate(f"calls.filter(c=>c[0]==={json.dumps(name)})")
             tags = lambda id: page.evaluate(f"store.find(m=>m.id==={json.dumps(id)}).tags")
             pill = lambda id: page.locator(f'#mail-{id} .case-suggest')
+            case_feedback = lambda: json.loads(page.evaluate("localStorage.getItem('mailboard-ai-feedback-v1')") or "{}").get(dt.date.today().isoformat(), {}).get("vorgang")
 
             # Nur Mails über Schwelle und Abstand bekommen eine Pille, Mails mit Vorgang und schwache nicht.
             expect(pill('m2').locator('.flag-case')).to_have_text('Vorgang Umzug?')
@@ -88,6 +90,8 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(page.locator('#mail-m2 .card-chip')).to_have_text('Vorgang: Umzug')
             expect(pill('m2')).to_have_count(0)
             assert tags('m2') == ['Vorgang: Umzug'], tags('m2')
+            # B1: angenommen zählt als Treffer des Embedding-Modells.
+            assert case_feedback() == {'qwen3-embedding:0.6b': {'ok': 1}}, case_feedback()
             page.locator('#undo').click()
             expect(pill('m2')).to_have_count(1)
             assert tags('m2') == [], tags('m2')
@@ -128,8 +132,10 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(pill('m3')).to_have_count(1)
 
             # Ablehnen blendet aus. Das gilt auch nach dem Neuladen und mit neuer EntryID.
+            before = case_feedback()['qwen3-embedding:0.6b'].get('bad', 0)
             pill('m2').locator('.case-suggest-x').click()
             expect(pill('m2')).to_have_count(0)
+            assert case_feedback()['qwen3-embedding:0.6b']['bad'] == before + 1, case_feedback()
             expect(pill('m3')).to_have_count(1)
             assert 'mailboard-case-dismissed-v1' in page.evaluate('Object.keys(localStorage)')
             page.evaluate("sessionStorage.setItem('store',JSON.stringify(store.map(m=>m.id==='m2'?{...m,id:'m2neu'}:m)))")

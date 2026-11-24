@@ -1,5 +1,6 @@
 """K1: Aufgaben aus der KI-Analyse als Pille, Übernahme in einen Vorgang, Checkliste im Tab Vorgänge, Eintrag im Kalender."""
 import datetime as dt
+import json
 import os
 import shutil
 from functools import partial
@@ -45,6 +46,11 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   throw Error('Unerwarteter Befehl: '+name)
 }}}
 """
+
+
+def feedback(page):
+    raw = page.evaluate("localStorage.getItem('mailboard-ai-feedback-v1')")
+    return json.loads(raw or '{}').get(dt.date.today().isoformat(), {}).get('aufgaben')
 
 
 def open_tasks(page, base):
@@ -106,6 +112,8 @@ def check_undo(browser, base, due):
                 page.locator('.toast').get_by_role('button', name='Rückgängig').click()
             expect(page.locator('#mail-a1 .count-tasks')).to_have_text('2 Aufgaben')
             assert page.evaluate('store[0].tags') == []
+            # Rückgängig nimmt auch die Rückmeldung zu den Aufgaben zurück.
+            assert feedback(page) is None, feedback(page)
             assert page.evaluate("localStorage.getItem('mailboard-tasks-taken-v1')") in (None, '{}')
         page.keyboard.press('Escape')
         page.get_by_role('tab', name='Vorgänge').click()
@@ -177,6 +185,8 @@ def run(browser, base, due):
     expect(page.locator('.toast')).to_contain_text('2 Punkte in „Angebot Zentrifuge Freigabe“ übernommen.')
     assert page.evaluate('tagCalls') == [['a1', ['Vorgang: Angebot Zentrifuge Freigabe']]], page.evaluate('tagCalls')
     assert page.evaluate("Object.keys(JSON.parse(localStorage.getItem('mailboard-tasks-taken-v1'))).length") == 1
+    # B1: beide übernommenen Aufgaben zählen als Treffer des Hintergrundmodells.
+    assert feedback(page) == {'lokal': {'ok': 2}}, feedback(page)
     expect(tasks).to_be_hidden()
     page.keyboard.press('Escape')
     expect(card.locator('.count-tasks')).to_have_count(0)

@@ -1,5 +1,6 @@
 /** K4 Vorgang-Vorschlag: Mails ohne Vorgang, die inhaltlich zu einem offenen Vorgang passen. Rechnet über den Embedding-Index, nur im Speicher. */
-import {embeddingId, embeddingIndex, embeddingsEnabled, type GroupMatch} from './ai'
+import {embeddingId, embeddingIndex, embeddingModelName, embeddingsEnabled, type GroupMatch} from './ai'
+import {countFeedback, FEEDBACK_FUNCTIONS} from './ai-feedback'
 import {getLegacyConfig} from './data-settings'
 import {caseMails, caseNames, type Case} from './planning-logic'
 import type {ViewMail} from './views-logic'
@@ -35,8 +36,8 @@ type Options = {
   mails():readonly SuggestMail[]
   cases():readonly Case[]
   selection():string[]
-  /** Setzt die Kategorie „Vorgang: Name“ als ein Undo-Schritt. */
-  assign(id:string,name:string):Promise<void>
+  /** Setzt die Kategorie „Vorgang: Name“ als ein Undo-Schritt. Falsch, wenn das nicht gelang. */
+  assign(id:string,name:string):Promise<boolean|void>
   render():void
 }
 
@@ -80,8 +81,9 @@ export function initCaseSuggest(options:Options){
     const name=current.get(mail.id)
     if(!name)return
     return {name,
-      accept:()=>void options.assign(mail.id,name).catch(()=>{/* change() meldet den Fehler selbst. */}),
-      dismiss:()=>{dismissed.add(dismissKey(contentId(mail),name));saveDismissed(dismissed);current.delete(mail.id);lastKey='';options.render()}}
+      // B1: angenommen zählt als Treffer, abgelehnt als Fehlgriff, je Embedding-Modell.
+      accept:()=>void options.assign(mail.id,name).then(done=>{if(done!==false)countFeedback(FEEDBACK_FUNCTIONS.case,embeddingModelName(),'ok')},()=>{/* change() meldet den Fehler selbst. */}),
+      dismiss:()=>{countFeedback(FEEDBACK_FUNCTIONS.case,embeddingModelName(),'bad');dismissed.add(dismissKey(contentId(mail),name));saveDismissed(dismissed);current.delete(mail.id);lastKey='';options.render()}}
   }
   const retry=()=>{if(failed){failed=false;lastKey=''}refresh()}
   document.addEventListener('mailboard:embedded',retry)
