@@ -291,9 +291,9 @@ export class BoardViews {
   selectedIds(fallbackId:string) {return this.selected.has(fallbackId)?[...this.selected]:[fallbackId]}
   /** Aktuell markierte Karten, etwa für die Zuordnung zu einem Vorgang. */
   selection(){return [...this.selected]}
-  /** Zusätzlicher Filter, etwa für den aktuellen Triage-Schritt. */
   /** Bedeutungssuche (K5): liefert id → Relevanz, solange sie aktiv ist; die Spalten sortieren dann danach statt nach der Ansicht. */
   setRelevance(relevance:(()=>ReadonlyMap<string,number>|undefined)|undefined){this.relevance=relevance}
+  /** Zusätzlicher Filter, etwa für den aktuellen Triage-Schritt. */
   setExtraFilter(filter:((mail:ViewMail)=>boolean)|undefined){this.extra=filter;this.resetSelection()}
   captureView():ViewState{
     const search=document.getElementById('search') as HTMLInputElement|null

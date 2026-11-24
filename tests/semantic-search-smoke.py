@@ -34,6 +34,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='ai_embed')return args.items.length
   if(name==='ai_groups')return []
+  if(name==='ai_rank'&&window.rankFails)throw Error('Modell nicht erreichbar')
   if(name==='ai_rank'){
     const score={Strom:0.4,Zahlungserinnerung:0.9,Mahnung:0.7,Urlaubsplanung:0.1}
     return args.items.map(i=>({id:i.id,score:score[Object.keys(score).find(k=>i.text.includes(k))]})).sort((a,b)=>b.score-a.score)
@@ -71,6 +72,16 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
         ids = page.locator('.card').evaluate_all("n=>n.map(x=>x.id)")
         assert ids[0] in ('mail-m2', 'mail-m4') and ids[1] == 'mail-m1', ids
         expect(page.locator('#mail-m3')).to_have_count(0)
+
+        # Fällt ai_rank aus, gilt die Wortsuche mit Hinweis.
+        page.evaluate("rankFails=true")
+        page.locator('#search').fill('Urlaub')
+        expect(page.locator('.card')).to_have_count(1)
+        expect(page.locator('#summary')).to_contain_text('Bedeutungssuche nicht verfügbar. Wortsuche aktiv.')
+        page.evaluate("rankFails=false")
+        page.locator('#search').fill('Geld überweisen')
+        expect(page.locator('.card')).to_have_count(2)
+        expect(page.locator('#summary')).not_to_contain_text('nicht verfügbar')
 
         # Escape stellt die Wortsuche wieder her.
         page.locator('#search').press('Escape')

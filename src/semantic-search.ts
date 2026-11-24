@@ -7,13 +7,13 @@ type Options = {mails():readonly SearchMail[];render():void;input:HTMLInputEleme
 
 export function initSemanticSearch(options:Options){
   const {input,toggle}=options
-  let on=false, version=0, timer=0, scores:ReadonlyMap<string,number>|undefined, scoredQuery=''
+  let queued=false, on=false, failed=false, version=0, timer=0, scores:ReadonlyMap<string,number>|undefined, scoredQuery=''
   const idOf=new WeakMap<object,string>()
   const contentId=(m:SearchMail)=>{let id=idOf.get(m);if(!id){id=embeddingId(m);idOf.set(m,id)}return id}
   const query=()=>input.value.trim()
   const active=()=>on&&embeddingsEnabled()
   const searching=()=>active()&&!!query()
-  const reset=()=>{version++;window.clearTimeout(timer);scores=undefined;scoredQuery=''}
+  const reset=()=>{queued=false;failed=false;version++;window.clearTimeout(timer);scores=undefined;scoredQuery=''}
 
   function setOn(value:boolean){
     if(on===value)return
@@ -24,38 +24,43 @@ export function initSemanticSearch(options:Options){
     toggle.hidden=!embeddingsEnabled()
     toggle.setAttribute('aria-pressed',String(active()))
     toggle.classList.toggle('on',active())
+    // Programmatisch geänderter Suchtext (z. B. Ansicht wiederherstellen) löst kein input-Ereignis aus.
+    if(searching()&&query()!==scoredQuery&&!queued)schedule()
   }
   function schedule(delay=300){
-    window.clearTimeout(timer)
+    window.clearTimeout(timer);queued=true
     timer=window.setTimeout(run,delay)
   }
   async function run(){
+    queued=false
     if(!searching()){options.render();return}
     const text=query(), mine=++version
     const ids=[...new Set(embeddingIndex.ready(options.mails().map(contentId)))]
     try{
       const ranked=ids.length?await embeddingIndex.rank(text,ids):[]
       if(mine!==version||!searching()||query()!==text)return
-      scores=selectRelevant(ranked);scoredQuery=text
+      scores=selectRelevant(ranked);scoredQuery=text;failed=false
     }catch{
       if(mine!==version)return
-      scores=new Map();scoredQuery=text
+      scores=undefined;scoredQuery=text;failed=true
     }
     options.render()
   }
+  const fresh=()=>searching()&&!!scores&&scoredQuery===query()
   /** Mails mit Treffern (Wortsuche, solange noch kein Ergebnis zur Eingabe da ist). */
   function matches<T extends SearchMail>(mail:T,word:(mail:T)=>boolean){
-    if(!searching()||!scores)return word(mail)
-    return scores.has(contentId(mail))
+    if(!fresh())return word(mail)
+    return scores!.has(contentId(mail))
   }
   /** id der Mail → Ähnlichkeit, nur während die Bedeutungssuche mit Ergebnis aktiv ist. */
   function relevance():ReadonlyMap<string,number>|undefined{
-    if(!searching()||!scores)return
+    if(!fresh())return
     return new Map(options.mails().flatMap(m=>{const s=scores!.get(contentId(m));return s===undefined?[]:[[m.id,s] as [string,number]]}))
   }
   /** Hinweis für die Zusammenfassung, solange nicht alle Mails eingebettet sind. */
   function hint(){
     if(!searching())return ''
+    if(failed&&scoredQuery===query())return 'Bedeutungssuche nicht verfügbar. Wortsuche aktiv.'
     const ids=[...new Set(options.mails().map(contentId))]
     const ready=embeddingIndex.ready(ids).length
     return ready<ids.length?'Bedeutungssuche: '+ready+' von '+ids.length+' Mails vorbereitet.':''
@@ -71,7 +76,7 @@ export function initSemanticSearch(options:Options){
   document.addEventListener('mailboard:embedding-progress',()=>{if(searching())schedule(1500)})
   document.addEventListener('mailboard:source-changed',()=>{on=false;reset();sync()})
   sync()
-  return {active:searching,matches,relevance,hint,sync,pending:()=>searching()&&query()!==scoredQuery}
+  return {active:searching,matches,relevance,hint,sync}
 }
 
 type SimilarOptions = {mails():readonly (SearchMail&{conversationId?:string})[];open(id:string):void}
