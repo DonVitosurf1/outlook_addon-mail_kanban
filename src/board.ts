@@ -22,8 +22,9 @@ import { renderMailTasks } from './mail-tasks'
 import { caseLimits, initCaseSuggest } from './case-suggest'
 import { allCases, initCases, toggleCaseItem } from './cases'
 import { shortcutFor, type ShortcutAction } from './shortcuts'
-import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
-import { loadRoutines, useSamplePlanning } from './planning-store'
+import { caseMails, caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
+import { loadCases, loadRoutines, updateCase, useSamplePlanning } from './planning-store'
+import { CapacitiesSyncError, capacitiesPageMarkdown, capacitiesToken, saveCapacitiesToken, syncCaseToCapacities } from './capacities'
 import { useSampleFeedback } from './ai-feedback'
 import { initTabs } from './tabs'
 import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
@@ -707,7 +708,36 @@ async function start() {
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
-  cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
+  let publishing=false
+  cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name)),
+    canPublish:isLive,publish:async name=>{
+      if(publishing)return
+      publishing=true
+      try{
+        const token=capacitiesToken()
+        if(!token){notify('Bitte den Capacities-Token unter Outlook und lokale KI eintragen.');return}
+        const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
+        const entry=loadCases().find(c=>same(c.name,name))??allCases(mails).find(c=>same(c.name,name))
+        if(!entry)return
+        const rows=caseMails(mails,name).map(m=>{
+          const view=m as typeof m & {isSent?:boolean;recipients?:string}
+          return {subject:view.subject,sender:view.sender,status:view.status,isSent:view.isSent,recipients:view.recipients}
+        })
+        const remember=(result:{pageId:string;tasks:{itemId:string;capacitiesId:string}[]})=>updateCase(name,current=>({...current,capacitiesId:result.pageId,items:current.items.map(item=>{
+          const id=result.tasks.find(t=>t.itemId===item.id)?.capacitiesId
+          return id?{...item,capacitiesId:id}:item
+        })}),entry)
+        try{
+          const result=await syncCaseToCapacities(token,{pageId:entry.capacitiesId,markdown:capacitiesPageMarkdown(entry,rows),
+            tasks:entry.items.map(item=>({itemId:item.id,title:item.text,done:item.done,due:item.due,capacitiesId:item.capacitiesId}))})
+          remember(result)
+          notify(result.createdPage?'Vorgang in Capacities angelegt.':'Aufgaben in Capacities aktualisiert.')
+        }catch(error){
+          if(error instanceof CapacitiesSyncError && error.partial)remember(error.partial)
+          notify('Capacities: '+errorText(error))
+        }
+      }finally{publishing=false}
+    }})
   caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:(id,name)=>assignCase([id],name,true),afterUndo,render})
   const runRoutine=(action:RoutineAction)=>{
     switch(action){
@@ -794,7 +824,14 @@ async function start() {
   toggle.onchange=()=>{updateConfig({allow_move:toggle.checked});render()}
   const label=tag('label','');label.append(toggle,' Echte Mails verschieben erlauben')
   const labelPrefix=tag('label','Outlook-Statuspräfix');labelPrefix.append(prefix)
-  parts.outlook.append(label,labelPrefix)
+  const tokenInput=document.createElement('input')
+  tokenInput.type='password';tokenInput.autocomplete='off';tokenInput.spellcheck=false
+  tokenInput.value=capacitiesToken();tokenInput.setAttribute('aria-label','Capacities-Token')
+  tokenInput.onchange=()=>{saveCapacitiesToken(tokenInput.value.trim());notify(tokenInput.value.trim()?'Capacities-Token gespeichert.':'Capacities-Token entfernt.')}
+  const tokenLabel=tag('label','Capacities-Token');tokenLabel.append(tokenInput)
+  const tokenHint=tag('p','Schreibt einen Vorgang in einen Capacities-Space. Der Token steht nicht in der Sicherung. Mailtexte gehen nicht mit.')
+  tokenHint.className='field-hint'
+  parts.outlook.append(label,labelPrefix,tokenLabel,tokenHint)
   for(const [key,caption,fallback,min,max,part] of [
     ['poll_seconds','Aktualisieren · Sekunden',30,0,86400,'outlook'],['inbox_days','Posteingang · Tage',60,0,36500,'board'],['done_days','Erledigt · Tage',14,0,36500,'board'],
     ['sent_days','Gesendet · Tage',14,0,36500,'board'],['overdue_days','Überfällig ab Werktagen',5,0,36500,'board'],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500,'board'],['max_items_per_folder','Limit pro Ordner',500,0,5000,'board'],

@@ -12,6 +12,9 @@ type Options = {
   assign(ids:string[],name:string,on:boolean):Promise<void>|void
   onPick(id:string):void
   showOnBoard(name:string):void
+  /** Nur mit echtem Postfach. Legt die Capacities-Seite an oder aktualisiert die Aufgaben. */
+  canPublish?():boolean
+  publish?(name:string):Promise<void>
 }
 
 function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
@@ -119,6 +122,10 @@ export function initCases(options:Options){
     const actions=make('div');actions.className='cockpit-actions'
     const selected=options.selection().filter(id=>!linked.some(m=>m.id===id))
     if(linked.length)actions.append(button('Auf dem Board zeigen',()=>{showView('board');options.showOnBoard(c.name)}))
+    if(options.canPublish?.()&&options.publish){
+      const publish=button(c.capacitiesId?'Aufgaben in Capacities aktualisieren':'In Capacities anlegen',()=>void options.publish!(c.name))
+      actions.append(publish)
+    }
     if(selected.length)actions.append(button(selected.length+' markierte Karten zuordnen',()=>void assign(selected,c.name,true)))
     actions.append(c.closed?button('Wieder öffnen',()=>update(x=>{delete x.closed;return x})):button('Vorgang abschließen',()=>update(x=>({...x,closed:localDay()}))))
     actions.append(button('Vorgang löschen',async()=>{

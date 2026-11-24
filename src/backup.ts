@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import { parse } from 'yaml'
+import { capacitiesTokenKey } from './capacities'
 
 export const LEGACY = 'kanban-import-v1'
 export const PREVIOUS = 'kanban-before-restore-v1'
@@ -59,7 +60,7 @@ export function snapshot(storage:Storage):Snapshot {
   const values:Snapshot=Object.create(null)
   for(let i=0;i<storage.length;i++){
     const key=storage.key(i)
-    if(key && key!==PREVIOUS) values[key]=storage.getItem(key)!
+    if(key && key!==PREVIOUS && key!==capacitiesTokenKey) values[key]=storage.getItem(key)!
   }
   return values
 }
@@ -76,7 +77,9 @@ export function restore(storage:Storage, values:Snapshot, merge=false) {
   }
   try {
     storage.setItem(PREVIOUS,JSON.stringify(before))
-    apply(merge ? {...before,...values}:values)
+    const incoming={...values}
+    delete incoming[capacitiesTokenKey]
+    apply(merge ? {...before,...incoming}:incoming)
   } catch(error) {
     storage.removeItem(PREVIOUS)
     apply(before)

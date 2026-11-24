@@ -115,6 +115,7 @@ def check_case_and_calendar(page, today, next_monday):
     cases.get_by_label('Termin für den neuen Punkt').fill(today)
     cases.get_by_role('button', name='Punkt hinzufügen').click()
     expect(cases.get_by_text('0 von 1 Punkten erledigt')).to_be_visible()
+    expect(cases.get_by_role('button', name='In Capacities anlegen')).to_have_count(0)
     page.get_by_role('tab', name='Board').click()
     # Mit Checkliste zeigt die Karte den Fortschritt statt des Vorgangs-Chips.
     expect(page.locator('#mail-DEMO0003 .card-progress')).to_contain_text('0/1')
