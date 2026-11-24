@@ -1,6 +1,6 @@
 use mailboard_ollama::cache::{Evaluation, EvaluationFolder, SampleIndex};
 use mailboard_ollama::index::{Cluster, Group, GroupMatch, Item, Outlier};
-use mailboard_ollama::{Analysis, Choice, Folder, Mail, ModelInfo, Ollama, Sample, Score};
+use mailboard_ollama::{Analysis, Choice, Folder, Mail, ModelInfo, Ollama, ReplyExample, Sample, Score, StyleCard};
 use tauri::Manager;
 
 #[tauri::command]
@@ -165,13 +165,28 @@ pub async fn ai_profile(
 }
 
 #[tauri::command]
+pub async fn ai_style(url: String, model: String, samples: Vec<Mail>) -> Result<StyleCard, String> {
+    Ollama::new(&url)?.style(&model, &samples).await
+}
+
+#[tauri::command]
 pub async fn ai_reply(
     url: String,
     model: String,
     mail: Mail,
     profile: String,
+    style: Option<String>,
+    examples: Option<Vec<ReplyExample>>,
 ) -> Result<String, String> {
-    Ollama::new(&url)?.reply(&model, &mail, &profile).await
+    Ollama::new(&url)?
+        .reply(
+            &model,
+            &mail,
+            &profile,
+            style.as_deref().unwrap_or(""),
+            examples.as_deref().unwrap_or(&[]),
+        )
+        .await
 }
 
 #[tauri::command]

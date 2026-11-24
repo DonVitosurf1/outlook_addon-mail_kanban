@@ -4,6 +4,7 @@ import { openTasks, type Task } from './tasks-taken'
 import { formatModelInfo } from './model-info'
 import { localDay } from './views-logic'
 import { NO_MODEL, countDraft, countFeedback, currentVote, filingFunction, filingSource, vote, type VoteField } from './ai-feedback'
+import { addressForm, formOf, styleKey, styleText, type SentSample, type StyleCard } from './style'
 
 export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderId?:string;folderPath?:string;tags?:string[];attachments?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
 export type EarlierMessage = {direction:'eingegangen'|'gesendet'|string; text:string}
@@ -561,6 +562,36 @@ async function threadOf(m:AiMail):Promise<EarlierMessage[]>{
     })
   }catch{return []}
 }
+function savedStyleText(){
+  try{const raw=JSON.parse(localStorage.getItem(styleKey)||'{}') as {text?:unknown};return typeof raw.text==='string'?raw.text:''}catch{return ''}
+}
+function savedForm():''|'Du'|'Sie'{return formOf(savedStyleText())}
+async function sentSamples():Promise<SentSample[]>{
+  try{
+    const raw=await native()<string>('outlook_sent_style')
+    const rows:unknown=JSON.parse(raw)
+    if(!Array.isArray(rows))return []
+    return rows.flatMap(row=>{
+      const item=object(row)
+      const text=typeof item.text==='string'?item.text:''
+      if(!text.trim())return []
+      return [{to:typeof item.to==='string'?item.to:'',subject:typeof item.subject==='string'?item.subject:'',text,received:typeof item.received==='string'?item.received:''}]
+    })
+  }catch{return []}
+}
+async function replyGuide(mail:AiMail,cfg:Config){
+  const samples=liveSource?await sentSamples():[]
+  const form=addressForm(mail.senderEmail||mail.sender,samples)||savedForm()
+  const style=[savedStyleText(),form?'Ansprache an diesen Empfänger: '+form:''].filter(Boolean).join('\n')
+  let examples:{subject:string;body:string}[]=[]
+  if(cfg.embeddings&&samples.length){
+    try{
+      const ranked=await native()<{id:string}[]>('ai_rank',{url:cfg.embedUrl,model:cfg.embedModel,query:embedText(mail),items:samples.slice(0,30).map((sample,index)=>({id:String(index),text:sample.subject+'\n'+sample.text}))})
+      examples=ranked.slice(0,2).flatMap(row=>{const sample=samples[Number(row.id)];return sample?[{subject:sample.subject,body:sample.text}]:[]})
+    }catch{examples=[]}
+  }
+  return {style,examples}
+}
 async function analyze(m:AiMail, folders:FolderInfo[],cfg:Config) {
   const invoke=native(), model=await activeModel(cfg,'analyze')
   const earlier=cfg.context?await threadOf(m):[]
@@ -875,7 +906,8 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
       try{
         const key=mail.folderPath||mail.folder||''
         const profiles=getLegacyProfiles(), model=await activeModel(cfg,'reply')
-        draft.value=await native()<string>('ai_reply',{url:cfg.url,model,mail,profile:profiles[key]||profiles[key.replace(/^\//,'')]||''})
+        const guide=await replyGuide(mail,cfg)
+        draft.value=await native()<string>('ai_reply',{url:cfg.url,model,mail,profile:profiles[key]||profiles[key.replace(/^\//,'')]||'',style:guide.style,examples:guide.examples})
         generated={text:draft.value,model}
         draft.hidden=false;open.hidden=false;feedback.textContent='Antwortvorschlag prüfen und bei Bedarf bearbeiten.'
       }catch(error){feedback.textContent=String(error)}
@@ -1184,6 +1216,15 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const context=bool('Verlauf und Anhänge mitschicken',cfg.context,'Die Analyse bekommt bis zu drei frühere Nachrichten der Unterhaltung und die Anhangnamen. Beides gilt nur als Daten.')
   const queue=document.createElement('p');queue.id='aiQueueState';queue.setAttribute('role','status');queue.textContent=queueStatus;section.append(queue)
   const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings,'Vergleicht Mails mit gelernten Ordnerprofilen und bettet geladene Mails im Hintergrund ein. Schnell, braucht das Embedding-Modell.')
+  const styleBox=document.createElement('textarea')
+  styleBox.rows=5
+  styleBox.value=savedStyleText()
+  styleBox.setAttribute('aria-label','Stilsteckbrief')
+  const styleHint=document.createElement('p');styleHint.className='field-hint'
+  styleHint.textContent='Einmal aus gesendeten Mails lernen, dann prüfen und speichern. Kein automatisches Nachlernen. Der Text gilt als Daten.'
+  const learnStyle=document.createElement('button');learnStyle.type='button';learnStyle.textContent='Stil aus gesendeten Mails lernen'
+  const saveStyle=document.createElement('button');saveStyle.type='button';saveStyle.textContent='Stilsteckbrief speichern'
+  section.append(styleHint,styleBox,learnStyle,saveStyle)
   const embedModel=field('Embedding-Modell',cfg.embedModel)
   const embedUrl=field('Adresse des lokalen Embedding-Servers',cfg.embedUrl)
   const list=document.createElement('datalist')
@@ -1193,6 +1234,23 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen'
   const feedback=document.createElement('p');feedback.setAttribute('role','status')
   section.append(list,check,test,save,feedback);container.append(section)
+  learnStyle.onclick=async()=>{
+    if(!liveSource){feedback.textContent='Den Schreibstil gibt es nur im Outlook-Postfach.';return}
+    learnStyle.disabled=true
+    feedback.textContent='Schreibstil wird aus gesendeten Mails gelesen …'
+    try{
+      const probe={...config(),enabled:on.checked,url:url.value.trim(),model:model.value.trim(),draftModel:draftModel.value.trim()}
+      const samples=await sentSamples()
+      if(!samples.length)throw new Error('Keine gesendeten Mails.')
+      const card=await native()<StyleCard>('ai_style',{url:probe.url,model:await activeModel(probe,'reply'),samples:samples.map(sample=>({sender:sample.to,subject:sample.subject,body:sample.text}))})
+      if(current(epoch)){styleBox.value=styleText(card);feedback.textContent='Stilsteckbrief prüfen und speichern. Er wird nicht von allein erneuert.'}
+    }catch(error){if(current(epoch))feedback.textContent=error instanceof Error?error.message:String(error)}
+    finally{learnStyle.disabled=false}
+  }
+  saveStyle.onclick=()=>{
+    localStorage.setItem(styleKey,JSON.stringify({text:styleBox.value,form:formOf(styleBox.value)}))
+    feedback.textContent='Stilsteckbrief gespeichert.'
+  }
   // A1: Angaben zu jedem gewählten Modell, beim Öffnen der Einstellungen und nach einem Modellwechsel.
   const chosen=async()=>firstChatModel(await native()<string[]>('ai_models',{url:url.value.trim()}))
   const infos=[modelInfoLine(model,()=>url.value,()=>on.checked,chosen),modelInfoLine(draftModel,()=>url.value,()=>on.checked),

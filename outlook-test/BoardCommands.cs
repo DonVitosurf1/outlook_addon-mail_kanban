@@ -62,6 +62,9 @@ internal sealed class BoardCommands
             // Bis zu drei frühere Nachrichten derselben Unterhaltung für die Analyse (C1).
             if(args.Length==3) return EarlierMessages(args[1], args[2]);
             break;
+        case "--sent-style":
+            if(args.Length==1) return SentStyle();
+            break;
         case "--folders":
             if (args.Length == 1) {
                 var result = new List<object>();
@@ -574,6 +577,32 @@ internal sealed class BoardCommands
             }
         } catch (COMException ex) { if(!IsItemReadError(ex)) throw; }
         return values.ToArray();
+    }
+
+    private sealed class StyleSample
+    {
+        public DateTime When;
+        public string To, Subject, Text;
+    }
+
+    // Bis zu 30 neueste gesendete Mails für den Stilsteckbrief (C3). Ohne lokale Funktionen: Framework-Compiler.
+    private List<object> SentStyle()
+    {
+        dynamic folder=ns.GetDefaultFolder(5);
+        var found=new List<StyleSample>();
+        try {
+            dynamic items=folder.Items;
+            foreach(dynamic item in Walk(items,(int)items.Count)) {
+                try {
+                    if((int)item.Class!=43) continue;
+                    string text=BodyPreview(item);
+                    if(text.Length==0) continue;
+                    found.Add(new StyleSample{When=(DateTime)item.SentOn,To=((string)item.To??"").Trim(),Subject=(string)item.Subject??"",Text=text});
+                } catch(COMException ex) { if(!IsItemReadError(ex)) throw; }
+            }
+        } catch(COMException ex) { if(ex.ErrorCode!=unchecked((int)0x80070005)) throw; }
+        return found.OrderByDescending(row=>row.When).Take(30)
+            .Select(row=>(object)new{to=row.To,subject=row.Subject,text=row.Text}).ToList();
     }
 
     private object Correspondence(int days,IEnumerable<string> projects)

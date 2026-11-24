@@ -54,6 +54,46 @@ fn mail() -> Mail {
 }
 
 #[tokio::test]
+async fn style_uses_thirty_sent_mails_as_data_after_the_local_check() {
+    let answer = json!({"anrede":"Guten Tag","form":"Sie","gruss":"Viele Grüße","laenge":"kurz","wendungen":"bitte um Rückmeldung"});
+    let (url, server) = mock(vec![
+        ("200 OK", json!({"model_info":{"general.architecture":"local"}})),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let mut samples = vec![mail()];
+    for i in 0..31 {
+        samples.push(Mail { sender: format!("a{i}@example.test"), subject: format!("Betreff {i}"), body: format!("Text {i} {}", "x".repeat(700)), received: String::new() });
+    }
+    let card = Ollama::new(&url).unwrap().style("lokal", &samples).await.unwrap();
+    assert_eq!(card.form, "Sie");
+    assert_eq!(card.anrede, "Guten Tag");
+    let calls = server.join().unwrap();
+    assert!(calls[0].contains("POST /api/show") && !calls[0].contains("Text 0"));
+    assert!(calls[1].contains("Text 0") && calls[1].contains("Daten"));
+    assert!(!calls[1].contains("Text 30"));
+    assert!(!calls[1].contains(&"x".repeat(601)));
+}
+
+#[tokio::test]
+async fn reply_sends_style_and_two_examples_as_data() {
+    let (url, server) = mock(vec![
+        ("200 OK", json!({"model_info":{"general.architecture":"local"}})),
+        ("200 OK", json!({"message":{"content":"{\"antwort\":\"Guten Tag, ich prüfe das.\"}"}})),
+    ]);
+    let examples = [
+        mailboard_ollama::ReplyExample { subject: "Liefertermin".into(), body: "Können Sie den Termin bestätigen?".into() },
+        mailboard_ollama::ReplyExample { subject: "Zweite".into(), body: "Zweite Antwort".into() },
+        mailboard_ollama::ReplyExample { subject: "Dritte".into(), body: "Dritte fällt weg".into() },
+    ];
+    let text = Ollama::new(&url).unwrap().reply("lokal", &mail(), "Projekt", "Ansprache: Sie", &examples).await.unwrap();
+    assert!(text.contains("Guten Tag"));
+    let body = &server.join().unwrap()[1];
+    assert!(body.contains("Ansprache: Sie") && body.contains("Können Sie den Termin"));
+    assert!(body.contains("Zweite Antwort") && !body.contains("Dritte"));
+    assert!(body.contains("Daten"));
+}
+
+#[tokio::test]
 async fn remote_models_do_not_receive_mail_content() {
     let (url, server) = mock(vec![(
         "200 OK",
@@ -239,7 +279,7 @@ async fn mail_is_withheld_if_model_metadata_is_inconclusive() {
     let (url, server) = mock(vec![("200 OK", json!({}))]);
     assert!(Ollama::new(&url)
         .unwrap()
-        .reply("alias", &mail(), "")
+        .reply("alias", &mail(), "", "", &[])
         .await
         .is_err());
     assert!(!server.join().unwrap()[0].contains("Interne Nachfrage"));
@@ -288,7 +328,7 @@ async fn llama_cpp_only_receives_draft_after_local_gguf_evidence() {
     assert_eq!(
         Ollama::new(&url)
             .unwrap()
-            .reply("lokal", &mail(), "")
+            .reply("lokal", &mail(), "", "", &[])
             .await
             .unwrap(),
         "Ich prüfe das."
@@ -307,7 +347,7 @@ async fn generic_proxy_with_no_gguf_is_rejected_before_mail_is_sent() {
     ]);
     assert!(Ollama::new(&url)
         .unwrap()
-        .reply("alias", &mail(), "")
+        .reply("alias", &mail(), "", "", &[])
         .await
         .is_err());
     for req in server.join().unwrap() {
@@ -416,7 +456,7 @@ async fn lm_studio_only_receives_draft_after_local_model_evidence() {
     assert_eq!(
         Ollama::new(&url)
             .unwrap()
-            .reply("qwen2.5-7b-instruct", &mail(), "")
+            .reply("qwen2.5-7b-instruct", &mail(), "", "", &[])
             .await
             .unwrap(),
         "Ich prüfe das."
@@ -443,7 +483,7 @@ async fn lm_studio_models_without_local_weights_do_not_receive_mail() {
     ]);
     let err = Ollama::new(&url)
         .unwrap()
-        .reply("gpt-remote", &mail(), "")
+        .reply("gpt-remote", &mail(), "", "", &[])
         .await
         .unwrap_err();
     assert!(err.contains("LM-Studio"));
@@ -1099,7 +1139,7 @@ async fn uninstalled_ollama_model_is_named_as_such() {
     )]);
     assert!(Ollama::new(&url)
         .unwrap()
-        .reply("fehlt:7b", &mail(), "")
+        .reply("fehlt:7b", &mail(), "", "", &[])
         .await
         .unwrap_err()
         .contains("nicht installiert"));
