@@ -8,6 +8,7 @@ import {draftProfile} from './ai'
 import {getLegacyConfig, getLegacyProfiles, setProfile} from './data-settings'
 import {profileDocument} from './profile-file'
 import {registerStep, type StepContext} from './setup'
+import {element as make, button} from './dom'
 
 type Item={id:string;key:string;text:string;state:'Entwurf'|'Übernommen'|'Verworfen'|'Fehler'}
 const items=new Map<string,Item>()
@@ -18,12 +19,6 @@ let latest:StepContext|undefined
 // Ein noch laufender Entwurf gehört zur alten Quelle: Er läuft aus, sperrt aber den Knopf der neuen nicht mehr.
 document.addEventListener('mailboard:source-changed',()=>{epoch++;stop=true;running=false;items.clear();errors.clear();progress=''})
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void,aria?:string){
-  const node=make('button',label);node.type='button';node.onclick=run
-  if(aria)node.setAttribute('aria-label',aria)
-  return node
-}
 const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
 const hasProfile=(key:string)=>{const all=getLegacyProfiles();return !!(all[key]||all[key.replace(/^\//,'')])}
 const area=()=>String(getLegacyConfig().projects_area||'01 Projekte').replace(/^\/+|\/+$/g,'')

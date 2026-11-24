@@ -12,6 +12,7 @@ import {embeddingId, embeddingOutliers, embeddingsEnabled, excludeFromLearning, 
 import type {Folder} from './live'
 import {BAYES_MARGIN, EMBEDDING_MARGIN, bayesOutliers, minimumMails, openOutliers, outlierFolders, type Outlier, type OutlierFolder} from './outliers'
 import {registerStep, type OffBoardMail, type StepContext} from './setup'
+import {element as make, button} from './dom'
 
 type Finding=Outlier&{mail:OffBoardMail}
 type Scan={stamp:string;method:string;note:string;totals:Record<string,number>;findings:Finding[]}
@@ -19,12 +20,6 @@ type Scan={stamp:string;method:string;note:string;totals:Record<string,number>;f
 let scan:Scan|undefined
 const opened=new Set<string>()
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void,aria?:string){
-  const node=make('button',label);node.type='button';node.onclick=run
-  if(aria)node.setAttribute('aria-label',aria)
-  return node
-}
 function errorText(e:unknown){return e instanceof Error?e.message:String(e)}
 const stampOf=(folders:Folder[])=>JSON.stringify(folders.map(f=>[f.id,f.path]).sort())
 const keyOf=(folder:string,id:string)=>JSON.stringify([folder,id])

@@ -10,8 +10,8 @@ import {measureLearning, trainFromFolders} from './ai'
 import {currentLearningRun, learningRunNote, registerStep, setLearningRun, type StepContext} from './setup'
 import {showToast} from './toast'
 import {compareMeasurements, diffText, folderSetChange, measuredFolders, type CompareRow} from './setup-logic'
+import {element as make} from './dom'
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
 const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
 const percent=(n:number|null)=>n==null?'–':n+' %'
 

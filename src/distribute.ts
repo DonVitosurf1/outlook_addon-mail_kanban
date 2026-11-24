@@ -1,10 +1,10 @@
 import {recordFiling, suggestFolder, type AiMail} from './ai'
 import {ask,getLegacyConfig,readLimits} from './data-settings'
 import {countsAsFiling, type LiveBoard, type Folder} from './live'
+import {button} from './dom'
 
 type Mail=AiMail & {id:string;folderId:string}
 type Choice = {mail:Mail; target:HTMLSelectElement; check:HTMLInputElement}
-function button(label:string,fn:()=>void){const b=document.createElement('button');b.textContent=label;b.onclick=fn;return b}
 export function distribute(service:Pick<LiveBoard,'json'|'begin'|'move'|'writeBatch'>,source:Folder,folders:Folder[],refresh:()=>void,preselected:string[]=[]) {
   const d=document.createElement('dialog'),title=document.createElement('h2')
   d.className='distribute-dialog'

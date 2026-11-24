@@ -1,6 +1,7 @@
 import {localDraftModel} from './ai'
 import {ask, getLegacyConfig, updateConfig} from './data-settings'
 import type {Folder, LiveBoard} from './live'
+import {button} from './dom'
 
 type Child = Folder & {parentId:string}
 type Proposal = {name:string;subjects:string[]}
@@ -42,12 +43,6 @@ function addTargets(created:Folder[]) {
   const scope=Array.isArray(previous)?previous.filter((v):v is string=>typeof v==='string'):[]
   updateConfig({suggestion_folders:[...new Set([...scope,...created.map(f=>f.path)])]})
 }
-function button(text:string,run:()=>void) {
-  const node=document.createElement('button')
-  node.type='button';node.textContent=text;node.onclick=run
-  return node
-}
-
 export function openStructure(service:Pick<LiveBoard,'json'|'invoke'|'writeBatch'>, source:Folder, finish:(created:Folder[])=>void|Promise<void>) {
   const dialog=document.createElement('dialog')
   dialog.className='structure-dialog'

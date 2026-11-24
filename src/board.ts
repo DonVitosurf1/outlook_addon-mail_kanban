@@ -32,6 +32,7 @@ import './setup-refine'
 import './setup-profiles'
 import './setup-compare'
 import './setup-inbox'
+import {element as tag} from './dom'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -76,11 +77,6 @@ let suggestionVersion=0
 let currentSuggestion:((apply:boolean)=>Promise<void>)|undefined
 let reloadPending=false
 
-function tag<K extends keyof HTMLElementTagNameMap>(name:K,text:string) {
-  const node=document.createElement(name)
-  node.textContent=text
-  return node
-}
 function notify(text:string) {
   el('message').textContent=text
   if(dialog.open) el('openError').textContent=text

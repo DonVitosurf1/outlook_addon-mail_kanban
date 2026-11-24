@@ -1,6 +1,7 @@
 import {getLegacyConfig} from './data-settings'
 import type {LiveBoard} from './live'
 import {detectReplies,unanswered,type Correspondence,type Envelope,type WaitingMail} from './waiting'
+import {element as node, button as cmd} from './dom'
 type Host={
   hasMailbox():boolean; rows():WaitingMail[]; folders():string[]; isLive():boolean; render():void; service?:LiveBoard
   refreshAfterWrite():Promise<void>|void; trackDemo?(mails:Envelope[]):Promise<void>|void
@@ -8,12 +9,6 @@ type Host={
   resolveReplies?(ids:string[],status:string):Promise<void>; busy?():boolean; writeBatch?(action:()=>Promise<void>):Promise<void>
 }
 
-function node<K extends keyof HTMLElementTagNameMap>(tag:K,label=''){
-  const n=document.createElement(tag);n.textContent=label;return n
-}
-function cmd(text:string,action:()=>void){
-  const b=node('button',text);b.type='button';b.onclick=action;return b
-}
 function ignoredDates(key:string):Map<string,number>{
   try{const raw:unknown=JSON.parse(localStorage.getItem(key)||'[]')
     const now=Date.now(),cutoff=now-60*86400000

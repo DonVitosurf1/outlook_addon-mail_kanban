@@ -6,6 +6,7 @@ import type {ShortcutAction} from './shortcuts'
 import {showView} from './tabs'
 import {dateTerms} from './date-terms'
 import {getLegacyConfig, textSnippets,updateConfig} from './data-settings'
+import {element, button} from './dom'
 import type {Focus, Group, Sort, Split, ViewMail} from './views-logic'
 export {matchesQuery} from './views-logic'
 
@@ -35,12 +36,6 @@ type BoardActions={
 export type ViewState={search:string;focus:Focus;split:string;tag:string}
 const statuses=['Offen','In Bearbeitung','Warten','Erledigt']
 const fields:Record<Field,string>={followUp:'Nachfassen',snoozeUntil:'Wiedervorlage',note:'Notiz'}
-function element<K extends keyof HTMLElementTagNameMap>(key:K,text=''){
-  const node=document.createElement(key);node.textContent=text;return node
-}
-function button(label:string,fn:()=>void) {
-  const b=element('button',label); b.type='button'; b.onclick=fn; return b
-}
 function options(select:HTMLSelectElement,choices:[string,string][]) {
   select.replaceChildren(...choices.map(([value,text])=>new Option(text,value)))
 }

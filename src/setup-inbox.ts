@@ -18,6 +18,7 @@ import type {Folder} from './live'
 import {getArchiveScope} from './projects'
 import {registerStep, type OffBoardMail, type StepContext} from './setup'
 import type {SetupState} from './setup-logic'
+import {element as make, button} from './dom'
 import type {ViewMail} from './views-logic'
 
 /** Karte aus `outlook_backlog`. */
@@ -34,12 +35,6 @@ let focusSection:Section|undefined
 const opened=new Set<string>()
 document.addEventListener('mailboard:source-changed',()=>{read=undefined;opened.clear()})
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void,aria?:string){
-  const node=make('button',label);node.type='button';node.onclick=run
-  if(aria)node.setAttribute('aria-label',aria)
-  return node
-}
 function errorText(e:unknown){return e instanceof Error?e.message:String(e)}
 const mails=(n:number)=>n===1?'1 Mail':n.toLocaleString('de-DE')+' Mails'
 const quoted=(text:string)=>'„'+text+'“'
