@@ -7,7 +7,8 @@ export type AiMail = {subject:string; sender:string; body:string; senderEmail?:s
 export type Suggestion = {folder:string;reason:string}
 type FolderInfo = {key:string;profile:string}
 type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[];aufgaben?:Task[]}
-type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;embedModel:string}
+/** `model`: Modell für Hintergrund (Analyse, Stichwahl, Aufgaben). `draftModel`: Modell für Entwürfe, leer = wie `model`. */
+type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;draftModel:string;embedModel:string}
 const settingsKey='outlook-kanban-ai-settings-v1'
 const feedbackKey='outlook-kanban-filing-feedback-v1'
 const stop=new Set('und der die das für mit von den dem des ein eine einer auf aus bei ihre ihr ist zur zum the and for your you with from bitte info anfrage rückfrage frage'.split(' '))
@@ -42,7 +43,7 @@ function config(): Config {
     enabled:(own.enabled??old.llm_enabled)===true, auto:own.auto===true, autoLearn:own.autoLearn===true, embeddings:(own.embeddings??old.embeddings_enabled)===true,
     url:String(own.url||old.llm_url||'http://127.0.0.1:11434'),
     embedUrl:String(own.embedUrl||old.embedding_url||own.url||old.llm_url||'http://127.0.0.1:11434'),
-    model:String(own.model??old.llm_model??''), embedModel:String(own.embedModel||old.embedding_model||'qwen3-embedding:0.6b'),
+    model:String(own.model??old.llm_model??''), draftModel:typeof own.draftModel==='string'?own.draftModel:'', embedModel:String(own.embedModel||old.embedding_model||'qwen3-embedding:0.6b'),
   }
 }
 function native():Invoke {
@@ -413,7 +414,7 @@ async function trainCenter(folder:string,samples:AiMail[],ai:Config){
 export async function draftProfile(folder:string,key:string){
   const invoke=native()
   if(!allowed(key))throw new Error('Bitte einen aktiven Projekt- oder Bereichsordner auswählen.')
-  const cfg=config(), model=await activeModel(cfg)
+  const cfg=config(), model=await activeModel(cfg,'profile')
   const raw=await invoke<string>('outlook_training',{folder,limit:24,days:0})
   const samples:AiMail[]=JSON.parse(raw)
   if(!samples.length)throw new Error('Im Ordner fehlen Nachrichten für einen Steckbriefentwurf.')
@@ -479,20 +480,32 @@ function lexical(m:AiMail,folders:FolderInfo[]):Suggestion|undefined {
   if(rank[0]?.score>0 && rank[0].score>(rank[1]?.score||0))return {folder:rank[0].folder,reason:'Begriff aus Ordnername oder Steckbrief'}
 }
 
-async function activeModel(cfg:Config) {
+/** Rolle eines Sprachmodells (A4): Hintergrund für Analyse, Stichwahl und Aufgaben, Entwürfe für Texte, die du liest und bearbeitest. */
+export type ModelRole='background'|'draft'
+/** Welche Modellrolle jede KI-Funktion nutzt. */
+export const MODEL_ROLES={analyze:'background',choose:'background',tasks:'background',
+  reply:'draft',profile:'draft',subfolders:'draft',folderName:'draft',clusterName:'draft'} as const satisfies Record<string,ModelRole>
+export type AiFunction=keyof typeof MODEL_ROLES
+/** Eingestellter Modellname für eine Funktion. Ein leeres Entwurfsmodell bedeutet „wie Hintergrund“, leer insgesamt „automatisch“. */
+export function configuredModel(fn:AiFunction,cfg:{model:string;draftModel?:string}){
+  const background=cfg.model.trim()
+  return MODEL_ROLES[fn]==='draft'?(cfg.draftModel||'').trim()||background:background
+}
+async function activeModel(cfg:Config,fn:AiFunction) {
   if(!cfg.enabled)throw new Error('Lokale KI ist ausgeschaltet.')
   const invoke=native()
-  const model=cfg.model.trim() || (await invoke<string[]>('ai_models',{url:cfg.url})).find(s=>!s.toLowerCase().includes('embed'))
+  const model=configuredModel(fn,cfg) || (await invoke<string[]>('ai_models',{url:cfg.url})).find(s=>!s.toLowerCase().includes('embed'))
   if(!model)throw new Error('Bitte in den Einstellungen ein lokal installiertes Sprachmodell wählen.')
   return model
 }
-export async function localChatModel() {
+/** Adresse und Entwurfsmodell für Entwürfe außerhalb dieses Moduls (Unterordner, `ai_subfolders`). */
+export async function localDraftModel() {
   requireLive()
   const cfg=config()
-  return {url:cfg.url,model:await activeModel(cfg)}
+  return {url:cfg.url,model:await activeModel(cfg,'subfolders')}
 }
 async function analyze(m:AiMail, folders:FolderInfo[],cfg:Config) {
-  const invoke=native(), model=await activeModel(cfg)
+  const invoke=native(), model=await activeModel(cfg,'analyze')
   const result=await invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
   return {...result,aufgaben:Array.isArray(result.aufgaben)?result.aufgaben:[]}
 }
@@ -646,7 +659,7 @@ type Choice={ordner:string;grund:string}
 const runoffs=new Map<string,Choice|null>()
 /** Schnelle Stichwahl (C2) zwischen genau zwei Ordnern über `ai_choose` statt einer vollen Analyse. */
 async function runoff(mail:AiMail,two:FolderInfo[],cfg:Config):Promise<Choice|null>{
-  const invoke=native(), model=await activeModel(cfg)
+  const invoke=native(), model=await activeModel(cfg,'choose')
   const key=JSON.stringify([embeddingId(mail),cfg.url,model,...two.map(f=>[f.key,f.profile]).sort()])
   if(runoffs.has(key))return runoffs.get(key)!
   const raw=await invoke<Choice|null>('ai_choose',{url:cfg.url,model,mail:{subject:mail.subject,sender:'',body:mail.body.slice(0,1000),received:mail.received||''},candidates:two})
@@ -752,7 +765,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
       try{
         const key=mail.folderPath||mail.folder||''
         const profiles=getLegacyProfiles()
-        draft.value=await native()<string>('ai_reply',{url:cfg.url,model:await activeModel(cfg),mail,profile:profiles[key]||profiles[key.replace(/^\//,'')]||''})
+        draft.value=await native()<string>('ai_reply',{url:cfg.url,model:await activeModel(cfg,'reply'),mail,profile:profiles[key]||profiles[key.replace(/^\//,'')]||''})
         draft.hidden=false;open.hidden=false;feedback.textContent='Antwortvorschlag prüfen und bei Bedarf bearbeiten.'
       }catch(error){feedback.textContent=String(error)}
       finally{generate.disabled=false}
@@ -944,7 +957,7 @@ export async function embeddingClusters<T extends AiMail>(mails:T[],minSize=CLUS
  * Der Aufrufer prüft das Ergebnis mit `cleanFolderName` und auf Dubletten.
  */
 export async function suggestClusterName(subjects:string[]){
-  const invoke=native(),cfg=config(),model=await activeModel(cfg)
+  const invoke=native(),cfg=config(),model=await activeModel(cfg,'clusterName')
   return invoke<string>('ai_cluster_name',{url:cfg.url,model,subjects:subjects.map(s=>s.slice(0,200)).filter(s=>s.trim()).slice(0,20)})
 }
 /**
@@ -965,7 +978,7 @@ export function profileVectors(keys:string[]):Record<string,number[]>{
  * 20 Beispielbetreffs. Der Aufrufer prüft das Ergebnis mit `cleanFolderName` und auf Dubletten.
  */
 export async function suggestFolderName(folder:Folder){
-  const invoke=native(),cfg=config(),model=await activeModel(cfg)
+  const invoke=native(),cfg=config(),model=await activeModel(cfg,'folderName')
   const mails:AiMail[]=JSON.parse(await invoke<string>('outlook_training',{folder:folder.id,limit:20,days:0}))
   const subjects=mails.map(m=>(m.subject||'').slice(0,200)).filter(s=>s.trim())
   if(!subjects.length)throw new Error('Im Ordner „'+(folder.path||folder.name)+'“ fehlen Mails für einen Namensvorschlag.')
@@ -1035,8 +1048,13 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   }
   const on=bool('Lokale KI verwenden',cfg.enabled)
   const url=field('Adresse des lokalen Modellservers',cfg.url)
-  const model=field('Sprachmodell',cfg.model)
+  const model=field('Modell für Hintergrund',cfg.model)
   model.placeholder='Automatisch auswählen'
+  const draftModel=field('Modell für Entwürfe',cfg.draftModel)
+  draftModel.placeholder='wie Hintergrund'
+  const roles=document.createElement('p');roles.className='field-hint'
+  roles.textContent='Hintergrund: Analyse, Stichwahl und Aufgaben. Entwürfe: Antworten, Steckbriefe und Ordnernamen. Beide müssen lokal laufen.'
+  section.append(roles)
   const learnSection=document.createElement('div')
   const autoLearn=bool('Lernordner stündlich aktualisieren',cfg.autoLearn,'Liest die Lernordner jede Stunde neu ein.',learnSection)
   const trainingState=document.createElement('p');trainingState.id='aiTrainingState';trainingState.setAttribute('role','status')
@@ -1047,14 +1065,14 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const embedModel=field('Embedding-Modell',cfg.embedModel)
   const embedUrl=field('Adresse des lokalen Embedding-Servers',cfg.embedUrl)
   const list=document.createElement('datalist')
-  list.id='local-models-list';model.setAttribute('list',list.id);embedModel.setAttribute('list',list.id)
+  list.id='local-models-list';model.setAttribute('list',list.id);draftModel.setAttribute('list',list.id);embedModel.setAttribute('list',list.id)
   const check=document.createElement('button');check.type='button';check.textContent='Lokale Modelle laden'
   const save=document.createElement('button');save.type='button';save.textContent='KI-Einstellungen speichern'
   const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen'
   const feedback=document.createElement('p');feedback.setAttribute('role','status')
   section.append(list,check,test,save,feedback);container.append(section)
   // A1: Angaben zu jedem gewählten Modell, beim Öffnen der Einstellungen und nach einem Modellwechsel.
-  const infos=[modelInfoLine(model,()=>url.value,()=>on.checked),modelInfoLine(embedModel,()=>embedUrl.value,()=>on.checked)]
+  const infos=[modelInfoLine(model,()=>url.value,()=>on.checked),modelInfoLine(draftModel,()=>url.value,()=>on.checked),modelInfoLine(embedModel,()=>embedUrl.value,()=>on.checked)]
   const loadInfos=()=>{if(current(epoch))for(const load of infos)load()}
   const dialog=container.closest('dialog')
   if(dialog){
@@ -1068,14 +1086,17 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   test.onclick=async()=>{
     test.disabled=true;feedback.textContent='Verbindung wird getestet …'
     try{
-      const probe={...config(),enabled:on.checked,url:url.value.trim(),model:model.value.trim(),embedModel:embedModel.value.trim()}
+      const probe={...config(),enabled:on.checked,url:url.value.trim(),model:model.value.trim(),draftModel:draftModel.value.trim(),embedModel:embedModel.value.trim()}
       const names=await native()<string[]>('ai_models',{url:probe.url})
-      const chat=await activeModel(probe)
+      const chat=await activeModel(probe,'analyze'), writer=await activeModel(probe,'reply')
+      // Das Entwurfsmodell bekommt hier keine Mail, nur denselben Lokalitätsnachweis wie vor jedem Entwurf.
+      if(writer!==chat)try{await native()('ai_model_info',{url:probe.url,model:writer})}
+      catch(error){throw new Error('Modell für Entwürfe „'+writer+'“: '+(error instanceof Error?error.message:String(error)))}
       const embed=names.some(n=>n===probe.embedModel||n.replace(/:latest$/,'')===probe.embedModel.replace(/:latest$/,''))
       const started=performance.now()
       await analyze(sampleMail,[],probe)
       const seconds=((performance.now()-started)/1000).toLocaleString('de-DE',{maximumFractionDigits:1})
-      if(current(epoch))feedback.textContent='Outlook: verbunden · Sprachmodell: '+chat+' · Embedding-Modell '+probe.embedModel+': '+(embed?'vorhanden':'nicht gefunden')+' · Antwortzeit: '+seconds+' s'
+      if(current(epoch))feedback.textContent='Outlook: verbunden · Hintergrundmodell: '+chat+' · Entwurfsmodell: '+(writer===chat?'wie Hintergrund':writer+' (lokal geprüft)')+' · Embedding-Modell '+probe.embedModel+': '+(embed?'vorhanden':'nicht gefunden')+' · Antwortzeit: '+seconds+' s'
     }catch(error){if(current(epoch))feedback.textContent='Verbindung fehlgeschlagen: '+(error instanceof Error?error.message:String(error))}
     finally{test.disabled=false}
   }
@@ -1095,7 +1116,7 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
       const address=new URL(field.value)
       if(address.protocol!=='http:' || !['127.0.0.1','localhost','[::1]'].includes(address.hostname) || address.username || address.password || address.pathname!=='/' || address.search || address.hash) throw Error('Bitte eine lokale HTTP-Adresse ohne Pfad angeben.')
       }
-      localStorage.setItem(settingsKey,JSON.stringify({enabled:on.checked,auto:auto.checked,autoLearn:autoLearn.checked,url:url.value.trim(),model:model.value.trim(),embeddings:embeddings.checked,embedModel:embedModel.value.trim(),embedUrl:embedUrl.value.trim()}))
+      localStorage.setItem(settingsKey,JSON.stringify({enabled:on.checked,auto:auto.checked,autoLearn:autoLearn.checked,url:url.value.trim(),model:model.value.trim(),draftModel:draftModel.value.trim(),embeddings:embeddings.checked,embedModel:embedModel.value.trim(),embedUrl:embedUrl.value.trim()}))
       feedback.textContent='KI-Einstellungen gespeichert.'
       void queueAnalyses()
     }catch(error){feedback.textContent=String(error)}

@@ -1,4 +1,4 @@
-import {localChatModel} from './ai'
+import {localDraftModel} from './ai'
 import {ask, getLegacyConfig, updateConfig} from './data-settings'
 import type {Folder, LiveBoard} from './live'
 
@@ -108,7 +108,7 @@ export function openStructure(service:Pick<LiveBoard,'json'|'invoke'|'writeBatch
   async function draft() {
     status.textContent='Beispielmails und bestehende Unterordner werden gelesen …'
     try {
-      const model=await localChatModel()
+      const model=await localDraftModel()
       if(!dialog.open)return
       const [mails,known]=await Promise.all([
         service.json<{subject:string;body:string}[]>('outlook_training',{folder:source.id,limit:40,days:0}),

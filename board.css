@@ -491,6 +491,7 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .mail-tasks li input[type=text] { flex: 1 1 14rem; min-width: 0; }
 .mail-tasks .task-target { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; }
 .field-hint { margin: .3rem 0 0; font-size: .85em; color: var(--muted, inherit); }
+.model-info { min-height: 1.3em; }
 
 .toast { position: fixed; z-index: 100; left: 50%; bottom: 1.2rem; transform: translateX(-50%); display: flex; align-items: center; gap: .6rem; max-width: min(36rem, calc(100vw - 2rem)); padding: .5rem .5rem .5rem 1rem; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--shadow-float); font-size: .85rem; }
 .toast span { overflow-wrap: anywhere; }

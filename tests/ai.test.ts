@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { setAiLive, suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis, pendingEmbeddings, embeddingId, embeddingIndex, embedRetryDelay } from '../src/ai'
+import { setAiLive, suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis, pendingEmbeddings, embeddingId, embeddingIndex, embedRetryDelay, configuredModel, MODEL_ROLES } from '../src/ai'
 import { LEGACY } from '../src/backup'
 
 function storage(files:Record<string,string>={}){
@@ -286,4 +286,27 @@ test('Einbettung: nach einem Fehler erst nach der Wartezeit erneut, Erfolg und Q
     setAiLive(false);setAiLive(true)
     await queueAnalyses();assert.equal(calls.length,6)
   }finally{Date.now=realNow}
+})
+
+test('Zwei Modelle: Hintergrund für Analyse, Stichwahl und Aufgaben, Entwürfe für Texte',()=>{
+  const both={model:'hinter:8b',draftModel:'entwurf:14b'}
+  for(const fn of ['analyze','choose','tasks'] as const)assert.equal(configuredModel(fn,both),'hinter:8b',fn)
+  for(const fn of ['reply','profile','subfolders','folderName','clusterName'] as const)assert.equal(configuredModel(fn,both),'entwurf:14b',fn)
+  assert.deepEqual(Object.keys(MODEL_ROLES).sort(),['analyze','choose','clusterName','folderName','profile','reply','subfolders','tasks'])
+  // Ältere Einstellungen ohne Entwurfsmodell und ein leeres Feld verhalten sich wie bisher.
+  assert.equal(configuredModel('reply',{model:'hinter:8b'}),'hinter:8b')
+  assert.equal(configuredModel('reply',{model:'hinter:8b',draftModel:'  '}),'hinter:8b')
+  assert.equal(configuredModel('reply',{model:'',draftModel:''}),'')
+})
+test('Stichwahl nutzt das Hintergrundmodell, nicht das Entwurfsmodell',async()=>{
+  storage()
+  const models:string[]=[]
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{__TAURI__:{core:{invoke:async(cmd:string,args:any)=>{
+    if(cmd==='ai_suggest')return [{folder:'Labor',score:0.90},{folder:'Einkauf',score:0.86}]
+    models.push(cmd+':'+args.model)
+    return {ordner:'Labor',grund:'Messung'}
+  }}}}})
+  localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,embeddings:true,model:'hinter',draftModel:'entwurf'}))
+  assert.equal((await suggestFolder({...mail,subject:'Messreihe'},['Labor','Einkauf'])).folder,'Labor')
+  assert.deepEqual(models,['ai_choose:hinter'])
 })
