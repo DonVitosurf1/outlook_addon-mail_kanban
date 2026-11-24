@@ -47,12 +47,13 @@ const folders=[
 const card=(m,f)=>({...m,folderId:f.id,folder:f.name,status:m.hasStatus?'In Bearbeitung':'Offen',tags:[],attachments:[]})
 const write=name=>{if(!window.batchActive)throw Error(name+' ohne Schreibstapel')}
 window.outlook={folders}
+window.hold=Promise.resolve()
 window.calls=[]
 window.__TAURI__={core:{invoke:async(name,args={})=>{
   window.calls.push([name,args,!!window.batchActive])
   if(name==='outlook_batch'){window.batchActive=args.active;return}
   if(name==='outlook_categories')return '[]'
-  if(name==='outlook_folders')return JSON.stringify(folders.map(({mails,...f})=>f))
+  if(name==='outlook_folders'){await window.hold;return JSON.stringify(folders.map(({mails,...f})=>f))}
   if(name==='outlook_folder_counts')return JSON.stringify(folders.filter(f=>!args.folders||args.folders.includes(f.id)).map(f=>({id:f.id,count:f.mails.length})))
   if(name==='outlook_board')return '[]'
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
@@ -137,9 +138,18 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(safe.locator('summary')).to_have_text(['6 Mails nach „Labor“'])
             expect(safe.get_by_role('heading', name='Sichere Vorschläge', exact=True)).to_be_focused()
 
-            # Ein Rückgängig-Schritt holt den ganzen Stapel zurück.
+            # Ein Rückgängig-Schritt holt den ganzen Stapel zurück. Ist das Board gerade beschäftigt (Ordner werden neu gelesen),
+            # sagt die Rückmeldung das und bietet Rückgängig erneut an.
             toast = page.locator('.toast')
             expect(toast).to_contain_text('Einkauf')
+            page.evaluate("window.hold=new Promise(r=>window.release=r);0")
+            page.evaluate("window.dispatchEvent(new Event('mailboard:foldersChanged'))")
+            expect(page.locator('#undo')).to_be_disabled()
+            toast.get_by_role('button', name='Rückgängig').click()
+            expect(toast).to_contain_text('Das Board ist gerade beschäftigt. Bitte gleich noch einmal.')
+            assert count('02') == 10 and calls('outlook_undo') == []
+            page.evaluate('window.release()')
+            expect(page.locator('#undo')).to_be_enabled()
             toast.get_by_role('button', name='Rückgängig').click()
             expect(toast).to_contain_text('Zurückgenommen')
             assert count('02') == 0 and count('01') == 40

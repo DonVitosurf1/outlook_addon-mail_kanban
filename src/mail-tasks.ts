@@ -4,10 +4,11 @@ import {caseNameFromSubject, caseNameProblem, caseNames, caseTag, type Case} fro
 import {newId, updateCase} from './planning-store'
 import {releaseTaken, setTaken, takenTasks, type Task} from './tasks-taken'
 import {showToast} from './toast'
-import {BUSY_UNDO} from './undo-ui'
+import {BUSY_UNDO, UNDO_FAILED} from './undo-ui'
 import {localDay} from './views-logic'
 
 type TaskMail = {subject:string;tags:string[];id:string;aiTasks?:Task[];received?:string;sender:string;body:string}
+type UndoOutcome='done'|'stale'|'busy'|'failed'|'skipped'
 type Options = {
   cases():readonly Case[]
   canAssign():boolean
@@ -17,8 +18,11 @@ type Options = {
   confirm(question:string,label:string):Promise<boolean>
   /** Kennung des letzten Rücknahme-Schritts. */
   marker():string
-  /** Nimmt den letzten Schritt nur zurück, wenn er noch zur Kennung passt: `done`, sonst `stale` (später geändert) oder `busy` (Board beschäftigt). */
-  undoIfLatest(marker:string):Promise<'done'|'stale'|'busy'>
+  /**
+   * Nimmt den letzten Schritt nur zurück, wenn er noch zur Kennung passt: `done`, sonst `stale` (später geändert), `busy` (Board beschäftigt),
+   * `failed` (gescheitert oder abgebrochen, Schritt bleibt) oder `skipped` (übersprungen, der Outlook-Wert bleibt).
+   */
+  undoIfLatest(marker:string):Promise<UndoOutcome>
   /** Ruft `run` auf, sobald der zuletzt aufgezeichnete Schritt zurückgenommen wird, ob über die Rückmeldung oder Strg+Z. */
   afterUndo(run:()=>void):void
   /** Wendet die Analyse-Ergebnisse (ohne übernommene Aufgaben) neu auf die geladenen Mails an und zeichnet Karten und Details neu. */
@@ -96,19 +100,22 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
       if(marker)options.afterUndo(()=>{release(false);options.refresh()})
       options.refresh()
       const revert=async()=>{
-        let kept=false
+        let kept=false,skipped=false
         if(marker){
-          let outcome:'done'|'stale'|'busy'
+          let outcome:UndoOutcome
           try{outcome=await options.undoIfLatest(marker)}
           catch(error){status.textContent=error instanceof Error?error.message:String(error);outcome='stale'}
           if(outcome==='busy'){showToast(BUSY_UNDO,()=>void revert());return}
+          // Gescheitert: Zuordnung und Punkte bleiben, Rückgängig bleibt möglich.
+          if(outcome==='failed'){showToast(UNDO_FAILED,()=>void revert());return}
           // Zurückgenommen: das Aufräumen übernimmt `afterUndo`.
           if(outcome==='done')return
           kept=true
+          skipped=outcome==='skipped'
         }
         release(kept)
         options.refresh()
-        if(kept)showToast('Die Zuordnung zum Vorgang bleibt, weil danach etwas anderes geändert wurde.')
+        if(kept)showToast(skipped?'Die Zuordnung zum Vorgang bleibt, weil der Rückgängig-Schritt übersprungen wurde.':'Die Zuordnung zum Vorgang bleibt, weil danach etwas anderes geändert wurde.')
       }
       showToast(added.length+(added.length===1?' Punkt':' Punkte')+' in „'+name+'“ übernommen.',()=>void revert())
     }catch(error){status.textContent=error instanceof Error?error.message:String(error)}

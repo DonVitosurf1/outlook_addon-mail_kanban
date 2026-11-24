@@ -3,6 +3,8 @@ import {UndoSkippable} from './live'
 
 /** Rückmeldung, wenn Rückgängig warten muss, weil gerade eine andere Outlook-Aktion läuft. */
 export const BUSY_UNDO='Das Board ist gerade beschäftigt. Bitte gleich noch einmal.'
+/** Rückmeldung, wenn die Rücknahme gescheitert ist oder abgebrochen wurde. Der Grund steht in der Meldungszeile. */
+export const UNDO_FAILED='Nicht zurückgenommen. Der Schritt bleibt verfügbar.'
 
 /**
  * Rücknahme, die nicht ganz gelingt (`UndoSkippable`): fragt, ob der Schritt übersprungen werden soll, damit er den Stapel nicht blockiert.

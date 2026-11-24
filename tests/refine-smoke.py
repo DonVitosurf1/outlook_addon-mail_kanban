@@ -260,6 +260,9 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(stuck).to_contain_text('Mail gesperrt')
             stuck.get_by_role('button', name='Abbrechen').click()
             expect(page.locator('#message')).to_have_text('Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
+            # Die Rückmeldung meldet keinen Erfolg, sondern bietet Rückgängig erneut an.
+            expect(toast).to_contain_text('Nicht zurückgenommen. Der Schritt bleibt verfügbar.')
+            expect(toast.get_by_role('button', name='Rückgängig')).to_be_visible()
             assert counts()['Laborbedarf'] == 4 and counts()['Labor'] == 41, counts()
             # Im Projektdialog dieselbe Rückfrage: hier überspringen.
             page.locator('#moreTools summary').click()

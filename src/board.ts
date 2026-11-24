@@ -8,7 +8,7 @@ import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, upda
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
 import demo from './demo.json'
 import { countsAsFiling, LiveBoard, type Folder, type Invoke } from './live'
-import { BUSY_UNDO, offerUndoSkip } from './undo-ui'
+import { BUSY_UNDO, UNDO_FAILED, offerUndoSkip } from './undo-ui'
 import { initSemanticSearch, renderSimilar } from './semantic-search'
 import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
 import { BoardViews, matchesQuery } from './views'
@@ -386,22 +386,24 @@ function reporting(failed:((text:string)=>void)|undefined,action:()=>Promise<voi
 /** Kennung des letzten Rücknahme-Schritts, um einen eigenen Schritt später gezielt zurückzunehmen. */
 function undoMarker(){return isLive()?(service?.latest||0)+':'+projectUndoLatest():String(demoSteps)}
 /**
- * Nimmt den Schritt `marker` zurück, wenn er noch der neueste ist. `done`: zurückgenommen (oder die Rücknahme wurde versucht),
- * `stale`: danach wurde etwas anderes geändert, `busy`: das Board ist beschäftigt, nichts geändert, später noch einmal versuchen.
+ * Nimmt den Schritt `marker` zurück, wenn er noch der neueste ist. `done`: zurückgenommen, `stale`: danach wurde etwas anderes geändert,
+ * `busy`: das Board ist beschäftigt, nichts geändert, `failed`: die Rücknahme ist gescheitert oder wurde abgebrochen, der Schritt bleibt,
+ * `skipped`: der Schritt wurde übersprungen (der aktuelle Outlook-Wert bleibt). Fehler und Überspringen stehen schon in der Meldungszeile.
  */
 async function undoIfLatest(marker:string):Promise<UndoOutcome>{
   if(undoMarker()!==marker)return 'stale'
   if(busy)return 'busy'
-  await undo()
-  return 'done'
+  if(await undo())return 'done'
+  return undoMarker()===marker?'failed':'skipped'
 }
-type UndoOutcome='done'|'stale'|'busy'
+type UndoOutcome='done'|'stale'|'busy'|'failed'|'skipped'
 /** Rückgängig für die Rückmeldung: nimmt nur den gerade aufgezeichneten Schritt zurück, nie einen späteren. */
 function undoThisStep(){
   const marker=undoMarker()
   const run=()=>void undoIfLatest(marker).then(outcome=>{
     // Beschäftigt: die Rückmeldung erscheint erneut mit Rückgängig, solange der Schritt der neueste bleibt.
     if(outcome==='busy')showToast(BUSY_UNDO,run)
+    else if(outcome==='failed')showToast(UNDO_FAILED,run)
     else if(outcome==='stale')showToast('Rückgängig nicht mehr möglich, weil danach etwas anderes geändert wurde.')
   })
   return run
@@ -420,11 +422,13 @@ function runUndoHook(marker:string){
   undoHooks.delete(marker)
   try{hook?.()}catch(e){notify(errorText(e))}
 }
-async function undo() {
-  if(!hasMailbox())return
+/** Nimmt den letzten Schritt zurück. Liefert, ob das gelang (falsch bei beschäftigtem Board, Fehler, Abbruch oder Überspringen). */
+async function undo():Promise<boolean> {
+  if(!hasMailbox())return false
+  let undone=false
   await exclusive(async()=>{
     const label=latestUndoLabel(),marker=undoMarker()
-    const done=()=>{showToast(label?'Zurückgenommen: '+label:'Änderung rückgängig gemacht.');runUndoHook(marker)}
+    const done=()=>{undone=true;showToast(label?'Zurückgenommen: '+label:'Änderung rückgängig gemacht.');runUndoHook(marker)}
     if(isLive()) {
       // Ein Schritt, der nicht ganz zurückgeht, lässt sich überspringen, damit er den Stapel nicht blockiert.
       const offerSkip=async(error:unknown)=>notify(await offerUndoSkip(document.body,error))
@@ -450,6 +454,7 @@ async function undo() {
       done()
     }
   })
+  return undone
 }
 function dropZone(node:HTMLElement,action:(ids:string[])=>void) {
   const mime='application/x-mailboard-item'
@@ -718,7 +723,7 @@ async function start() {
     onStatus:(ids,status,rows)=>change(ids,{kind:'status',value:status,offBoard:rows as Mail[]|undefined}),
     onFolder:(ids,target,rows)=>change(ids,{kind:'move',value:target,offBoard:rows as Mail[]|undefined,
       moved:rows&&(id=>{const row=rows.find(m=>m.id===id);if(row){row.folderId=target;row.folder=folders.find(f=>f.id===target)?.name??row.folder}})}),
-    getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:undo,
+    getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:async()=>{await undo()},
     closeBacklog:async()=>{
       if(!isLive()){scope=previousScope;render();return}
       if(scope==='__backlog')await exclusive(()=>refresh(previousScope))
