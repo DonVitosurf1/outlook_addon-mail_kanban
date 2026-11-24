@@ -1,5 +1,6 @@
 """Posteingang abarbeiten (E7) mit simuliertem Outlook: 40 Posteingangsmails in zwei Seiten, sichere Stapel ablegen mit Undo,
 Archivangebot mit Altersgrenze und Undo, Hinweis ohne Archiv, Einzeln durchgehen öffnet Aufräumen mit den unsicheren Mails, Abschluss."""
+import datetime as dt
 import json
 import os
 import shutil
@@ -93,6 +94,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(page.locator('.foot')).to_have_text('Klassisches Outlook')
             calls = lambda name: page.evaluate(f"calls.filter(c=>c[0]==={json.dumps(name)})")
             count = lambda folder: page.evaluate(f"outlook.folders.find(f=>f.id==={json.dumps(folder)}).mails.length")
+            filing = lambda: json.loads(page.evaluate("localStorage.getItem('mailboard-ai-feedback-v1')") or "{}").get(dt.date.today().isoformat(), {}).get("ablage:Regel")
             page.locator('#cockpit-start').click()
             expect(page.locator('#cockpit-dialog')).to_contain_text('Einrichtung: 6 von 7 Schritten')
             page.keyboard.press('Escape')
@@ -135,6 +137,9 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert count('02') == 10 and count('01') == 30
             moves = calls('outlook_move')
             assert len(moves) == 10 and all(c[2] and c[1]['target'] == '02' for c in moves), moves
+            # B1: Der sichere Stapel zählt zehn Treffer der Quelle „Regel“, ohne die Quellenstatistik zu ändern.
+            assert filing() == {'-': {'ok': 10}}, filing()
+            assert page.evaluate("localStorage.getItem('outlook-kanban-ai-statistics-v1')") is None
             expect(safe.locator('summary')).to_have_text(['6 Mails nach „Labor“'])
             expect(safe.get_by_role('heading', name='Sichere Vorschläge', exact=True)).to_be_focused()
 
@@ -154,6 +159,8 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(toast).to_contain_text('Zurückgenommen')
             assert count('02') == 0 and count('01') == 40
             assert len(calls('outlook_undo')) == 10 and all(c[2] for c in calls('outlook_undo'))
+            # Rückgängig nimmt auch die Rückmeldung zurück.
+            assert filing() is None, filing()
             # Die Ansicht weist auf „Neu lesen“ hin, statt die zurückgeholten Mails still zu verschweigen.
             undone = 'Zurückgenommen. Mit „Neu lesen“ siehst du die Mails wieder.'
             expect(status).to_have_text(undone)

@@ -19,20 +19,21 @@ class Quiet(SimpleHTTPRequestHandler):
 
 
 LIVE = """
-localStorage.setItem('kanban-board-options-v1', JSON.stringify({poll_seconds:0,project_folders:['Labor'],allow_move:true}))
+localStorage.setItem('kanban-board-options-v1', JSON.stringify({poll_seconds:0,project_folders:['Labor','Einkauf'],allow_move:true}))
 localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,auto:true,model:'hinter'}))
 localStorage.setItem('outlook-kanban-ai-rules-v1',JSON.stringify({items:[{match:'domain:labor.de',folder:'Labor'}]}))
-const folders=[{id:'01',name:'Posteingang',path:'',isInbox:true},{id:'02',name:'Labor',path:'Labor'}]
+const folders=[{id:'01',name:'Posteingang',path:'',isInbox:true},{id:'02',name:'Labor',path:'Labor'},{id:'03',name:'Einkauf',path:'Einkauf'}]
 window.store=[
   {id:'a1',folderId:'01',folder:'Posteingang',status:'Offen',subject:'Messwerte Charge 12',sender:'Anna',senderEmail:'anna@labor.de',body:'Geheimer Inhalt der Messung.',received:'2026-11-20T08:00:00',tags:[],attachments:[]},
   {id:'a2',folderId:'01',folder:'Posteingang',status:'Offen',subject:'Kantinenplan',sender:'Bernd',senderEmail:'bernd@labor.de',body:'Speiseplan der Woche.',received:'2026-11-21T08:00:00',tags:[],attachments:[]},
+  {id:'a3',folderId:'01',folder:'Posteingang',status:'Offen',subject:'Rechnung Zentrifuge',sender:'Carl',senderEmail:'carl@labor.de',body:'Rechnung anbei.',received:'2026-11-22T08:00:00',tags:[],attachments:[]},
 ]
 let sequence=100
 window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_batch')return
   if(name==='outlook_categories')return '[]'
   if(name==='outlook_folders')return JSON.stringify(folders)
-  if(name==='outlook_board')return JSON.stringify(window.store.filter(m=>m.folderId==='01'||m.folderId==='02'))
+  if(name==='outlook_board')return JSON.stringify(window.store)
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_move'){
     const mail=window.store.find(m=>m.id===args.id);const id='m'+(++sequence)
@@ -107,6 +108,17 @@ def live(browser, base):
     page.get_by_role('button', name='Unpassend').click()
     assert today(page)['ablage:Regel'] == {'-': {'ok': 1, 'bad': 1}}, today(page)
     assert today(page)['frist'] == {'hinter': {'ok': 1}} and today(page)['antwort_noetig'] == {'hinter': {'bad': 1}}
+
+    # Dritte Mail: Der Kartenhinweis („Labor“) zählt auch ohne Anfrage. Abgelegt in einen anderen Lernordner ist ein Fehlgriff.
+    page.keyboard.press('Escape')
+    expect(page.locator('#mail-a3')).to_contain_text('Labor')
+    page.locator('#mail-a3').drag_to(page.locator('#folders button', has_text='Einkauf'))
+    page.locator('#moveConfirm button[value="confirm"]').click()
+    expect(page.locator('.toast')).to_contain_text('Einkauf')
+    assert today(page)['ablage:Regel'] == {'-': {'ok': 1, 'bad': 2}}, today(page)
+    # Die Quellenstatistik zählt nur ausdrücklich angeforderte Vorschläge (a1 übernommen, a2 verworfen).
+    sources = json.loads(page.evaluate("localStorage.getItem('outlook-kanban-ai-statistics-v1')"))['sources']
+    assert sources == {'Domain-Regel': {'correct': 1, 'wrong': 1}}, sources
 
     # Nur Zahlen: kein Betreff, Absender, Text oder Mail-Kennung im Speicher.
     stored = page.evaluate("localStorage.getItem('mailboard-ai-feedback-v1')")

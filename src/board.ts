@@ -10,7 +10,7 @@ import demo from './demo.json'
 import { countsAsFiling, LiveBoard, type Folder, type Invoke } from './live'
 import { BUSY_UNDO, UNDO_FAILED, offerUndoSkip } from './undo-ui'
 import { initSemanticSearch, renderSimilar } from './semantic-search'
-import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
+import { type FeedbackRevert, setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
 import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
 import { initCockpit, recordWeekly } from './cockpit'
@@ -321,15 +321,15 @@ async function applyChange(ids:string[],action:Mutation):Promise<ChangeOutcome> 
         else if(field==='tags')m.tags=[...wanted(m)]
         else m[field]=value
       }},events,summary)
-      // Rückmeldung zum Ablagevorschlag (B1), im Beispielpostfach nur im Speicher.
-      if(field==='move'&&dest!.name!=='Posteingang')for(const m of moving)recordFiling(m,dest!.path||dest!.name)
+      // Rückmeldung zum Ablagevorschlag (B1), im Beispielpostfach nur im Speicher. Rückgängig nimmt sie zurück.
+      if(field==='move'&&dest!.name!=='Posteingang')revertWithStep(moving.map(m=>recordFiling(m,dest!.path||dest!.name)))
       outcome='recorded'
       showToast(summary,undoThisStep())
       if(selected)fillDetail(selected)
       return
     }
     mutationVersion++
-    const before=undoMarker()
+    const before=undoMarker(), reverts:(FeedbackRevert|undefined)[]=[]
     await service!.writeBatch(async()=>{
       const batch=service!.begin(summary)
       const errors:string[]=[]
@@ -345,7 +345,7 @@ async function applyChange(ids:string[],action:Mutation):Promise<ChangeOutcome> 
               mails=mails.filter(x=>x!==m)
               if(countAsFiled){
                 if(learnerFolders().some(f=>f.id===value)){
-                  try {recordFiling(m,dest!.path||dest!.name)} catch { /* Outlook already saved the move. */ }
+                  try {reverts.push(recordFiling(m,dest!.path||dest!.name))} catch { /* Outlook already saved the move. */ }
                 }
               }
               action.moved?.(m.id)
@@ -375,6 +375,7 @@ async function applyChange(ids:string[],action:Mutation):Promise<ChangeOutcome> 
       if(dialog.open)dialog.close()
       render()
       try {await refresh()} catch(e) {errors.push('Aktualisieren: '+errorText(e))}
+      if(undoMarker()!==before)revertWithStep(reverts)
       if(errors.length){const text=succeeded+' von '+todo.length+' geändert. '+errors.join(' · ');notify(text);action.failed?.(text)}
       else if(undoMarker()!==before){outcome='recorded';notify('');showToast(summary,undoThisStep())}
       // Outlook hatte die Werte schon: kein eigener Schritt, also auch kein Rückgängig, das einen früheren träfe.
@@ -420,6 +421,11 @@ function afterUndo(run:()=>void){
   undoHooks.set(marker,previous?()=>{previous();run()}:run)
   // Der Stapel hält höchstens `undoLimit` Schritte. Ältere Kennungen sind nicht mehr erreichbar.
   for(const key of [...undoHooks.keys()].slice(0,Math.max(0,undoHooks.size-4*undoLimit)))undoHooks.delete(key)
+}
+/** Nimmt Rückmeldungen (B1) mit dem gerade aufgezeichneten Schritt zurück, wenn er rückgängig gemacht wird. */
+function revertWithStep(reverts:readonly (FeedbackRevert|undefined)[]){
+  const list=reverts.filter((r):r is FeedbackRevert=>!!r)
+  if(list.length)afterUndo(()=>{for(const revert of list)revert()})
 }
 function runUndoHook(marker:string){
   const hook=undoHooks.get(marker)
@@ -702,7 +708,7 @@ async function start() {
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
   cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
-  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:async(id,name)=>(await assignCase([id],name,true))!=='failed',render})
+  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:(id,name)=>assignCase([id],name,true),afterUndo,render})
   const runRoutine=(action:RoutineAction)=>{
     switch(action){
       case 'triage':triage?.start();break

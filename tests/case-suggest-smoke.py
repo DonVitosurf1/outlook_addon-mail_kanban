@@ -95,6 +95,8 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             page.locator('#undo').click()
             expect(pill('m2')).to_have_count(1)
             assert tags('m2') == [], tags('m2')
+            # Rückgängig nimmt auch den Treffer zurück.
+            assert case_feedback() is None, case_feedback()
 
             # Tastatur: Strg+K öffnet bei fokussierter Karte die Palette, das Kartenmenü bietet das Zuordnen an.
             page.locator('#mail-m2').focus()

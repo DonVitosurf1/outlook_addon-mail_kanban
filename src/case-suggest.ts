@@ -1,6 +1,7 @@
 /** K4 Vorgang-Vorschlag: Mails ohne Vorgang, die inhaltlich zu einem offenen Vorgang passen. Rechnet über den Embedding-Index, nur im Speicher. */
 import {embeddingId, embeddingIndex, embeddingModelName, embeddingsEnabled, type GroupMatch} from './ai'
 import {countFeedback, FEEDBACK_FUNCTIONS} from './ai-feedback'
+import {localDay} from './views-logic'
 import {getLegacyConfig} from './data-settings'
 import {caseMails, caseNames, type Case} from './planning-logic'
 import type {ViewMail} from './views-logic'
@@ -36,8 +37,10 @@ type Options = {
   mails():readonly SuggestMail[]
   cases():readonly Case[]
   selection():string[]
-  /** Setzt die Kategorie „Vorgang: Name“ als ein Undo-Schritt. Falsch, wenn das nicht gelang. */
-  assign(id:string,name:string):Promise<boolean|void>
+  /** Setzt die Kategorie „Vorgang: Name“ als ein Undo-Schritt: `recorded` mit eigenem Schritt, `unchanged` ohne, `failed` nicht gesetzt. */
+  assign(id:string,name:string):Promise<'recorded'|'unchanged'|'failed'|void>
+  /** Ruft `run` auf, sobald der zuletzt aufgezeichnete Schritt zurückgenommen wird. */
+  afterUndo?(run:()=>void):void
   render():void
 }
 
@@ -82,7 +85,13 @@ export function initCaseSuggest(options:Options){
     if(!name)return
     return {name,
       // B1: angenommen zählt als Treffer, abgelehnt als Fehlgriff, je Embedding-Modell.
-      accept:()=>void options.assign(mail.id,name).then(done=>{if(done!==false)countFeedback(FEEDBACK_FUNCTIONS.case,embeddingModelName(),'ok')},()=>{/* change() meldet den Fehler selbst. */}),
+      accept:()=>void options.assign(mail.id,name).then(outcome=>{
+        if(outcome==='failed')return
+        const model=embeddingModelName(),day=localDay()
+        countFeedback(FEEDBACK_FUNCTIONS.case,model,'ok',1,day)
+        // Rückgängig nimmt auch den Treffer zurück. Ohne eigenen Schritt gibt es nichts zurückzunehmen.
+        if(outcome==='recorded')options.afterUndo?.(()=>countFeedback(FEEDBACK_FUNCTIONS.case,model,'ok',-1,day))
+      },()=>{/* change() meldet den Fehler selbst. */}),
       dismiss:()=>{countFeedback(FEEDBACK_FUNCTIONS.case,embeddingModelName(),'bad');dismissed.add(dismissKey(contentId(mail),name));saveDismissed(dismissed);current.delete(mail.id);lastKey='';options.render()}}
   }
   const retry=()=>{if(failed){failed=false;lastKey=''}refresh()}

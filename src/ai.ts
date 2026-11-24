@@ -2,11 +2,15 @@ import { getLegacyConfig, getLegacyProfiles, getLegacyFile, updateConfig } from 
 import type { Folder, Invoke } from './live'
 import { openTasks, type Task } from './tasks-taken'
 import { formatModelInfo } from './model-info'
+import { localDay } from './views-logic'
 import { NO_MODEL, countDraft, countFeedback, currentVote, filingFunction, filingSource, vote, type VoteField } from './ai-feedback'
 
 export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
-/** `model`: Modell, von dem der Vorschlag stammt (für die Rückmeldungen B1), fehlt bei Regeln, Bayes und Begriffen. */
-export type Suggestion = {folder:string;reason:string;model?:string}
+/**
+ * `model`: Modell, von dem der Vorschlag stammt (für die Rückmeldungen B1), fehlt bei Regeln, Bayes und Begriffen.
+ * `passive`: nur angezeigt (Kartenhinweis, sicherer Stapel), nicht ausdrücklich angefordert. Zählt für B1, nicht für die Quellenstatistik.
+ */
+export type Suggestion = {folder:string;reason:string;model?:string;passive?:boolean}
 type FolderInfo = {key:string;profile:string}
 /** `modell`: Hintergrundmodell der Analyse, fehlt bei älteren gespeicherten Analysen. */
 type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[];aufgaben?:Task[];modell?:string}
@@ -29,7 +33,7 @@ export function setAiLive(live:boolean,mode:'offline'|'demo'|'outlook'=live?'out
   mailboxMode=mode;liveSource=live;sourceEpoch++
   if(typeof window!=='undefined')window.clearTimeout?.(learnTimer)
   training=undefined;processing=false;embedding=false;embedded.clear();embedFailures=0;embedRetryAt=0;retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
-  recent=undefined;legacyCache=undefined;importedCache.clear();runoffs.clear()
+  recent=undefined;legacyCache=undefined;importedCache.clear();runoffs.clear();passiveHints.clear()
   refreshAiPanel?.()
   if(typeof document!=='undefined')document.dispatchEvent?.(new Event('mailboard:source-changed'))
 }
@@ -117,6 +121,18 @@ export type LearnRow = { folder:string; features:string[]; id?:string; received?
 const trainingKey='outlook-kanban-ai-training-v1'
 const statisticsKey='outlook-kanban-ai-statistics-v1'
 const sourceHints = new WeakMap<AiMail,Suggestion>()
+/**
+ * Passive Hinweise aus `trustedFolderBatch` je Inhalts-Signatur. Stapel und Aufräumen verschieben Kopien der Mails,
+ * deshalb genügt die Objekt-Zuordnung nicht. Nur im Speicher, begrenzt, ohne Mailinhalte.
+ */
+const passiveHints=new Map<string,Suggestion>()
+const PASSIVE_LIMIT=5000
+function hintFor(mail:AiMail){return sourceHints.get(mail)??passiveHints.get(embeddingId(mail))}
+function keepPassive(mail:AiMail,hint:Suggestion){
+  const id=embeddingId(mail)
+  passiveHints.delete(id);passiveHints.set(id,{...hint,passive:true})
+  if(passiveHints.size>PASSIVE_LIMIT)passiveHints.delete(passiveHints.keys().next().value!)
+}
 function legacyId(m:AiMail){
   const stamp=(m.received||'').slice(0,19).replace(/[^0-9]/g,'')
   return stamp.length===14?[(m.senderEmail||m.sender).toLowerCase(),m.subject,stamp].join('|'):''
@@ -144,18 +160,28 @@ function rejected(mail:AiMail):string[] {
   const value=native??object(imported('vorschlag-statistik.json').rejected)[legacyId(mail)]
   return Array.isArray(value)?value.filter(v=>typeof v==='string'):[]
 }
-/** B1: Ein Ablagevorschlag wurde übernommen (`ok`), verworfen oder anders abgelegt (`bad`). Zählt je Quelle und Modell. */
-function countFiling(hint:Suggestion,ok:boolean){
-  countFeedback(filingFunction(filingSource(hint.reason)),hint.model||NO_MODEL,ok?'ok':'bad')
-}
-/** Im Beispielpostfach zählt nur die Rückmeldung zum Vorschlag (im Speicher), Lernen und Statistik bleiben unberührt. */
-function settleSampleHint(mail:AiMail,folder:string,rejectedOnly:boolean){
-  const hint=sourceHints.get(mail)
-  if(!hint?.folder||(rejectedOnly&&hint.folder!==folder))return
-  countFiling(hint,!rejectedOnly&&hint.folder===folder);sourceHints.delete(mail)
+/** Rücknahme einer Rückmeldung, wenn der zugehörige Schritt rückgängig gemacht wird. */
+export type FeedbackRevert=()=>void
+/**
+ * B1: Rückmeldung zum Ablagevorschlag dieser Mail. `filed`: abgelegt nach `folder` (Treffer, wenn es der Vorschlag war, sonst
+ * Fehlgriff), `rejected`: „Unpassend“ für `folder`. Die Quellenstatistik zählt nur ausdrücklich angeforderte Vorschläge, und nur
+ * mit Outlook. Liefert die Rücknahme für Rückgängig, die auch den Hinweis wiederherstellt.
+ */
+function settleHint(mail:AiMail,folder:string,mode:'filed'|'rejected'):FeedbackRevert|undefined{
+  const hint=hintFor(mail)
+  if(!hint?.folder||(mode==='rejected'&&hint.folder!==folder))return
+  const ok=mode==='filed'&&hint.folder===folder
+  const fn=filingFunction(filingSource(hint.reason)),model=hint.model?.trim()||NO_MODEL,outcome=ok?'ok':'bad' as const,day=localDay()
+  countFeedback(fn,model,outcome,1,day)
+  if(liveSource&&!hint.passive)try{rate(hint.reason,ok)}catch{ /* Die Quellenstatistik ist nur eine Bequemlichkeit. */ }
+  sourceHints.delete(mail);passiveHints.delete(embeddingId(mail))
+  return ()=>{
+    countFeedback(fn,model,outcome,-1,day)
+    if(hint.passive)keepPassive(mail,hint);else sourceHints.set(mail,hint)
+  }
 }
 export function rejectSuggestion(mail:AiMail, folder:string) {
-  if(!liveSource){settleSampleHint(mail,folder,true);return}
+  if(!liveSource){settleHint(mail,folder,'rejected');return}
   const id=feedbackId(mail)
   if(!id||!allowed(folder)||rejected(mail).includes(folder))return
   const stats=stored(statisticsKey)
@@ -163,11 +189,11 @@ export function rejectSuggestion(mail:AiMail, folder:string) {
   delete mapping[id]
   mapping[id]=[...rejected(mail),folder]
   localStorage.setItem(statisticsKey,JSON.stringify({...stats,rejected:Object.fromEntries(Object.entries(mapping).slice(-500))}))
-  const hint=sourceHints.get(mail)
-  if(hint && hint.folder===folder){countFiling(hint,false);rate(hint.reason,false);sourceHints.delete(mail)}
+  settleHint(mail,folder,'rejected')
 }
-export function recordFiling(mail:AiMail,folder:string) {
-  if(!liveSource){settleSampleHint(mail,folder,false);return}
+/** Merkt eine Ablage als Lernbeispiel und zählt die Rückmeldung zum Vorschlag. Liefert deren Rücknahme für Rückgängig. */
+export function recordFiling(mail:AiMail,folder:string):FeedbackRevert|undefined {
+  if(!liveSource)return settleHint(mail,folder,'filed')
   if(!allowed(folder))return
   const rows=history()
   rows.push({folder,features:features(mail),id:mail.id,received:mail.received})
@@ -176,9 +202,8 @@ export function recordFiling(mail:AiMail,folder:string) {
     localStorage.setItem(feedbackKey,JSON.stringify({rows:rows.slice(-3000)}))
     // Lernbeispiel umhängen: Ein Lernbeispiel derselben Mail aus dem bisherigen Ordner zählt nicht mehr.
     if(mail.id)dropTrainingRows(r=>r.id===mail.id&&r.folder!==folder)
-    const hint=sourceHints.get(mail)
-    if(hint?.folder){countFiling(hint,hint.folder===folder);rate(hint.reason,hint.folder===folder);sourceHints.delete(mail)}
   }catch{ /* Local statistics are best effort if WebView storage is full. */ }
+  return settleHint(mail,folder,'filed')
 }
 function dropTrainingRows(drop:(row:LearnRow)=>boolean){
   const state=stored(trainingKey),rows=history(trainingKey),kept=rows.filter(r=>!drop(r))
@@ -654,7 +679,10 @@ export function trustedFolderBatch(folders:string[]){
     const hidden=getLegacyConfig().hidden_sources
     const hide=Array.isArray(hidden)?hidden:[]
     const match=(!hide.includes('Regel')?rule(mail,targets.filter(f=>!ignored.includes(f.key))):undefined)||(!hide.includes('Bayes')?predict(features(mail)):undefined)
-    return match&&!ignored.includes(match.folder)?match:undefined
+    const shown=match&&!ignored.includes(match.folder)?match:undefined
+    // B1: Auch ein nur angezeigter Hinweis zählt, wenn die Mail abgelegt wird. Ein angeforderter Vorschlag hat Vorrang.
+    if(shown&&!sourceHints.has(mail))keepPassive(mail,shown)
+    return shown
   }
 }
 /** Mindestanteil des Bayes-Favoriten für einen Vorschlag ohne hohe Sicherheit (`likelyFolderBatch`). */
@@ -698,7 +726,7 @@ export async function suggestFolder(mail:AiMail, folders:string[]):Promise<Sugge
   requireLive(epoch)
   if(hint.folder){
     const source=filingSource(hint.reason)
-    if(!hint.model&&(source==='Embedding'||source==='Hybrid'))hint.model=config().embedModel
+    if(!hint.model?.trim()&&(source==='Embedding'||source==='Hybrid'))hint.model=config().embedModel.trim()
     sourceHints.set(mail,hint)
   }
   return hint
