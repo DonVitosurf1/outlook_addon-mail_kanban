@@ -1,4 +1,5 @@
 import type {ViewMail} from './views-logic'
+import {button as action} from './dom'
 
 function saved(key:string) {
   try{return localStorage.getItem('board.layout.'+key)||''}catch{return ''}
@@ -6,10 +7,6 @@ function saved(key:string) {
 function store(key:string,value:string){
   try{localStorage.setItem('board.layout.'+key,value)}catch{/* Session fallback. */}
 }
-function action(label:string,fn:()=>void){
-  const button=document.createElement('button');button.type='button';button.textContent=label;button.onclick=fn;return button
-}
-
 export class BoardLayout{
   private closed=new Set(saved('columns').split('|').filter(Boolean))
   private preview=document.createElement('aside')

@@ -1,6 +1,7 @@
 import type {Folder} from './live'
 import {isSnoozed, type ViewMail} from './views-logic'
 import {suggestFolder, trustedFolderBatch} from './ai'
+import {element as label, button} from './dom'
 
 /**
  * `onStatus` und `onFolder` bekommen bei einer vorgegebenen Mailliste (`open(list)`) die betroffenen Mails mit.
@@ -19,17 +20,6 @@ export type CleanupOptions = {
   onUndo:()=>Promise<void>|void
 }
 const statuses=['Offen','In Bearbeitung','Warten','Erledigt']
-function label<K extends keyof HTMLElementTagNameMap>(name:K,text='') {
-  const node=document.createElement(name)
-  node.textContent=text
-  return node
-}
-function button(title:string,action:()=>void) {
-  const node=label('button',title)
-  node.type='button'
-  node.onclick=action
-  return node
-}
 export function initCleanup(api:CleanupOptions) {
   const dialog=label('dialog')
   dialog.setAttribute('aria-label','Posteingang aufräumen')

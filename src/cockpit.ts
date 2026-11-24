@@ -8,6 +8,7 @@ import { initCleanup, type CleanupOptions } from './cleanup'
 import { dueRoutines, isFocusCard, snapshot, type Routine } from './planning-logic'
 import { shortcuts, shortcutGroups } from './shortcuts'
 import { dueReasons, localDay, type ViewMail } from './views-logic'
+import {element, button} from './dom'
 export { snapshot }
 
 type Action = 'filed' | 'followed_up' | 'snoozed'
@@ -54,17 +55,6 @@ const help = [
   ['Warum fehlen Zahlen im Wochenblick?', 'Der Wochenblick zählt die aktuell geladenen Karten. Die Aktivitätszahlen sammeln erfolgreich im Board ausgeführte Aktionen der laufenden Woche lokal.'],
 ]
 
-function element<K extends keyof HTMLElementTagNameMap>(name: K, text = '') {
-  const node = document.createElement(name)
-  node.textContent = text
-  return node
-}
-function button(title: string, onClick: () => void) {
-  const node = element('button', title)
-  node.type = 'button'
-  node.onclick = onClick
-  return node
-}
 function actions(...buttons: HTMLButtonElement[]) {
   const row = element('div')
   row.className = 'cockpit-actions'

@@ -5,6 +5,7 @@ import {lastTriage, rememberTriage, skippedFocus} from './planning-store'
 import type {ViewState} from './views'
 import {showView} from './tabs'
 import {localDay, type ViewMail} from './views-logic'
+import {element as make, button} from './dom'
 
 type Options = {
   getMails():readonly ViewMail[]
@@ -26,8 +27,6 @@ type Options = {
   dismissFocus(id:string):void
 }
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void){const node=make('button',label);node.type='button';node.onclick=run;return node}
 function stampText(stamp:number){return new Date(stamp).toLocaleString('de-DE',{weekday:'short',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}
 function when(stamp:number|undefined){
   if(!stamp)return 'Neu in den letzten 24 Stunden'

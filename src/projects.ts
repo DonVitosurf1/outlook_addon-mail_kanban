@@ -9,6 +9,7 @@ import {MERGED_FOLDER, mergePlan, restoreRules, restoreTargets, retarget, retarg
 import {profileDocument,profileName} from './profile-file'
 import {openStructure} from './structure'
 import {offerUndoSkip} from './undo-ui'
+import {button} from './dom'
 let liveService:LiveBoard|undefined
 let generation=0
 const trigger=document.getElementById('projectTools') as HTMLButtonElement|null
@@ -319,9 +320,6 @@ export async function createFolder(parentId:string,name:string){
   await service.writeBatch(async()=>{created=await service.json<Receipt>('project_create',{parent:parentId,name})})
   changed()
   return created!
-}
-function button(label:string,handle:()=>void){
-  const b=document.createElement('button');b.textContent=label;b.onclick=handle;return b
 }
 function message(text:string){const p=document.createElement('p');p.textContent=text;return p}
 function label(text:string,input:HTMLElement){

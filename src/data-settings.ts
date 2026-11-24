@@ -1,4 +1,5 @@
 import { archive, isRecord, LEGACY, parseBackup, PREVIOUS, readLegacyConfig, restore, snapshot, type Snapshot } from './backup'
+import {element as make, button as action} from './dom'
 
 let sampleMode=false
 let sampleOptions:Record<string,unknown>={vip_senders:[]}
@@ -120,12 +121,6 @@ function allSnippets():Snippet[]{
 }
 export function textSnippets(kind:Snippet['kind']) { return allSnippets().filter(s=>s.kind===kind) }
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){
-  const n=document.createElement(tag);n.textContent=text;return n
-}
-function action(text:string,run:()=>void){
-  const button=make('button',text);button.type='button';button.onclick=run;return button
-}
 function showSettings(){
   const dialog=make('dialog')
   dialog.className='data-settings'

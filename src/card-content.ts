@@ -1,6 +1,7 @@
 import {categoryColor} from './category-colors'
 import {dateHint} from './date-terms'
 import {dueReasons, FOCUS_TAG, localDay, matchesSplit, type ViewMail} from './views-logic'
+import {element as node} from './dom'
 
 type Mail = ViewMail & {aiSummary?:string;hasStatus?:boolean;aiTasks?:readonly unknown[]}
 /** Fortschritt eines Vorgangs mit Checkliste, zu dem die Mail gehört. */
@@ -46,12 +47,6 @@ export function counter(text:string,label:string,kind:string){
   const pill=node('span',text,'card-count count-'+kind)
   pill.setAttribute('aria-label',label);pill.title=label
   return pill
-}
-function node<K extends keyof HTMLElementTagNameMap>(tag:K,text:string,style=''){
-  const element=document.createElement(tag)
-  element.textContent=text
-  if(style)element.className=style
-  return element
 }
 const clock = new Intl.DateTimeFormat('de-DE',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'})
 const shortDate = new Intl.DateTimeFormat('de-DE',{day:'2-digit',month:'2-digit'})

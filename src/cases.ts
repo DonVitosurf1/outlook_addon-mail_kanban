@@ -4,6 +4,7 @@ import {caseMails, caseNameProblem, caseProgress, caseTag, knownCases, type Case
 import {loadCases, newId, saveCases, updateCase} from './planning-store'
 import {currentView, showView, viewPanel} from './tabs'
 import {localDay, type ViewMail} from './views-logic'
+import {element as make, button} from './dom'
 
 type Options = {
   getMails():readonly ViewMail[]
@@ -14,8 +15,6 @@ type Options = {
   showOnBoard(name:string):void
 }
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void){const node=make('button',label);node.type='button';node.onclick=run;return node}
 function labelled(text:string,field:HTMLElement){const label=make('label',text);label.append(field);return label}
 const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
 

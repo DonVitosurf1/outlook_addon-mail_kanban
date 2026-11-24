@@ -34,6 +34,7 @@ import {currentView, showView, viewPanel} from './tabs'
 import {showToast} from './toast'
 import {SETUP_KEY, freshState, initialScopes, isComplete, nextOpen, parseState, progressText, shouldOfferSetup, stepIds, stepInfo,
   type SetupState, type StepId, type StepStatus} from './setup-logic'
+import {element as make, button} from './dom'
 
 export type {SetupState, StepId, StepStatus} from './setup-logic'
 /** Ordner aus `outlook_folders`. `parentId` und `rootId` liefert der Outlook-Helfer mit. `count` kommt nur auf Anfrage (`folderCounts`). */
@@ -122,8 +123,6 @@ export function learningRunNote(step:'E2'|'E6'){
 
 const LATER_KEY='mailboard-setup-later'
 const stateNames:Record<StepStatus,string>={open:'offen',done:'erledigt',skipped:'übersprungen'}
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void){const node=make('button',label);node.type='button';node.onclick=run;return node}
 function errorText(e:unknown){return e instanceof Error?e.message:String(e)}
 
 export function initSetup(host:SetupHost){

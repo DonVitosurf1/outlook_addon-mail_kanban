@@ -6,6 +6,7 @@ import {newId, updateCase} from './planning-store'
 import {releaseTaken, setTaken, takenTasks, type Task} from './tasks-taken'
 import {showToast} from './toast'
 import {BUSY_UNDO, UNDO_FAILED} from './undo-ui'
+import {element as make} from './dom'
 import {localDay} from './views-logic'
 
 type TaskMail = {subject:string;tags:string[];id:string;aiTasks?:Task[];received?:string;sender:string;body:string}
@@ -29,8 +30,6 @@ type Options = {
   /** Wendet die Analyse-Ergebnisse (ohne übernommene Aufgaben) neu auf die geladenen Mails an und zeichnet Karten und Details neu. */
   refresh():void
 }
-
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
 
 export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
   host.replaceChildren()

@@ -3,11 +3,10 @@ import {describeRhythm, routineActions, routineDue, rhythms, weekdayNames, type 
 import {loadRoutines, newId, saveRoutines} from './planning-store'
 import {currentView, showView, viewPanel} from './tabs'
 import {localDay} from './views-logic'
+import {element as make, button} from './dom'
 
 type Options = {run(action:RoutineAction):void}
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void){const node=make('button',label);node.type='button';node.onclick=run;return node}
 function labelled(text:string,field:HTMLElement){const label=make('label',text);label.append(field);return label}
 function select(name:string,choices:readonly (readonly [string,string])[]){
   const node=make('select');node.setAttribute('aria-label',name)

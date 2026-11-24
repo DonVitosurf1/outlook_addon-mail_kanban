@@ -2,6 +2,7 @@
 import {addDays, calendarEntries, entryKinds, isoWeek, plannedField, routineDue, weekDays, type CalendarEntry, type Case, type Routine} from './planning-logic'
 import {currentView, showView, viewPanel} from './tabs'
 import {localDay, type ViewMail} from './views-logic'
+import {element as make, button} from './dom'
 
 type Options = {
   getMails():readonly ViewMail[]
@@ -16,8 +17,6 @@ type Options = {
 }
 const MIME='application/x-mailboard-calendar'
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void){const node=make('button',label);node.type='button';node.onclick=run;return node}
 function dayLabel(day:string,options:Intl.DateTimeFormatOptions){return new Date(day+'T00:00:00').toLocaleDateString('de-DE',options)}
 
 export function initCalendar(options:Options){

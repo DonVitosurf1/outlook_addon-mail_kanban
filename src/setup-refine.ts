@@ -18,6 +18,7 @@ import {folderCounts} from './live'
 import {createFolder, getBoardScope, getLearningScope, mergeFolders, renameFolder, type MergeResult} from './projects'
 import {crowdedFolders, isUnclearName, mergePlan, overlaps, proposalKey, reversed, MERGED_FOLDER, type Overlap} from './refine'
 import {registerStep, type OffBoardMail, type SetupFolder, type StepContext} from './setup'
+import {element as make, button} from './dom'
 import type {SetupState} from './setup-logic'
 import {cleanFolderName, nameTaken, openStructure} from './structure'
 import {showToast} from './toast'
@@ -39,12 +40,6 @@ let inboxGroups:InboxGroup[]|undefined
 let scanning=false
 const pause=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms))
 
-function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
-function button(label:string,run:()=>void,aria?:string){
-  const node=make('button',label);node.type='button';node.onclick=run
-  if(aria)node.setAttribute('aria-label',aria)
-  return node
-}
 function errorText(e:unknown){return e instanceof Error?e.message:String(e)}
 const quoted=(path:string)=>'„'+path+'“'
 const mails=(n:number|undefined)=>n==null?'':n===1?'1 Mail':n.toLocaleString('de-DE')+' Mails'
