@@ -280,7 +280,7 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
 
 Aus den Prüfungen, bewusst nicht behoben, weil selten und ohne Datenverlust:
 
-- [ ] **Rückgängig einer Aufgabenübernahme:** Schlägt nach einem erfolgreichen Outlook-Rückgängig das Aktualisieren fehl, meldet das Board „übersprungen“, obwohl die Kategorie entfernt wurde.
+- [x] **Rückgängig einer Aufgabenübernahme:** Schlägt nach einem erfolgreichen Outlook-Rückgängig das Aktualisieren fehl, meldet das Board „übersprungen“, obwohl die Kategorie entfernt wurde.
 - [ ] **E6 mit alten Messungen:** Ausgangswerte von vor dem 24.11.2026 kennen ihre Lernordner nicht. E6 kann dann fälschlich „neu: …“ zeigen.
 - [ ] **Zeitumstellung im Herbst:** In der doppelten Stunde kann das seitenweise Lesen in E7 eine Mail überspringen.
 - [ ] **Stichwahl und Quellenwechsel:** Wechselt man während einer laufenden Stichwahl die Outlook-Quelle, kann ein veraltetes Ergebnis im Zwischenspeicher landen (harmlos, an Mail und Modell gebunden).
