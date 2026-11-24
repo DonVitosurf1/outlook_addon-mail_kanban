@@ -87,10 +87,11 @@ Für alle Punkte gelten die Regeln aus Abschnitt 2: nur lokale Modelle mit `chec
 
 ### Phase 1 – Grundlage, keine neuen Daten ans Modell
 
-- [ ] **C2 Schnelle Stichwahl:** eigener Aufruf `choose` im Rust-Crate statt voller Analyse. Eingabe: Betreff, Anfang der Mail (1.000 Zeichen), die zwei Kandidaten mit Steckbrief (je 400 Zeichen). Ausgabe nach Schema: `ordner` (einer der beiden oder null) und kurzer `grund`. Ergebnis je Mail-Signatur zwischengespeichert.
-- [ ] **A1 Modellinfo:** In den Einstellungen neben dem Modell Größe, Quantisierung, Kontextlänge und ob es auf der GPU läuft (Ollama `/api/show`, `/api/ps`; LM Studio und llama.cpp soweit verfügbar).
-- [ ] **A4 Zwei Modelle:** „Modell für Hintergrund“ (Analyse, Stichwahl, Aufgaben) und „Modell für Entwürfe“ (Antworten, Steckbriefe, Ordnernamen). Standard: dasselbe Modell. Beide werden mit `check_local_model` geprüft.
-- [ ] **B1 Rückmeldungen automatisch:** Zähler je Funktion, Modell und Tag, ohne Mailinhalte: Ablagevorschlag übernommen, abgelehnt oder anders abgelegt; Vorgangsvorschlag angenommen oder abgelehnt; erkannte Aufgaben übernommen oder nicht; Antwortentwurf unverändert, leicht oder stark geändert geöffnet. Dazu „passt / passt nicht“ an Zusammenfassung, „Antwort nötig“ und Frist in den Maildetails.
+- [x] **C2 Schnelle Stichwahl:** eigener Aufruf `choose` im Rust-Crate statt voller Analyse. Eingabe: Betreff, Anfang der Mail (1.000 Zeichen), die zwei Kandidaten mit Steckbrief (je 400 Zeichen). Ausgabe nach Schema: `ordner` (einer der beiden oder null) und kurzer `grund`. Ergebnis je Mail-Signatur zwischengespeichert.
+- [x] **A1 Modellinfo:** In den Einstellungen neben dem Modell Größe, Quantisierung, Kontextlänge und ob es auf der GPU läuft (Ollama `/api/show`, `/api/ps`; LM Studio und llama.cpp soweit verfügbar).
+- [x] **A4 Zwei Modelle:** „Modell für Hintergrund“ (Analyse, Stichwahl, Aufgaben) und „Modell für Entwürfe“ (Antworten, Steckbriefe, Ordnernamen). Standard: dasselbe Modell. Beide werden mit `check_local_model` geprüft.
+- [x] **B1 Rückmeldungen automatisch:** Zähler je Funktion, Modell und Tag, ohne Mailinhalte: Ablagevorschlag übernommen, abgelehnt oder anders abgelegt; Vorgangsvorschlag angenommen oder abgelehnt; erkannte Aufgaben übernommen oder nicht; Antwortentwurf unverändert, leicht oder stark geändert geöffnet. Dazu „passt / passt nicht“ an Zusammenfassung, „Antwort nötig“ und Frist in den Maildetails.
+  - Umgesetzt in `src/ai-feedback.ts`: Schlüssel `mailboard-ai-feedback-v1` als `{Tag:{Funktion:{Modell:{ok,bad,…}}}}`, 90 Tage. Funktionen: `ablage:<Quelle>` (Regel, Bayes, Hybrid, Embedding, KI-Stichwahl, KI, Begriff), `vorgang`, `aufgaben`, `antwortentwurf` (zusätzlich `unchanged`/`light`/`strong`), `zusammenfassung`, `antwort_noetig`, `frist`. Modell „-“ für Vorschläge ohne Modell. Stimmen je Mail-Signatur und Feld unter `mailboard-ai-votes-v1` (höchstens 1.000). Lesefunktion für B2: `feedbackSummary()`.
 
 ### Phase 2 – bessere Eingaben und Auswertung
 
