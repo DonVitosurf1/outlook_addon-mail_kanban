@@ -48,6 +48,8 @@ fn mail() -> Mail {
         subject: "Laborbedarf".into(),
         body: "Interne Nachfrage".into(),
         received: "2026-11-20".into(),
+        earlier: Vec::new(),
+        attachments: Vec::new(),
     }
 }
 
@@ -132,6 +134,41 @@ async fn tasks_are_validated() {
     let calls = server.join().unwrap();
     assert!(calls[1].contains("aufgaben"));
     assert!(calls[1].contains("keine Anweisung"));
+}
+
+#[tokio::test]
+async fn analyze_sends_earlier_messages_and_attachment_names_as_data() {
+    let answer = json!({"zusammenfassung":"Z","antwort_noetig":false,"ordner":null,"frist":null,"arten":[],"aufgaben":[]});
+    let (url, server) = mock(vec![
+        ("200 OK", json!({"model_info":{"general.architecture":"local"}})),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let mut message = mail();
+    message.earlier = vec![
+        mailboard_ollama::Earlier { direction: "eingegangen".into(), text: "Bitte prüfen.\n> Zitat bleibt draußen".into() },
+        mailboard_ollama::Earlier { direction: "gesendet".into(), text: format!("{}ENDE", "a".repeat(600)) },
+        mailboard_ollama::Earlier { direction: "eingegangen".into(), text: "Dritte Nachricht".into() },
+        mailboard_ollama::Earlier { direction: "eingegangen".into(), text: "Vierte fällt weg".into() },
+    ];
+    message.attachments = vec!["Angebot.pdf".into(), format!("{}ZU", "b".repeat(80))];
+    for i in 0..9 {
+        message.attachments.push(format!("datei{i}.pdf"));
+    }
+    message.attachments.push("elfter.pdf".into());
+    Ollama::new(&url).unwrap().analyze("lokal", &message, &[]).await.unwrap();
+    let calls = server.join().unwrap();
+    let body = &calls[1];
+    assert!(body.contains("Bitte prüfen"));
+    assert!(!body.contains("ENDE"));
+    assert!(!body.contains("Zitat"));
+    assert!(!body.contains("Vierte"));
+    assert!(!body.contains("ZU"));
+    assert!(body.contains("Angebot.pdf"));
+    assert!(body.contains("datei7.pdf"));
+    assert!(!body.contains("datei8.pdf"));
+    assert!(!body.contains("elfter"));
+    assert!(body.contains("gesendet"));
+    assert!(body.contains("Daten"));
 }
 
 #[tokio::test]
@@ -826,6 +863,8 @@ async fn choose_sends_only_subject_start_and_two_profiles_after_local_check() {
         subject: "Laborbedarf".into(),
         body: format!("Anfang {}", "b".repeat(2000)),
         received: "2026-11-20".into(),
+        earlier: Vec::new(),
+        attachments: Vec::new(),
     };
     let choice = Ollama::new(&url)
         .unwrap()

@@ -96,7 +96,7 @@ Für alle Punkte gelten die Regeln aus Abschnitt 2: nur lokale Modelle mit `chec
 
 ### Phase 2 – bessere Eingaben und Auswertung
 
-- [ ] **C1 Verlauf und Anhänge:** Die Analyse bekommt bis zu 3 frühere Nachrichten derselben Unterhaltung (eingehend und gesendet, je höchstens 600 Zeichen, zitierter Text entfernt) und die Namen der Anhänge (höchstens 10, je 80 Zeichen). Der Outlook-Helfer liefert dafür Textauszüge der Unterhaltung. Der Prompt kennzeichnet alles als Daten.
+- [x] **C1 Verlauf und Anhänge:** Die Analyse bekommt bis zu 3 frühere Nachrichten derselben Unterhaltung (eingehend und gesendet, je höchstens 600 Zeichen, zitierter Text entfernt) und die Namen der Anhänge (höchstens 10, je 80 Zeichen). Der Outlook-Helfer liefert die Auszüge mit `--thread`. Der Prompt kennzeichnet alles als Daten. In den Einstellungen abschaltbar, standardmäßig an.
 - [x] **B2 Auswertung „KI-Qualität“:** Tabelle je Funktion mit Trefferquote der letzten 30 Tage, getrennt nach Modell, mit Trend. Hinweise wie „Ablagevorschläge nur 55 %: Steckbriefe der Lernordner prüfen“. Export als CSV. Start → KI-Qualität, `qualityReport()` in `src/ai-feedback.ts`.
 
 ### Phase 3 – Stil und Modellwahl

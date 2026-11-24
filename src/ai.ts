@@ -5,7 +5,8 @@ import { formatModelInfo } from './model-info'
 import { localDay } from './views-logic'
 import { NO_MODEL, countDraft, countFeedback, currentVote, filingFunction, filingSource, vote, type VoteField } from './ai-feedback'
 
-export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
+export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderId?:string;folderPath?:string;tags?:string[];attachments?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
+export type EarlierMessage = {direction:'eingegangen'|'gesendet'|string; text:string}
 /**
  * `model`: Modell, von dem der Vorschlag stammt (für die Rückmeldungen B1), fehlt bei Regeln, Bayes und Begriffen.
  * `passive`: nur angezeigt (Kartenhinweis, sicherer Stapel), nicht ausdrücklich angefordert. Zählt für B1, nicht für die Quellenstatistik.
@@ -15,7 +16,7 @@ type FolderInfo = {key:string;profile:string}
 /** `modell`: Hintergrundmodell der Analyse, fehlt bei älteren gespeicherten Analysen. */
 type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[];aufgaben?:Task[];modell?:string}
 /** `model`: Modell für Hintergrund (Analyse, Stichwahl, Aufgaben). `draftModel`: Modell für Entwürfe, leer = wie `model`. */
-type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;draftModel:string;embedModel:string}
+type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;context:boolean;url:string;embedUrl:string;model:string;draftModel:string;embedModel:string}
 const settingsKey='outlook-kanban-ai-settings-v1'
 const feedbackKey='outlook-kanban-filing-feedback-v1'
 const stop=new Set('und der die das für mit von den dem des ein eine einer auf aus bei ihre ihr ist zur zum the and for your you with from bitte info anfrage rückfrage frage'.split(' '))
@@ -48,6 +49,7 @@ function config(): Config {
   const old=object(getLegacyConfig()), own=stored(settingsKey)
   return {
     enabled:(own.enabled??old.llm_enabled)===true, auto:own.auto===true, autoLearn:own.autoLearn===true, embeddings:(own.embeddings??old.embeddings_enabled)===true,
+    context:own.context!==false,
     url:String(own.url||old.llm_url||'http://127.0.0.1:11434'),
     embedUrl:String(own.embedUrl||old.embedding_url||own.url||old.llm_url||'http://127.0.0.1:11434'),
     model:String(own.model??old.llm_model??''), draftModel:typeof own.draftModel==='string'?own.draftModel:'', embedModel:String(own.embedModel||old.embedding_model||'qwen3-embedding:0.6b'),
@@ -544,9 +546,26 @@ export async function localDraftModel() {
   const cfg=config()
   return {url:cfg.url,model:await activeModel(cfg,'subfolders')}
 }
+async function threadOf(m:AiMail):Promise<EarlierMessage[]>{
+  if(!m.id||!m.folderId)return []
+  try{
+    const raw=await native()<string>('outlook_thread',{id:m.id,folder:m.folderId})
+    const rows:unknown=JSON.parse(raw)
+    if(!Array.isArray(rows))return []
+    return rows.flatMap(row=>{
+      const item=object(row)
+      const text=typeof item.text==='string'?item.text:''
+      if(!text.trim())return []
+      const direction=item.direction==='gesendet'?'gesendet':'eingegangen'
+      return [{direction,text}]
+    })
+  }catch{return []}
+}
 async function analyze(m:AiMail, folders:FolderInfo[],cfg:Config) {
   const invoke=native(), model=await activeModel(cfg,'analyze')
-  const result=await invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
+  const earlier=cfg.context?await threadOf(m):[]
+  const attachments=cfg.context?(m.attachments??[]).filter(name=>name.trim()):[]
+  const result=await invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:{...m,earlier,attachments},folders})
   return {...result,aufgaben:Array.isArray(result.aufgaben)?result.aufgaben:[],modell:model}
 }
 
@@ -1162,6 +1181,7 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const trainingState=document.createElement('p');trainingState.id='aiTrainingState';trainingState.setAttribute('role','status')
   trainingState.textContent=lastTraining;learnSection.append(trainingState)
   const auto=bool('Geladene Outlook-Mails im Hintergrund analysieren',cfg.auto,'Analysiert geladene Mails nacheinander mit dem Sprachmodell. Belastet Rechner und Grafikkarte, solange sie läuft.')
+  const context=bool('Verlauf und Anhänge mitschicken',cfg.context,'Die Analyse bekommt bis zu drei frühere Nachrichten der Unterhaltung und die Anhangnamen. Beides gilt nur als Daten.')
   const queue=document.createElement('p');queue.id='aiQueueState';queue.setAttribute('role','status');queue.textContent=queueStatus;section.append(queue)
   const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings,'Vergleicht Mails mit gelernten Ordnerprofilen und bettet geladene Mails im Hintergrund ein. Schnell, braucht das Embedding-Modell.')
   const embedModel=field('Embedding-Modell',cfg.embedModel)
@@ -1222,7 +1242,7 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
       const address=new URL(field.value)
       if(address.protocol!=='http:' || !['127.0.0.1','localhost','[::1]'].includes(address.hostname) || address.username || address.password || address.pathname!=='/' || address.search || address.hash) throw Error('Bitte eine lokale HTTP-Adresse ohne Pfad angeben.')
       }
-      localStorage.setItem(settingsKey,JSON.stringify({enabled:on.checked,auto:auto.checked,autoLearn:autoLearn.checked,url:url.value.trim(),model:model.value.trim(),draftModel:draftModel.value.trim(),embeddings:embeddings.checked,embedModel:embedModel.value.trim(),embedUrl:embedUrl.value.trim()}))
+      localStorage.setItem(settingsKey,JSON.stringify({enabled:on.checked,auto:auto.checked,autoLearn:autoLearn.checked,context:context.checked,url:url.value.trim(),model:model.value.trim(),draftModel:draftModel.value.trim(),embeddings:embeddings.checked,embedModel:embedModel.value.trim(),embedUrl:embedUrl.value.trim()}))
       feedback.textContent='KI-Einstellungen gespeichert.'
       void queueAnalyses()
     }catch(error){feedback.textContent=String(error)}

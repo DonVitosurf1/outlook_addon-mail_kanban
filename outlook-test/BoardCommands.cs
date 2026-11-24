@@ -58,6 +58,10 @@ internal sealed class BoardCommands
         case "--correspondence":
             if(args.Length>=2) return Correspondence(Range(args[1],1,36500),args.Skip(2));
             break;
+        case "--thread":
+            // Bis zu drei frühere Nachrichten derselben Unterhaltung für die Analyse (C1).
+            if(args.Length==3) return EarlierMessages(args[1], args[2]);
+            break;
         case "--folders":
             if (args.Length == 1) {
                 var result = new List<object>();
@@ -622,6 +626,47 @@ internal sealed class BoardCommands
             if(rows.Count>=limit) break;
         }
         return rows;
+    }
+
+    private sealed class ThreadHit
+    {
+        public DateTime When;
+        public string Direction, Text;
+    }
+
+    // Frühere Nachrichten derselben Unterhaltung, neueste zuerst. Die aktuelle Mail und spätere fehlen.
+    // Bewusst ohne lokale Funktionen und Wertetupel: build.cmd nutzt den C#-Compiler aus dem .NET Framework.
+    private List<object> EarlierMessages(string id, string folderId)
+    {
+        dynamic mail = Mail(id, folderId);
+        string conversation = ((string)mail.ConversationID ?? "").Trim();
+        var found = new List<ThreadHit>();
+        if (conversation.Length > 0) {
+            var seen = new HashSet<string>(IgnoreCase);
+            CollectThread(inbox, mail, conversation, seen, found);
+            CollectThread(ns.GetDefaultFolder(5), mail, conversation, seen, found);
+            CollectThread(mail.Parent, mail, conversation, seen, found);
+        }
+        return found.OrderByDescending(row => row.When).Take(3)
+            .Select(row => (object)new { direction = row.Direction, text = row.Text }).ToList();
+    }
+
+    private void CollectThread(dynamic folder, dynamic mail, string conversation, HashSet<string> seen, List<ThreadHit> found)
+    {
+        try {
+            foreach (dynamic item in Walk(folder.Items, (int)folder.Items.Count)) {
+                try {
+                    if ((int)item.Class != 43) continue;
+                    string itemId = (string)item.EntryID ?? "";
+                    if (!seen.Add(itemId) || Same(itemId, (string)mail.EntryID)) continue;
+                    if (!Same(((string)item.ConversationID ?? "").Trim(), conversation)) continue;
+                    DateTime when = (DateTime)item.ReceivedTime;
+                    if (when >= (DateTime)mail.ReceivedTime) continue;
+                    bool sent = IsSentFolder((string)item.Parent.EntryID) || IsOwn((string)SenderAddress(item));
+                    found.Add(new ThreadHit { When=when, Direction=sent ? "gesendet" : "eingegangen", Text=(string)item.Body ?? "" });
+                } catch (COMException ex) { if (!IsItemReadError(ex)) throw; }
+            }
+        } catch (COMException ex) { if (ex.ErrorCode != unchecked((int)0x80070005)) throw; }
     }
 
     private static string[] Files(dynamic mail)
