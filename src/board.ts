@@ -23,7 +23,8 @@ import { caseLimits, initCaseSuggest } from './case-suggest'
 import { allCases, initCases, toggleCaseItem } from './cases'
 import { shortcutFor, type ShortcutAction } from './shortcuts'
 import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
-import { loadRoutines, useSamplePlanning } from './planning-store'
+import { loadRoutines, skipFocus, useSamplePlanning } from './planning-store'
+import { localDay } from './views-logic'
 import { useSampleFeedback } from './ai-feedback'
 import { initTabs } from './tabs'
 import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
@@ -728,7 +729,10 @@ async function start() {
       return ()=>{if(source==='demo'&&mailbox==='demo')scope=previous}
     },
     routines:loadRoutines,markRoutine:id=>markRoutine(id),runRoutine:r=>runRoutine(r.action||''),
-    cases:()=>allCases(mails),toggleItem})
+    cases:()=>allCases(mails),toggleItem,
+    vips:()=>{const raw=getLegacyConfig().vip_senders;return Array.isArray(raw)?raw.filter((item):item is string=>typeof item==='string'):[]},
+    adoptFocus:id=>{void change([id],{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,FOCUS_TAG,true)})},
+    dismissFocus:id=>{skipFocus(id,localDay());render()}})
   cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,
     startTriage:()=>triage?.start(),triageActive:()=>!!triage?.active,routines:loadRoutines,
     openCalendar:()=>calendar.open(),setupProgress:()=>setup?.progress()??'',openSetup:()=>setup?.open(),markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),

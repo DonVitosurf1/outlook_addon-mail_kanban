@@ -48,6 +48,12 @@ def check_triage(page):
     banner = page.get_by_role('region', name='Morgen-Triage')
     expect(banner.get_by_role('heading', name='Heute dran')).to_be_visible()
     expect(page.locator('#search')).to_have_value('')
+    focus = banner.get_by_role('region', name='Tagesfokus')
+    expect(focus.get_by_text('Warten überfällig')).to_be_visible()
+    expect(focus.get_by_role('button', name='In den Fokus')).to_have_count(1)
+    focus.get_by_role('button', name='In den Fokus').click()
+    expect(page.locator('#mail-DEMO0008 .card-flags .flag-focus')).to_have_text('Fokus')
+    expect(focus).to_have_count(0)
     # Nur die fällige Wartende steht im ersten Schritt. Erledigen nimmt sie heraus.
     expect(page.locator('#board .card')).to_have_count(1)
     expect(banner).to_contain_text('1 Karte in diesem Schritt')

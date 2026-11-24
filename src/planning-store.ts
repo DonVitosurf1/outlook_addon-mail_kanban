@@ -59,3 +59,18 @@ export function rememberTriage(live:boolean,at=Date.now()){
 }
 
 export function newId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+
+const FOCUS_SKIP = 'mailboard-focus-skip-v1'
+const SKIP_LIMIT = 200
+/** Abgewählte Fokusvorschläge gelten nur für diesen Kalendertag. Im Beispielpostfach nur im Speicher. */
+export function skippedFocus(today: string): Set<string> {
+  const raw = read(FOCUS_SKIP) as {day?: unknown; ids?: unknown} | null
+  if (!raw || typeof raw !== 'object' || raw.day !== today || !Array.isArray(raw.ids)) return new Set()
+  return new Set(raw.ids.filter((id): id is string => typeof id === 'string' && !!id))
+}
+export function skipFocus(id: string, today: string) {
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(today)) return
+  const ids = [...skippedFocus(today)]
+  if (!ids.includes(id)) ids.push(id)
+  write(FOCUS_SKIP, {day: today, ids: ids.slice(-SKIP_LIMIT)})
+}

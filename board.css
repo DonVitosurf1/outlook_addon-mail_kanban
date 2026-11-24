@@ -423,6 +423,12 @@ dialog h2 { font-size: 1.35rem; line-height: 1.25; margin: .28rem 1.8rem .7rem 0
 .triage-column li { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
 .triage-column li > span { flex: 1 1 10rem; overflow-wrap: anywhere; }
 .triage-column li > button:only-child { text-align: left; width: 100%; overflow-wrap: anywhere; border-radius: .6rem; }
+.triage-focus { margin-block: .35rem; padding: .5rem .7rem; border-radius: .8rem; background: var(--soft); }
+.triage-focus h3 { font-size: .84rem; margin-block: 0 .3rem; }
+.triage-focus ul { list-style: none; display: grid; gap: .35rem; padding: 0; margin: 0; }
+.triage-focus li { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.triage-focus li > button:first-child { text-align: left; flex: 1 1 12rem; overflow-wrap: anywhere; }
+.triage-focus li > span { color: var(--muted); }
 .triage-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .55rem; }
 .triage-actions .primary { color: var(--sun-ink); background: var(--sun); border-color: var(--sun); font-weight: 600; }
 .triage-actions .primary:hover:not(:disabled) { color: var(--sun-ink); background: var(--sun-strong); border-color: var(--sun-strong); }
