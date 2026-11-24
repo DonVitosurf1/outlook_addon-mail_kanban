@@ -50,6 +50,11 @@ try:
         hint = dialog.get_by_label("Geladene Outlook-Mails im Hintergrund analysieren")
         assert "Belastet Rechner" in page.locator("#" + hint.get_attribute("aria-describedby")).inner_text()
         expect(dialog.get_by_role("navigation", name="Abschnitte der Einstellungen")).to_be_visible()
+        token = dialog.get_by_label("Capacities-Token")
+        token.fill("cap-api-test")
+        token.dispatch_event("change")
+        assert page.evaluate("localStorage.getItem('mailboard-capacities-token-v1')") == "cap-api-test"
+        assert "cap-api-test" not in page.evaluate("localStorage.getItem('kanban-board-options-v1')||''")
         # A1: Modellangaben beim Öffnen und nach einem Modellwechsel, nur mit dem Modellnamen.
         embed_info = page.locator("#" + dialog.get_by_label("Embedding-Modell").get_attribute("aria-describedby"))
         expect(embed_info).to_have_text("600 M · Q8_0 · 32.768 Token · noch nicht geladen")

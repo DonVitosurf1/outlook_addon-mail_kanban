@@ -132,8 +132,8 @@ export function normalizeRoutine(value:unknown):Routine|undefined{
 }
 
 // ---------- Vorgänge ----------
-export type CaseItem = {id:string; text:string; done:boolean; due?:string}
-export type Case = {name:string; created:string; closed?:string; note?:string; items:CaseItem[]}
+export type CaseItem = {id:string; text:string; done:boolean; due?:string; capacitiesId?:string}
+export type Case = {name:string; created:string; closed?:string; note?:string; items:CaseItem[]; capacitiesId?:string}
 export function caseTag(name:string){return CASE_PREFIX+name}
 export function caseNames(mail:Pick<ViewMail,'tags'>){
   return mail.tags.filter(t=>t.startsWith(CASE_PREFIX)).map(t=>t.slice(CASE_PREFIX.length).trim()).filter(Boolean)
@@ -182,13 +182,18 @@ export function normalizeCase(value:unknown):Case|undefined{
     if(typeof i.id!=='string'||typeof i.text!=='string'||!i.text.trim())return []
     const item:CaseItem={id:i.id,text:i.text.trim(),done:i.done===true}
     if(isDay(i.due))item.due=i.due
+    const taskId=objectId(i.capacitiesId)
+    if(taskId)item.capacitiesId=taskId
     return [item]
   })
   const result:Case={name:c.name.trim(),created:c.created,items}
   if(isDay(c.closed))result.closed=c.closed
   if(typeof c.note==='string'&&c.note.trim())result.note=c.note
+  const pageId=objectId(c.capacitiesId)
+  if(pageId)result.capacitiesId=pageId
   return result
 }
+function objectId(value:unknown){return typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)?value:undefined}
 
 // ---------- Wochenkalender ----------
 export type EntryKind = 'followUp'|'snoozeUntil'|'deadline'|'routine'|'checklist'

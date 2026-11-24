@@ -24,9 +24,9 @@ import { renderMailTasks } from './mail-tasks'
 import { caseLimits, initCaseSuggest } from './case-suggest'
 import { allCases, initCases, toggleCaseItem } from './cases'
 import { shortcutFor, type ShortcutAction } from './shortcuts'
-import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
-import { loadRoutines, skipFocus, useSamplePlanning } from './planning-store'
-import { localDay } from './views-logic'
+import { caseMails, caseNames, caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
+import { loadCases, loadRoutines, skipFocus, updateCase, useSamplePlanning } from './planning-store'
+import { CapacitiesSyncError, capacitiesMailRecord, capacitiesNoteMarkdown, capacitiesPageMarkdown, capacitiesPersonAddress, capacitiesPersonName, capacitiesStamp, capacitiesSupplement, capacitiesToken, capacitiesWebLinks, saveAtomicNote, saveCapacitiesMail, saveCapacitiesToken, saveMailAsNote, saveMailLinks, syncCaseToCapacities } from './capacities'
 import { useSampleFeedback } from './ai-feedback'
 import { initTabs } from './tabs'
 import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
@@ -585,6 +585,113 @@ function initDetailBar() {
     e.preventDefault()
   })
 }
+const glyphs={
+  note:'<path d="M7 3.5h7.2L19 8.2V20.5H7z"/><path d="M14.2 3.5V8.5H19"/><path d="M10 12.5h5M10 16h5"/>',
+  link:'<path d="M10 14.2 14.2 10"/><path d="M8.6 16.2 7.2 17.6a3.1 3.1 0 0 1-4.4-4.4l1.4-1.4"/><path d="M15.4 7.8 16.8 6.4a3.1 3.1 0 0 1 4.4 4.4l-1.4 1.4"/>',
+  sentence:'<path d="M5 8h14M5 12h8M5 16h14"/><path d="M15.2 10.6h4.2v3.2h-4.2z"/>',
+}
+function iconButton(label:string,glyph:string,run:()=>void){
+  const node=tag('button','')
+  node.type='button'
+  node.className='icon-button'
+  node.title=label
+  node.setAttribute('aria-label',label)
+  node.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'+glyph+'</svg>'
+  node.onclick=run
+  return node
+}
+let noting=false
+function fillCapacities(mail:Mail){
+  let box=document.getElementById('capacitiesMail')
+  if(!box){
+    box=tag('section','')
+    box.id='capacitiesMail'
+    box.className='detail-bar'
+    box.setAttribute('aria-label','Capacities')
+    el('detailBar').after(box)
+  }
+  box.replaceChildren()
+  box.hidden=!isLive()
+  if(!isLive())return
+  const saved=capacitiesMailRecord(mail.id)
+  const noteLabel=saved.noteId?'Notiz in Capacities vorhanden':'Als Notiz in Capacities'
+  const note=iconButton(noteLabel,glyphs.note,()=>void publishMailNote(mail))
+  if(saved.noteId)note.setAttribute('aria-pressed','true')
+  box.append(note)
+  if(saved.noteId&&capacitiesWebLinks(mail.body||'').length)box.append(iconButton('Links in Capacities übernehmen',glyphs.link,()=>void publishMailLinks(mail)))
+  const atom=iconButton('Satz als atomare Notiz',glyphs.sentence,()=>void publishAtom(mail))
+  atom.onmousedown=event=>event.preventDefault()
+  box.append(atom)
+}
+async function publishMailNote(mail:Mail){
+  if(noting)return
+  const token=capacitiesToken()
+  if(!token){notify('Bitte den Capacities-Token unter Outlook und lokale KI eintragen.');return}
+  const saved=capacitiesMailRecord(mail.id)
+  const view=mail as typeof mail & {isSent?:boolean;recipients?:string}
+  const who=view.isSent?view.recipients||mail.sender:mail.sender
+  const stamp=capacitiesStamp([mail.subject||'',mail.body||'',mail.note||''])
+  if(saved.noteId){
+    if(saved.stamp===stamp){notify('Diese Mail ist schon eine Notiz in Capacities.');return}
+    noting=true
+    try{
+      await saveMailAsNote(token,{noteId:saved.noteId,markdown:'',title:mail.subject||'(ohne Betreff)',supplement:capacitiesSupplement(mail)})
+      saveCapacitiesMail(mail.id,{...saved,stamp})
+      notify('Nachtrag an die Capacities-Notiz angehängt.')
+      if(selected?.id===mail.id)fillCapacities(mail)
+    }catch(error){notify('Capacities: '+errorText(error))}
+    finally{noting=false}
+    return
+  }
+  noting=true
+  try{
+    const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
+    const project=caseNames(mail).map(name=>loadCases().find(c=>same(c.name,name))??allCases(mails).find(c=>same(c.name,name))).find(entry=>entry?.capacitiesId)
+    const result=await saveMailAsNote(token,{markdown:capacitiesNoteMarkdown(view),title:mail.subject||'(ohne Betreff)',mailId:mail.id,personName:capacitiesPersonName(who),personAddress:capacitiesPersonAddress(who),projectId:project?.capacitiesId})
+    saveCapacitiesMail(mail.id,{...saved,noteId:result.noteId,personId:result.personId||saved.personId,stamp})
+    notify(result.reused?'Diese Mail ist schon eine Notiz in Capacities.':'Mail als Notiz in Capacities angelegt.')
+    if(selected?.id===mail.id)fillCapacities(mail)
+  }catch(error){
+    if(error instanceof CapacitiesSyncError&&error.kept){
+      saveCapacitiesMail(mail.id,{...capacitiesMailRecord(mail.id),noteId:error.kept.noteId,personId:error.kept.personId,stamp})
+      if(selected?.id===mail.id)fillCapacities(mail)
+    }
+    notify('Capacities: '+errorText(error))
+  }finally{noting=false}
+}
+async function publishMailLinks(mail:Mail){
+  if(noting)return
+  const token=capacitiesToken()
+  if(!token){notify('Bitte den Capacities-Token unter Outlook und lokale KI eintragen.');return}
+  const saved=capacitiesMailRecord(mail.id)
+  if(!saved.noteId){notify('Bitte die Mail zuerst als Notiz übernehmen.');return}
+  const urls=capacitiesWebLinks(mail.body||'')
+  if(urls.every(url=>saved.links?.[url])){notify('Diese Links sind schon in Capacities.');return}
+  noting=true
+  try{
+    const result=await saveMailLinks(token,{noteId:saved.noteId,urls,known:saved.links})
+    saveCapacitiesMail(mail.id,{...saved,links:result.links})
+    notify('Links in Capacities übernommen.')
+  }catch(error){notify('Capacities: '+errorText(error))}
+  finally{noting=false}
+}
+async function publishAtom(mail:Mail){
+  if(noting)return
+  const token=capacitiesToken()
+  if(!token){notify('Bitte den Capacities-Token unter Outlook und lokale KI eintragen.');return}
+  const selection=document.getSelection()
+  const sentence=selection&&el('body').contains(selection.anchorNode)?selection.toString().trim():''
+  if(!sentence){notify('Bitte zuerst einen Satz im Mailtext markieren.');return}
+  const saved=capacitiesMailRecord(mail.id)
+  if(saved.atoms?.[sentence]){notify('Dieser Satz ist schon eine atomare Notiz.');return}
+  noting=true
+  try{
+    const result=await saveAtomicNote(token,{sentence,subject:mail.subject,body:mail.body})
+    saveCapacitiesMail(mail.id,{...saved,atoms:{...saved.atoms,[sentence]:result.id}})
+    notify('Satz als atomare Notiz angelegt.')
+  }catch(error){notify('Capacities: '+errorText(error))}
+  finally{noting=false}
+}
 function showTasks(mail:Mail) {
   renderMailTasks(el('tasks'),mail,{cases:()=>allCases(mails),canAssign:hasMailbox,confirm:(question,label)=>ask(dialog,question,label),
     assign:(m,name)=>assignCase([m.id],name,true),marker:undoMarker,undoIfLatest,afterUndo,
@@ -612,6 +719,7 @@ function fillDetail(mail:Mail) {
   renderAnalysis(el('analysis'),mail,choices,isLive()?(text:string)=>draft(mail,'reply',text):undefined,
     async(tags:string[])=>{await change([mail.id],{kind:'tags',value:tags})})
   showTasks(mail)
+  fillCapacities(mail)
   renderSimilar(el('similar'),mail,{mails:()=>mails,open:pick})
   const suggest=el<HTMLButtonElement>('suggestFolder')
   suggest.disabled=false
@@ -775,7 +883,36 @@ async function start() {
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
-  cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
+  let publishing=false
+  cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name)),
+    canPublish:isLive,publish:async name=>{
+      if(publishing)return
+      publishing=true
+      try{
+        const token=capacitiesToken()
+        if(!token){notify('Bitte den Capacities-Token unter Outlook und lokale KI eintragen.');return}
+        const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
+        const entry=loadCases().find(c=>same(c.name,name))??allCases(mails).find(c=>same(c.name,name))
+        if(!entry)return
+        const rows=caseMails(mails,name).map(m=>{
+          const view=m as typeof m & {isSent?:boolean;recipients?:string}
+          return {subject:view.subject,sender:view.sender,status:view.status,isSent:view.isSent,recipients:view.recipients}
+        })
+        const remember=(result:{pageId:string;tasks:{itemId:string;capacitiesId:string}[]})=>updateCase(name,current=>({...current,capacitiesId:result.pageId,items:current.items.map(item=>{
+          const id=result.tasks.find(t=>t.itemId===item.id)?.capacitiesId
+          return id?{...item,capacitiesId:id}:item
+        })}),entry)
+        try{
+          const result=await syncCaseToCapacities(token,{pageId:entry.capacitiesId,markdown:capacitiesPageMarkdown(entry,rows),
+            tasks:entry.items.map(item=>({itemId:item.id,title:item.text,done:item.done,due:item.due,capacitiesId:item.capacitiesId}))})
+          remember(result)
+          notify(result.createdPage?(result.pageStructure==='RootPage'?'Vorgang in Capacities angelegt.':'Projekt in Capacities angelegt.'):'Aufgaben in Capacities aktualisiert.')
+        }catch(error){
+          if(error instanceof CapacitiesSyncError && error.partial)remember(error.partial)
+          notify('Capacities: '+errorText(error))
+        }
+      }finally{publishing=false}
+    }})
   caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:(id,name)=>assignCase([id],name,true),afterUndo,render})
   const runRoutine=(action:RoutineAction)=>{
     switch(action){
@@ -865,7 +1002,14 @@ async function start() {
   toggle.onchange=()=>{updateConfig({allow_move:toggle.checked});render()}
   const label=tag('label','');label.append(toggle,' Echte Mails verschieben erlauben')
   const labelPrefix=tag('label','Outlook-Statuspräfix');labelPrefix.append(prefix)
-  parts.outlook.append(label,labelPrefix)
+  const tokenInput=document.createElement('input')
+  tokenInput.type='password';tokenInput.autocomplete='off';tokenInput.spellcheck=false
+  tokenInput.value=capacitiesToken();tokenInput.setAttribute('aria-label','Capacities-Token')
+  tokenInput.onchange=()=>{saveCapacitiesToken(tokenInput.value.trim());notify(tokenInput.value.trim()?'Capacities-Token gespeichert.':'Capacities-Token entfernt.')}
+  const tokenLabel=tag('label','Capacities-Token');tokenLabel.append(tokenInput)
+  const tokenHint=tag('p','Schreibt einen Vorgang als Projekt in Capacities. Fehlt dieser Typ, entsteht eine Seite. Die Checkliste wird zu Aufgaben. Eine Mail wird nur auf Klick zur Notiz, dann mit Text. Hat sich der Text geändert, hängt der nächste Klick einen Nachtrag an. Ein Textfeld Kennung an der Notiz merkt sich die Mail, damit sie wiedergefunden wird. Der Token steht nicht in der Sicherung.')
+  tokenHint.className='field-hint'
+  parts.outlook.append(label,labelPrefix,tokenLabel,tokenHint)
   for(const [key,caption,fallback,min,max,part] of [
     ['poll_seconds','Aktualisieren · Sekunden',30,0,86400,'outlook'],['inbox_days','Posteingang · Tage',60,0,36500,'board'],['done_days','Erledigt · Tage',14,0,36500,'board'],
     ['sent_days','Gesendet · Tage',14,0,36500,'board'],['overdue_days','Überfällig ab Werktagen',5,0,36500,'board'],['follow_up_days','Nachfassen-Vorschlag · Tage',5,1,365,'board'],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500,'board'],['max_items_per_folder','Limit pro Ordner',500,0,5000,'board'],

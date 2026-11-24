@@ -13,6 +13,9 @@ type Options = {
   assign(ids:string[],name:string,on:boolean):Promise<void>|void
   onPick(id:string):void
   showOnBoard(name:string):void
+  /** Nur mit echtem Postfach. Legt die Capacities-Seite an oder aktualisiert die Aufgaben. */
+  canPublish?():boolean
+  publish?(name:string):Promise<void>
 }
 
 function labelled(text:string,field:HTMLElement){const label=make('label',text);label.append(field);return label}
@@ -118,6 +121,18 @@ export function initCases(options:Options){
     const actions=make('div');actions.className='cockpit-actions'
     const selected=options.selection().filter(id=>!linked.some(m=>m.id===id))
     if(linked.length)actions.append(button('Auf dem Board zeigen',()=>{showView('board');options.showOnBoard(c.name)}))
+    if(options.canPublish?.()&&options.publish){
+      const label=c.capacitiesId?'Aufgaben in Capacities aktualisieren':'In Capacities anlegen'
+      const publish=button('',()=>void options.publish!(c.name))
+      publish.className='icon-button'
+      publish.title=label
+      publish.setAttribute('aria-label',label)
+      if(c.capacitiesId)publish.setAttribute('aria-pressed','true')
+      publish.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">'+(c.capacitiesId
+        ?'<path d="M8 12.2 10.3 14.5 16 8.8"/><path d="M6.5 6.5h11v11h-11z"/>'
+        :'<path d="M12 16V5"/><path d="M8 8.5 12 4.5l4 4"/><path d="M6 19.5h12"/>')+'</svg>'
+      actions.append(publish)
+    }
     if(selected.length)actions.append(button(selected.length+' markierte Karten zuordnen',()=>void assign(selected,c.name,true)))
     actions.append(c.closed?button('Wieder öffnen',()=>update(x=>{delete x.closed;return x})):button('Vorgang abschließen',()=>update(x=>({...x,closed:localDay()}))))
     actions.append(button('Vorgang löschen',async()=>{
