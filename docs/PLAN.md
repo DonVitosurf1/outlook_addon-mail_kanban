@@ -108,7 +108,7 @@ Für alle Punkte gelten die Regeln aus Abschnitt 2: nur lokale Modelle mit `chec
 ### Phase 4 – weitere Ideen
 
 - [x] **Tagesfokus:** In Triage-Schritt 1 bis zu 3 Vorschläge für den Fokus aus Fristen von heute, Aufgaben mit Frist, VIP-Absendern und überfälligem Warten. Ein Klick übernimmt, einzeln abwählbar. `focusSuggestions` in `src/focus-suggest.ts`, Abwahl für den Tag in `mailboard-focus-skip-v1`.
-- [ ] **Nachfasstermine:** Beim Setzen auf „Warten“ ein Vorschlag aus einer Frist in der Mail oder der typischen Antwortzeit des Absenders (aus dem Mailverlauf), sonst der Standard aus den Einstellungen.
+- [x] **Nachfasstermine:** Beim Setzen auf „Warten“ ein Vorschlag aus einer Frist in der Mail oder der typischen Antwortzeit des Absenders (aus dem Mailverlauf), sonst der Standard aus den Einstellungen. `suggestFollowUp` in `src/follow-up.ts`, Standard `follow_up_days`.
 
 ## 4. Einrichtungsassistent (entschieden am 23.11.2026)
 
