@@ -24,7 +24,7 @@ export function setAiLive(live:boolean,mode:'offline'|'demo'|'outlook'=live?'out
   mailboxMode=mode;liveSource=live;sourceEpoch++
   if(typeof window!=='undefined')window.clearTimeout?.(learnTimer)
   training=undefined;processing=false;embedding=false;embedded.clear();embedFailures=0;embedRetryAt=0;retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
-  recent=undefined;legacyCache=undefined;importedCache.clear()
+  recent=undefined;legacyCache=undefined;importedCache.clear();runoffs.clear()
   refreshAiPanel?.()
   if(typeof document!=='undefined')document.dispatchEvent?.(new Event('mailboard:source-changed'))
 }
@@ -640,6 +640,20 @@ export async function suggestFolder(mail:AiMail, folders:string[]):Promise<Sugge
   if(hint.folder)sourceHints.set(mail,hint)
   return hint
 }
+type Choice={ordner:string;grund:string}
+/** Stichwahl-Ergebnisse je Mail-Signatur, Modell und Kandidatenpaar, nur im Speicher. `null`: Modell nannte keinen der beiden. */
+const runoffs=new Map<string,Choice|null>()
+/** Schnelle Stichwahl (C2) zwischen genau zwei Ordnern über `ai_choose` statt einer vollen Analyse. */
+async function runoff(mail:AiMail,two:FolderInfo[],cfg:Config):Promise<Choice|null>{
+  const invoke=native(), model=await activeModel(cfg)
+  const key=JSON.stringify([embeddingId(mail),cfg.url,model,...two.map(f=>[f.key,f.profile]).sort()])
+  if(runoffs.has(key))return runoffs.get(key)!
+  const raw=await invoke<Choice|null>('ai_choose',{url:cfg.url,model,mail:{subject:mail.subject,sender:'',body:mail.body.slice(0,1000),received:mail.received||''},candidates:two})
+  const choice=raw&&typeof raw.ordner==='string'&&two.some(f=>f.key===raw.ordner)?{ordner:raw.ordner,grund:typeof raw.grund==='string'?raw.grund.trim().slice(0,120):''}:null
+  runoffs.delete(key);runoffs.set(key,choice)
+  if(runoffs.size>500)runoffs.delete(runoffs.keys().next().value!)
+  return choice
+}
 async function chooseFolder(mail:AiMail, targets:FolderInfo[]):Promise<Suggestion> {
   const epoch=sourceEpoch
   const legacy=getLegacyConfig()
@@ -664,8 +678,8 @@ async function chooseFolder(mail:AiMail, targets:FolderInfo[]):Promise<Suggestio
         if(scores[1]&&gap<0.05&&!hidden.has('KI-Stichwahl')){
           const two=targets.filter(f=>[best.folder,scores[1].folder].includes(f.key))
           try{
-            const choice=(await analyze(mail,two,cfg)).ordner
-            if(two.some(f=>f.key===choice))return {folder:choice!,reason:'KI-Stichwahl · '+detail}
+            const choice=two.length===2?await runoff(mail,two,cfg):null
+            if(choice&&two.some(f=>f.key===choice.ordner))return {folder:choice.ordner,reason:'KI-Stichwahl · '+(choice.grund||detail)}
           }catch{ /* Keep the measured embedding result when the chat model is unavailable. */ }
         }
         return {folder:best.folder,reason:'Lokale Embeddings · '+detail}

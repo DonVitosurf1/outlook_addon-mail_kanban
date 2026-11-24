@@ -87,19 +87,31 @@ test('Hintergrundanalyse erfordert aktive Zustimmung, speichert Auswertung, verm
   assert.ok(saved.includes('Preis klären'));assert.ok(!saved.includes(mail.body))
 })
 
-test('Nahe semantische Treffer veranlassen nur eine Stichwahl zwischen den beiden tatsächlichen Zielen',async()=>{
+test('Nahe semantische Treffer veranlassen nur eine schnelle Stichwahl zwischen den beiden tatsächlichen Zielen',async()=>{
   storage()
   const calls:string[]=[]
+  let answer:unknown={ordner:'Einkauf',grund:'Bestellung von Verbrauchsmaterial'}
   Object.defineProperty(globalThis,'window',{configurable:true,value:{__TAURI__:{core:{invoke:async(cmd:string,args:any)=>{
     calls.push(cmd)
     if(cmd==='ai_suggest')return [{folder:'Labor',score:0.90},{folder:'Einkauf',score:0.86},{folder:'Personal',score:0.32}]
-    assert.deepEqual(args.folders.map((f:{key:string})=>f.key),['Labor','Einkauf'])
-    return {zusammenfassung:'x',antwort_noetig:true,arten:[],ordner:'Einkauf',frist:null}
+    assert.equal(cmd,'ai_choose')
+    assert.deepEqual(args.candidates.map((f:{key:string})=>f.key),['Labor','Einkauf'])
+    assert.equal(args.model,'lokal');assert.ok(args.mail.body.length<=1000)
+    return answer
   }}}}})
   localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,embeddings:true,model:'lokal'}))
   const hint=await suggestFolder(mail,['Labor','Einkauf','Personal'])
-  assert.equal(hint.folder,'Einkauf');assert.ok(hint.reason.startsWith('KI-Stichwahl'))
-  assert.deepEqual(calls,['ai_suggest','ai_analyze'])
+  assert.equal(hint.folder,'Einkauf');assert.equal(hint.reason,'KI-Stichwahl · Bestellung von Verbrauchsmaterial')
+  assert.deepEqual(calls,['ai_suggest','ai_choose'])
+  // Dieselbe Mail mit demselben Kandidatenpaar nutzt das gemerkte Ergebnis.
+  assert.equal((await suggestFolder(mail,['Labor','Einkauf','Personal'])).folder,'Einkauf')
+  assert.deepEqual(calls,['ai_suggest','ai_choose','ai_suggest'])
+  // Nennt das Modell keinen der beiden, bleibt es beim gemessenen Embedding-Ergebnis.
+  answer=null
+  const other={...mail,subject:'Angebot Zentrifuge'}
+  const fallback=await suggestFolder(other,['Labor','Einkauf','Personal'])
+  assert.equal(fallback.folder,'Labor');assert.ok(fallback.reason.startsWith('Lokale Embeddings'))
+  assert.ok(!calls.includes('ai_analyze'))
 })
 
 test('Steckbrief-Ausschlüsse erhöhen die lokale Zuordnung nicht',async()=>{

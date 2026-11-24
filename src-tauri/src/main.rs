@@ -335,6 +335,7 @@ fn main() {
             projects::project_move,
             ai::ai_models,
             ai::ai_analyze,
+            ai::ai_choose,
             ai::ai_suggest,
             ai::ai_subfolders,
             ai::ai_folder_name,

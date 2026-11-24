@@ -797,3 +797,116 @@ async fn cluster_name_sends_subjects_only_after_local_model_evidence() {
     assert!(client.cluster_name("lokal", &[" ".into()]).await.is_err());
     assert!(server.join().unwrap().is_empty());
 }
+
+fn two_folders() -> Vec<Folder> {
+    vec![
+        Folder {
+            key: "/Labor".into(),
+            profile: format!("Messgeräte {}", "l".repeat(500)),
+        },
+        Folder {
+            key: "/Einkauf".into(),
+            profile: "Bestellungen".into(),
+        },
+    ]
+}
+
+#[tokio::test]
+async fn choose_sends_only_subject_start_and_two_profiles_after_local_check() {
+    let answer = json!({"ordner":"/Einkauf","grund":format!("  Bestellung von Material {}", "g".repeat(200))});
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let long = Mail {
+        sender: "Anna Absender".into(),
+        subject: "Laborbedarf".into(),
+        body: format!("Anfang {}", "b".repeat(2000)),
+        received: "2026-11-20".into(),
+    };
+    let choice = Ollama::new(&url)
+        .unwrap()
+        .choose("lokal", &long, &two_folders())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(choice.ordner, "/Einkauf");
+    assert_eq!(choice.grund.chars().count(), 120);
+    assert!(choice.grund.starts_with("Bestellung von Material") && choice.grund.ends_with('…'));
+    let calls = server.join().unwrap();
+    assert!(calls[0].contains("POST /api/show") && !calls[0].contains("Laborbedarf"));
+    let chat = &calls[1];
+    assert!(chat.contains("POST /api/chat") && chat.contains("Datenmaterial"));
+    assert!(chat.contains("Laborbedarf") && chat.contains("Bestellungen"));
+    // Mailanfang höchstens 1.000 Zeichen, Steckbrief höchstens 400, kein Absender.
+    assert!(chat.contains(&"b".repeat(990)) && !chat.contains(&"b".repeat(1000)));
+    assert!(chat.contains(&"l".repeat(380)) && !chat.contains(&"l".repeat(400)));
+    assert!(!chat.contains("Anna Absender"));
+    assert!(chat.contains("num_predict") && chat.contains("\"enum\""));
+}
+
+#[tokio::test]
+async fn choose_ignores_answers_outside_the_two_candidates() {
+    for answer in [
+        json!({"ordner":"/Personal","grund":"passt besser"}),
+        json!({"ordner":null,"grund":"unklar"}),
+    ] {
+        let (url, server) = mock(vec![
+            (
+                "200 OK",
+                json!({"model_info":{"general.architecture":"local"}}),
+            ),
+            ("200 OK", json!({"message":{"content":answer.to_string()}})),
+        ]);
+        let choice = Ollama::new(&url)
+            .unwrap()
+            .choose("lokal", &mail(), &two_folders())
+            .await
+            .unwrap();
+        assert!(choice.is_none());
+        server.join().unwrap();
+    }
+}
+
+#[tokio::test]
+async fn choose_refuses_cloud_models_and_wrong_candidate_lists_before_sending_mail() {
+    let (url, server) = mock(vec![]);
+    let client = Ollama::new(&url).unwrap();
+    assert!(client.choose("qwen:cloud", &mail(), &two_folders()).await.is_err());
+    let mut three = two_folders();
+    three.push(Folder {
+        key: "/Personal".into(),
+        profile: String::new(),
+    });
+    assert!(client.choose("lokal", &mail(), &three).await.is_err());
+    assert!(client.choose("lokal", &mail(), &two_folders()[..1]).await.is_err());
+    assert!(server.join().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn choose_limits_tokens_on_openai_compatible_servers() {
+    let (url, server) = mock(vec![
+        ("404 Not Found", Value::Null),
+        (
+            "200 OK",
+            json!({"model_path":"C:/Models/lokal.gguf","default_generation_settings":{"n_ctx":4096}}),
+        ),
+        ("200 OK", json!({"data":[{"id":"lokal"}]})),
+        (
+            "200 OK",
+            json!({"choices":[{"message":{"content":"{\"ordner\":\"/Labor\",\"grund\":\"Messgerät\"}"}}]}),
+        ),
+    ]);
+    let choice = Ollama::new(&url)
+        .unwrap()
+        .choose("lokal", &mail(), &two_folders())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(choice.ordner, "/Labor");
+    let calls = server.join().unwrap();
+    assert!(calls[3].contains("POST /v1/chat/completions") && calls[3].contains("\"max_tokens\":96"));
+}

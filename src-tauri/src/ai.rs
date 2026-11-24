@@ -1,6 +1,6 @@
 use mailboard_ollama::cache::{Evaluation, EvaluationFolder, SampleIndex};
 use mailboard_ollama::index::{Cluster, Group, GroupMatch, Item, Outlier};
-use mailboard_ollama::{Analysis, Folder, Mail, Ollama, Sample, Score};
+use mailboard_ollama::{Analysis, Choice, Folder, Mail, Ollama, Sample, Score};
 use tauri::Manager;
 
 #[tauri::command]
@@ -16,6 +16,17 @@ pub async fn ai_analyze(
     folders: Vec<Folder>,
 ) -> Result<Analysis, String> {
     Ollama::new(&url)?.analyze(&model, &mail, &folders).await
+}
+
+/// Schnelle Stichwahl zwischen zwei Ordnern (C2).
+#[tauri::command]
+pub async fn ai_choose(
+    url: String,
+    model: String,
+    mail: Mail,
+    candidates: Vec<Folder>,
+) -> Result<Option<Choice>, String> {
+    Ollama::new(&url)?.choose(&model, &mail, &candidates).await
 }
 
 #[tauri::command]
