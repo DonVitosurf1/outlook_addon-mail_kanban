@@ -63,8 +63,8 @@ export type SetupHost={
    * Liefert einen Fehlertext (beschäftigtes Board, geworfener Fehler), sonst ''.
    */
   exclusive(action:()=>Promise<void>):Promise<string>
-  /** Nimmt die letzte Änderung zurück wie Strg+Z, etwa aus der Rückmeldung. */
-  undo():void
+  /** Rückgängig für die Rückmeldung: nimmt nur den zuletzt aufgezeichneten Schritt zurück. Direkt nach der Änderung holen. */
+  undoStep():()=>void
   /**
    * Öffnet „Posteingang aufräumen“ (cleanup.ts) mit genau diesen Mails, auch wenn sie nicht auf dem Board stehen.
    * Verschiebt die Durchsicht eine Mail, ändern sich `folderId` und `folder` der übergebenen Mail, bei einer Statusänderung `status`.
@@ -157,7 +157,7 @@ export function initSetup(host:SetupHost){
     section.setAttribute('aria-label',heading.textContent||'')
     section.append(heading,make('p',info.text))
     if(info.needsAi&&!ai){
-      const note=make('p','Dieser Schritt braucht die lokale KI. Ohne sie kannst du ihn überspringen.');note.className='setup-note';section.append(note)
+      const note=make('p',info.aiNote??'Dieser Schritt braucht die lokale KI. Ohne sie kannst du ihn überspringen.');note.className='setup-note';section.append(note)
     }
     const body=make('div');body.className='setup-body'
     const status=make('p');status.setAttribute('role','status');status.className='setup-status'

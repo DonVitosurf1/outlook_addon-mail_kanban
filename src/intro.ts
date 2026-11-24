@@ -63,11 +63,12 @@ export function showIntro(){
     back?.focus()
   }
   const finish=()=>{if(owner&&owner!=='offline')write(keyOf(owner));close()}
-  const onEscape=(e:KeyboardEvent)=>{if(e.key==='Escape'){finish()}}
+  // Escape schließt nur die Einführung, nicht zusätzlich Vorschau, Auswahl oder Filter des Boards. Ein offener Dialog geht vor.
+  const onEscape=(e:KeyboardEvent)=>{if(e.key==='Escape'&&!document.querySelector('dialog[open]')){e.preventDefault();e.stopPropagation();finish()}}
   skip.onclick=finish
   next.onclick=()=>{if(index>=steps.length-1){finish();return}index++;draw();next.focus()}
-  // Tasten in der Blase lösen keine Kartenaktionen aus.
-  pop.addEventListener('keydown',e=>{if(e.key!=='Escape')e.stopPropagation()})
+  // Tasten in der Blase lösen keine Kartenaktionen aus. Kürzel mit Strg (Befehl suchen, Rückgängig) gelten weiter.
+  pop.addEventListener('keydown',e=>{if(e.key!=='Escape'&&!e.ctrlKey&&!e.metaKey)e.stopPropagation()})
   document.addEventListener('keydown',onEscape,true);addEventListener('resize',place)
   document.body.append(pop);draw();next.focus()
   active={close}

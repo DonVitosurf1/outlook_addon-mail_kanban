@@ -58,8 +58,13 @@ def check(page, base):
     page.get_by_role('button', name='Einführung erneut zeigen').click()
     expect(intro).to_be_visible()
     expect(intro).to_contain_text('Jede Spalte ist ein Status')
+    # Escape schließt nur die Einführung, die Auswahl auf dem Board bleibt.
+    page.locator('#mail-DEMO0008').click(modifiers=['Control'])
+    expect(page.locator('#mail-DEMO0008')).to_have_attribute('aria-pressed', 'true')
+    intro.get_by_role('button', name='Weiter').focus()
     page.keyboard.press('Escape')
     expect(intro).to_have_count(0)
+    expect(page.locator('#mail-DEMO0008')).to_have_attribute('aria-pressed', 'true')
     # Der alte Schlüssel gilt für beide Postfächer als gesehen.
     page.evaluate("localStorage.clear(); localStorage.setItem('board.layout.intro','1')")
     open_demo(page, base)

@@ -414,12 +414,12 @@ export class BoardViews {
     const menu=element('div');menu.className='card-menu';menu.setAttribute('role','menu')
     const title=one?first.subject:ids.length+' markierte Mails'
     menu.setAttribute('aria-label',title);this.menuBack=backTo
-    const head=element('p',title);head.className='card-menu-head';menu.append(head)
+    const head=element('p',title);head.className='card-menu-head';head.setAttribute('role','presentation');menu.append(head)
     const items:HTMLButtonElement[]=[]
     groups.forEach(([name,entries],index)=>{
       if(!entries.length)return
       const group=element('div');group.className='card-menu-group';group.setAttribute('role','group')
-      const label=element('p',name);label.className='card-menu-label';label.id='card-menu-'+index;group.setAttribute('aria-labelledby',label.id)
+      const label=element('p',name);label.className='card-menu-label';label.id='card-menu-'+index;label.setAttribute('role','presentation');group.setAttribute('aria-labelledby',label.id)
       group.append(label)
       for(const entry of entries){
         const item=element('button');item.type='button';item.className='card-menu-item';item.tabIndex=-1;item.setAttribute('role','menuitem')
@@ -440,6 +440,8 @@ export class BoardViews {
       else if(e.key==='End')next=items.length-1
       else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();this.closeMenu();return}
       else if(e.key==='Tab'){e.preventDefault();this.closeMenu();return}
+      // Tastenkürzel mit Strg (Befehl suchen, Rückgängig) schließen das Menü und gelten weiter.
+      else if(e.ctrlKey||e.metaKey){this.closeMenu();return}
       else{e.stopPropagation();return}
       e.preventDefault();e.stopPropagation();items[next]?.focus()
     })

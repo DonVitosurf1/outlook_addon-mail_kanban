@@ -98,7 +98,7 @@ Ausgangslage:
 
 Für alle Schritte gilt:
 - Jede Änderung am Postfach braucht eine Bestätigung mit Zielliste, ist ein Undo-Schritt und läuft über den vorhandenen Schreibstapel (`writeBatch`).
-- Die Schritte 3–5 brauchen die lokale KI und lassen sich ohne sie überspringen.
+- Schritt 5 (Steckbriefe) braucht die lokale KI, in Schritt 4 brauchen Unterteilen, Umbenennen und Gruppen aus dem Posteingang sie. Ohne KI lassen sich beide überspringen. Schritt 3 prüft ohne Embeddings mit Bayes, Schritt 4 legt ohne KI Ordner nach der Messung aus Schritt 2 zusammen.
 - Ausreißerprüfung, Gruppen im Posteingang und die Erkennung von Überschneidungen nutzen die Einbettungen aus **K3** (Abschnitt 2). K3 kommt deshalb vor den Assistenten.
 
 **Empfohlene Gesamtreihenfolge:** K2 → K3 → E0–E7 → K1 → K4 → K5.
@@ -157,9 +157,10 @@ Für alle Schritte gilt:
 
 ### Tests und Abnahme
 
-- [ ] **Unit-Tests:** Ausreißer-Regel (Schwelle, Abstand, Bestätigte, Ausgeschlossene), Erkennung von Überschneidungen, Plan für das Zusammenlegen (Reihenfolge, Umschlüsseln), Einteilung des Posteingangs, Altersgrenze.
-- [ ] **Rust-HTTP-Tests:** `ai_outliers` und `ai_clusters` mit simulierten Vektoren, Cache-Treffer.
+- [x] **Unit-Tests:** Ausreißer-Regel (Schwelle, Abstand, Bestätigte, Ausgeschlossene), Erkennung von Überschneidungen, Plan für das Zusammenlegen (Reihenfolge, Umschlüsseln), Einteilung des Posteingangs, Altersgrenze.
+- [x] **Rust-HTTP-Tests:** `ai_outliers` und `ai_clusters` mit simulierten Vektoren, Cache-Treffer.
 - [ ] **Smoke-Test** mit simuliertem Outlook (drei Ordner, einer davon Sammelbecken, 40 Posteingangsmails): Assistent komplett durchlaufen, pausieren und fortsetzen, Ausreißer verschieben mit Undo, zusammenlegen nach `_Zusammengelegt` mit Undo, Stapelablage, Archivangebot.
+  - Offen als ein durchgehender Test. Abgedeckt ist es durch die Smoke-Tests der einzelnen Schritte: `setup-smoke.py` (Hinweis, Ordnerwahl, Lernen und Messen, Pausieren und Fortsetzen), `outliers-smoke.py` (Ausreißer verschieben mit Undo), `refine-smoke.py` und `structure-smoke.py` (Unterteilen, Zusammenlegen nach `_Zusammengelegt` mit Undo, Umbenennen, Gruppen aus dem Posteingang), `profiles-smoke.py` (Steckbriefe, Vergleich) und `inbox-smoke.py` (40 Posteingangsmails, Stapelablage, Archivangebot).
 - [x] **C#-Vertragstest** für den seitenweisen Backlog.
 - **Fertig, wenn** ein Postfach mit grober Struktur in einer Sitzung zu bereinigten Lernordnern mit Steckbriefen, gemessener Trefferquote vorher/nachher und einem abgearbeiteten Posteingang kommt. Jede Postfachänderung muss dabei bestätigt und rücknehmbar sein.
 
@@ -235,8 +236,8 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
 
 ### Tests
 
-- [ ] **Smoke-Tests:** Aktionsleiste und Kontextmenü per Maus und Tastatur, Meldung mit Rückgängig, Freigabe des Verschiebens im Dialog, Einführung überspringen und erneut zeigen, `?`-Übersicht.
-- [ ] **Bestehende Tests anpassen,** die heute `.view-dialog` als Kontextmenü, die Start-Knöpfe oder den Werkzeug-Eintrag „Gesendet ohne Antwort“ verwenden (`board-views-smoke.py`, `cockpit-smoke.py`, `planning-smoke.py`).
+- [x] **Smoke-Tests:** Aktionsleiste und Kontextmenü per Maus und Tastatur, Meldung mit Rückgängig, Freigabe des Verschiebens im Dialog, Einführung überspringen und erneut zeigen, `?`-Übersicht.
+- [x] **Bestehende Tests anpassen,** die heute `.view-dialog` als Kontextmenü, die Start-Knöpfe oder den Werkzeug-Eintrag „Gesendet ohne Antwort“ verwenden (`board-views-smoke.py`, `cockpit-smoke.py`, `planning-smoke.py`).
 
 ## 6. Weitere Themen
 

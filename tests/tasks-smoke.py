@@ -34,6 +34,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
     aufgaben:[{text:'Angebot freigeben',frist:window.DUE},{text:'Techniker anrufen',frist:null}]}}
   if(name==='outlook_tags'){
     if(!window.batchActive)throw Error('Kategorien ohne Schreibstapel')
+    if(window.failCase&&args.wanted.some(t=>t.startsWith('Vorgang:')))throw Error('Kategorie in Outlook gesperrt')
     const mail=window.store.find(m=>m.id===args.id)
     const previous=[...mail.tags];mail.tags=[...args.wanted]
     window.tagCalls.push([args.id,[...args.wanted]])
@@ -83,6 +84,42 @@ def check_undo(browser, base, due):
         page.get_by_role('tab', name='Vorgänge').click()
         expect(page.locator('#casesView')).not_to_contain_text('Angebot freigeben')
         page.close()
+
+
+def check_failed_assign(browser, base, due):
+    """Scheitert die Kategorie für den neuen Vorgang, bleibt nichts übernommen und die frühere Änderung unberührt."""
+    page = browser.new_page(viewport={'width': 1280, 'height': 900})
+    page.add_init_script("localStorage.setItem('board.layout.intro','1')")
+    page.add_init_script(f"window.DUE='{due}'")
+    page.add_init_script(LIVE)
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(base)
+    page.locator('#loadInbox').click()
+    card = page.locator('#mail-a1')
+    expect(card.locator('.count-tasks')).to_have_text('2 Aufgaben')
+    # Frühere Änderung: Fokus setzen.
+    card.focus()
+    page.keyboard.press('f')
+    expect(page.locator('#focusViews button', has_text='Fokus')).to_have_text('Fokus · 1')
+    page.evaluate('window.failCase=true')
+    card.click()
+    page.get_by_role('region', name='Aufgaben').get_by_role('button', name='Übernehmen').click()
+    page.get_by_role('dialog').filter(has_text='anlegen und diese Mail zuordnen').get_by_role('button', name='Anlegen und zuordnen').click()
+    expect(page.locator('#message')).to_contain_text('Kategorie in Outlook gesperrt')
+    expect(page.locator('.toast', has_text='übernommen')).to_have_count(0)
+    assert page.evaluate('store[0].tags') == ['Fokus'], page.evaluate('store[0].tags')
+    assert page.evaluate("localStorage.getItem('mailboard-tasks-taken-v1')") in (None, '{}')
+    expect(card.locator('.count-tasks')).to_have_text('2 Aufgaben')
+    page.get_by_role('tab', name='Vorgänge').click()
+    expect(page.locator('#casesView')).not_to_contain_text('Angebot Zentrifuge Freigabe')
+    # Der Fokus-Schritt ist weiter der letzte und lässt sich zurücknehmen.
+    page.get_by_role('tab', name='Board').click()
+    page.locator('#undo').click()
+    expect(page.locator('.toast')).to_contain_text('Zurückgenommen')
+    assert page.evaluate('store[0].tags') == [], page.evaluate('store[0].tags')
+    assert not errors, errors
+    page.close()
 
 
 def run(browser, base, due):
@@ -136,6 +173,7 @@ if __name__ == '__main__':
                 browser = pw.chromium.launch(executable_path=os.getenv('CHROMIUM') or shutil.which('chromium'))
                 run(browser, f'http://127.0.0.1:{server.server_port}/', due)
                 check_undo(browser, f'http://127.0.0.1:{server.server_port}/', due)
+                check_failed_assign(browser, f'http://127.0.0.1:{server.server_port}/', due)
                 browser.close()
         finally:
             server.shutdown()

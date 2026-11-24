@@ -229,7 +229,7 @@ registerStep('E4',async ctx=>{
     const problem=await ctx.host.exclusive(async()=>{await renameFolder(folder,name)}).finally(()=>{working=false})
     if(problem){ctx.status('Nicht umbenannt. '+problem);return}
     drafts.delete(folder.id)
-    showToast(quoted(folder.name)+' in '+quoted(name)+' umbenannt',ctx.host.undo)
+    showToast(quoted(folder.name)+' in '+quoted(name)+' umbenannt',ctx.host.undoStep())
     focusSection='rename'
     ctx.refresh(quoted(folder.path)+' heißt jetzt '+quoted(name)+'.')
   }
@@ -318,11 +318,11 @@ registerStep('E4',async ctx=>{
     focusSection='merge'
     if(!done){ctx.status('Nicht zusammengelegt. '+problem);return}
     if(done.failed.length){
-      if(done.moved)showToast(mails(done.moved)+' verschoben, Zusammenlegen unvollständig',ctx.host.undo)
+      if(done.moved)showToast(mails(done.moved)+' verschoben, Zusammenlegen unvollständig',ctx.host.undoStep())
       ctx.refresh((done.moved?mails(done.moved)+' verschoben, dann abgebrochen. Mit Rückgängig holst du sie zurück. ':'Nicht zusammengelegt. ')+done.failed.join(' · '))
       return
     }
-    showToast(quoted(o.source)+' in '+quoted(o.target)+' zusammengelegt',ctx.host.undo)
+    showToast(quoted(o.source)+' in '+quoted(o.target)+' zusammengelegt',ctx.host.undoStep())
     ctx.refresh(quoted(o.source)+' in '+quoted(o.target)+' zusammengelegt: '+(done.moved?mails(done.moved):'keine Mails')+' verschoben, der Ordner liegt jetzt unter '+quoted(done.archived??MERGED_FOLDER)+'.'+
       (done.left?' '+done.left+' weitere Elemente sind keine Mails und bleiben im Ordner.':''))
   }

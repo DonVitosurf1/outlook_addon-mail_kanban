@@ -67,8 +67,12 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
       if(!updateCase(name,c=>({...c,items:[...c.items,...added]}),{name,created:localDay(),items:[]})){status.textContent='Die Punkte konnten nicht gespeichert werden.';return}
       let marker=''
       if(isNew){
+        // Ohne neuen Rücknahme-Schritt (Board beschäftigt, Kategorie nicht geschrieben) gilt die Zuordnung als gescheitert.
+        // Sonst gehörte die Kennung zu einer früheren, fremden Änderung und Rückgängig nähme diese zurück.
+        const previous=options.marker()
         try{await options.assign(mail,name);marker=options.marker()}
         catch(error){dropItems();throw error}
+        if(marker===previous){dropItems();status.textContent='Die Zuordnung zum Vorgang ist fehlgeschlagen. Die Punkte wurden nicht übernommen.';return}
       }
       const id=embeddingId(mail),before=takenTasks(id),originals=chosen.map(r=>r.task.text)
       setTaken(id,[...before,...originals])
@@ -79,12 +83,12 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
         let kept=false
         if(isNew){
           try{if(await options.undoIfLatest(marker))dropItems();else kept=true}
-          catch(error){status.textContent=String(error);kept=true}
+          catch(error){status.textContent=error instanceof Error?error.message:String(error);kept=true}
         }
         options.refresh()
         if(kept)showToast('Die Zuordnung zum Vorgang bleibt, weil danach etwas anderes geändert wurde.')
       })())
-    }catch(error){status.textContent=String(error)}
+    }catch(error){status.textContent=error instanceof Error?error.message:String(error)}
     finally{take.disabled=false}
   }
 }

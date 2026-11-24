@@ -118,9 +118,11 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(view.get_by_role('heading', name='Schritt 3 · Ausreißer prüfen')).to_be_focused()
             expect(view).to_contain_text('Ohne Embeddings prüft das Board mit Bayes')
             expect(view).not_to_contain_text('braucht die lokale KI')
-            # E4 braucht die KI weiterhin.
+            # E4 braucht die KI nur für Teile, Zusammenlegen geht ohne.
             view.locator('.setup-steps button').nth(3).click()
-            expect(view).to_contain_text('braucht die lokale KI')
+            expect(view.locator('.setup-note').first).to_have_text('Unterteilen, Umbenennen und Gruppen aus dem Posteingang brauchen die lokale KI. Zusammenlegen nach der Messung aus Schritt 2 geht auch ohne sie.')
+            view.locator('.setup-steps button').nth(4).click()
+            expect(view.locator('.setup-note').first).to_have_text('Dieser Schritt braucht die lokale KI. Ohne sie kannst du ihn überspringen.')
             view.locator('.setup-steps button').nth(2).click()
             expect(view.get_by_role('heading', name='Schritt 3 · Ausreißer prüfen')).to_be_visible()
             # Pausieren: zurück zum Board, der Hinweis bleibt weg (Lernziele gesetzt), Start zeigt den Fortschritt.

@@ -34,12 +34,16 @@ export type SetupState={
 }
 export const SETUP_KEY='mailboard-setup-v1'
 export const stepIds:readonly StepId[]=['E1','E2','E3','E4','E5','E6','E7']
-/** Titel, Beschreibung und ob der Schritt die lokale KI braucht. Ohne KI lässt er sich mit Hinweis überspringen. */
-export const stepInfo:Record<StepId,{title:string;text:string;needsAi:boolean}>={
+/**
+ * Titel, Beschreibung und ob der Schritt die lokale KI braucht. Ohne KI lässt er sich mit Hinweis überspringen.
+ * `aiNote` ersetzt den Hinweis, wenn nur Teile des Schritts die KI brauchen.
+ */
+export const stepInfo:Record<StepId,{title:string;text:string;needsAi:boolean;aiNote?:string}>={
   E1:{title:'Ordner wählen',text:'Lege fest, welche Ordner das Board zeigt, aus welchen es lernt und wohin Erledigtes archiviert wird.',needsAi:false},
   E2:{title:'Lernen und messen',text:'Das Board lernt aus deinen Lernordnern und misst, wie oft seine Ablagevorschläge stimmen. Das ist dein Ausgangswert.',needsAi:false},
   E3:{title:'Ausreißer prüfen',text:'Mails, die nicht zu ihrem Ordner passen, verschiebst du, bestätigst sie oder nimmst sie vom Lernen aus.',needsAi:false},
-  E4:{title:'Struktur verfeinern',text:'Überfüllte Ordner unterteilen, ähnliche Ordner zusammenlegen und unklare Namen verbessern. Jede Änderung bestätigst du.',needsAi:true},
+  E4:{title:'Struktur verfeinern',text:'Überfüllte Ordner unterteilen, ähnliche Ordner zusammenlegen und unklare Namen verbessern. Jede Änderung bestätigst du.',needsAi:true,
+    aiNote:'Unterteilen, Umbenennen und Gruppen aus dem Posteingang brauchen die lokale KI. Zusammenlegen nach der Messung aus Schritt 2 geht auch ohne sie.'},
   E5:{title:'Steckbriefe',text:'Für Lernordner ohne Steckbrief entwirft die lokale KI einen Vorschlag. Du prüfst jeden.',needsAi:true},
   E6:{title:'Neu lernen und vergleichen',text:'Das Board lernt mit den bereinigten Ordnern neu und vergleicht die Trefferquote mit dem Ausgangswert.',needsAi:false},
   E7:{title:'Posteingang abarbeiten',text:'Sichere Vorschläge legst du stapelweise ab, unsichere prüfst du einzeln, alte Mails ohne Ziel gehen ins Archiv.',needsAi:false},

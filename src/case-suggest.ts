@@ -41,7 +41,7 @@ type Options = {
 }
 
 export function initCaseSuggest(options:Options){
-  let current=new Map<string,string>(), lastKey='', version=0
+  let current=new Map<string,string>(), lastKey='', version=0, failed=false
   const dismissed=loadDismissed(), idOf=new WeakMap<object,string>()
   const contentId=(mail:SuggestMail)=>{let id=idOf.get(mail);if(!id){id=embeddingId(mail);idOf.set(mail,id)}return id}
   const same=(a:Map<string,string>,b:Map<string,string>)=>a.size===b.size&&[...a].every(([k,v])=>b.get(k)===v)
@@ -59,7 +59,7 @@ export function initCaseSuggest(options:Options){
     const {threshold,margin}=caseLimits()
     const key=JSON.stringify([groups,candidates.map(m=>m.id+'='+contentId(m)),threshold,margin,dismissed.size])
     if(key===lastKey)return
-    lastKey=key
+    lastKey=key;failed=false
     const mine=++version
     if(!groups.length||!candidates.length){current=new Map();return}
     const ids=[...new Set(candidates.map(contentId))]
@@ -69,7 +69,12 @@ export function initCaseSuggest(options:Options){
       const next=new Map(candidates.flatMap(m=>{const name=picked.get(contentId(m));return name?[[m.id,name] as [string,string]]:[]}))
       if(same(current,next))return
       current=next;options.render()
-    },()=>{if(mine===version)lastKey='';if(mine===version&&current.size){current=new Map();options.render()}})
+    },()=>{
+      // Nach einem Fehler nicht bei jedem Neuzeichnen neu fragen: Der Schlüssel bleibt, erst neue Embeddings oder Planungsdaten versuchen es wieder.
+      if(mine!==version)return
+      failed=true
+      if(current.size){current=new Map();options.render()}
+    })
   }
   function suggestionFor(mail:SuggestMail):CaseSuggestion|undefined{
     const name=current.get(mail.id)
@@ -78,9 +83,10 @@ export function initCaseSuggest(options:Options){
       accept:()=>void options.assign(mail.id,name).catch(()=>{/* change() meldet den Fehler selbst. */}),
       dismiss:()=>{dismissed.add(dismissKey(contentId(mail),name));saveDismissed(dismissed);current.delete(mail.id);lastKey='';options.render()}}
   }
-  document.addEventListener('mailboard:embedded',refresh)
-  document.addEventListener('mailboard:planning',refresh)
-  document.addEventListener('mailboard:source-changed',()=>{version++;lastKey='';current=new Map()})
+  const retry=()=>{if(failed){failed=false;lastKey=''}refresh()}
+  document.addEventListener('mailboard:embedded',retry)
+  document.addEventListener('mailboard:planning',retry)
+  document.addEventListener('mailboard:source-changed',()=>{version++;lastKey='';failed=false;current=new Map()})
   document.addEventListener('board-commands',event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
     const ids=options.selection()

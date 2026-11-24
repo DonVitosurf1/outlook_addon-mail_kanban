@@ -47,6 +47,15 @@ def check_menu(page, base_url):
     expect(menu).to_be_visible()
     page.locator('body').click(position={'x': 2, 'y': 2})
     expect(menu).to_have_count(0)
+    # Strg+K im Menü schließt es und öffnet die Befehlssuche.
+    card.focus()
+    page.keyboard.press('Shift+F10')
+    expect(menu).to_be_visible()
+    page.keyboard.press('Control+k')
+    expect(menu).to_have_count(0)
+    expect(page.locator('#palette')).to_be_visible()
+    page.keyboard.press('Escape')
+    expect(page.locator('#palette')).to_be_hidden()
     # Mehrfachauswahl: Kopf nennt die Anzahl, Einzelmail-Einträge entfallen.
     expect(page.locator('#mail-DEMO0001')).to_have_attribute('aria-pressed', 'true')
     page.locator('#mail-DEMO0002').click(modifiers=['Control'])

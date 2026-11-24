@@ -153,7 +153,8 @@ function hydrate(rows:Mail[],items:Folder[]){
 function sourceUpdated(rows:Mail[],source:Mailbox,items:Folder[],key:string) {
   const outlook=source==='outlook'
   if(source!==mailbox)search.value=''
-  if(source==='offline')hideToast()
+  // Eine Rückmeldung mit Rückgängig gehört zum bisherigen Postfach.
+  if(source!==mailbox)hideToast()
   if(dialog.open)dialog.close()
   suggestionVersion++
   mailbox=source;mails=rows;folders=items;scope=key;selected=undefined
@@ -310,7 +311,7 @@ async function change(ids:string[],action:Mutation) {
         else if(field==='tags')m.tags=[...wanted(m)]
         else m[field]=value
       }},events,summary)
-      showToast(summary,()=>void undo())
+      showToast(summary,undoThisStep())
       if(selected)fillDetail(selected)
       return
     }
@@ -361,7 +362,7 @@ async function change(ids:string[],action:Mutation) {
       render()
       try {await refresh()} catch(e) {errors.push('Aktualisieren: '+errorText(e))}
       if(errors.length){const text=succeeded+' von '+todo.length+' geändert. '+errors.join(' · ');notify(text);action.failed?.(text)}
-      else{notify('');showToast(summary,()=>void undo())}
+      else{notify('');showToast(summary,undoThisStep())}
     })
   }))
 }
@@ -375,6 +376,11 @@ async function undoIfLatest(marker:string){
   if(undoMarker()!==marker)return false
   await undo()
   return true
+}
+/** Rückgängig für die Rückmeldung: nimmt nur den gerade aufgezeichneten Schritt zurück, nie einen späteren. */
+function undoThisStep(){
+  const marker=undoMarker()
+  return ()=>void undoIfLatest(marker).then(done=>{if(!done)showToast('Rückgängig nicht mehr möglich, weil danach etwas anderes geändert wurde.')})
 }
 async function undo() {
   if(!hasMailbox())return
@@ -404,6 +410,8 @@ async function undo() {
     } else {
       const old=demoUndo.pop()
       if(!old)return
+      // Neue Kennung, damit eine ältere Rückmeldung nicht den nächsten Schritt zurücknimmt.
+      demoSteps++
       for(const event of old.events)cockpit.record(event,-1)
       demoMails=old.mails;sourceUpdated(demoMails,'demo',demoFolders,scope);saveDemo()
       done()
@@ -641,7 +649,7 @@ async function start() {
       await exclusive(()=>action().catch(e=>{problem=errorText(e);throw e}))
       return problem
     },
-    undo:()=>void undo(),
+    undoStep:undoThisStep,
     review:(list,onClose)=>cockpit.openCleanup(list,onClose)})
   el('setupOpen').onclick=()=>setup?.open()
   const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
