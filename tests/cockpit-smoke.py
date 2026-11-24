@@ -14,11 +14,15 @@ def check_cockpit(page, base_url):
     page.locator('#moreTools summary').click()
     page.locator('#backDemo').click()
     page.locator('#cockpit-start').click()
-    page.get_by_role('button', name='Morgen-Triage starten').click()
+    page.locator('#cockpit-dialog').get_by_role('button', name='Morgen-Triage starten').click()
+    # Die Triage läuft im Banner auf dem Board, der Startdialog schließt sich.
+    expect(page.locator('#cockpit-dialog')).to_be_hidden()
+    banner = page.get_by_role('region', name='Morgen-Triage')
     for title in ['Heute dran', 'Offen durchgehen']:
-        expect(page.get_by_role('heading', name=title, exact=True)).to_be_visible()
-        page.get_by_role('button', name='Nächster Schritt').click()
-    page.get_by_role('button', name='Triage beenden').click()
+        expect(banner.get_by_role('heading', name=title, exact=True)).to_be_visible()
+        banner.get_by_role('button', name='Nächster Schritt').click()
+    banner.get_by_role('button', name='Triage beenden').click()
+    expect(banner).to_be_hidden()
 
     page.keyboard.press('F1')
     help_search = page.get_by_role('searchbox', name='Hilfethemen durchsuchen')
@@ -60,11 +64,12 @@ if __name__ == '__main__':
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(executable_path=os.getenv('CHROMIUM') or shutil.which('chromium'))
                 page = browser.new_page()
+                page.add_init_script("localStorage.setItem('board.layout.intro','1')")
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 check_cockpit(page, f'http://127.0.0.1:{server.server_port}')
                 assert not errors, errors
                 browser.close()
-                print('OK – Morgen-Triage, Hilfesuche, Aufräumen, isolierte Vorschläge und Undo')
+                print('OK – Start der Board-Triage, Hilfesuche, Aufräumen, isolierte Vorschläge und Undo')
         finally:
             server.shutdown()

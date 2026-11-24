@@ -1,9 +1,10 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
 import { getLegacyConfig, getLegacyProfiles, setProfile, rekeyProfile, updateConfig } from './data-settings'
-import type {LiveBoard} from './live'
+import {UndoSkippable, type LiveBoard} from './live'
 import {distribute} from './distribute'
 import {ask} from './data-settings'
-import {draftProfile} from './ai'
+import {draftProfile, relabelLearning} from './ai'
+import {MERGED_FOLDER, mergePlan, restoreRules, restoreTargets, retarget, retargetRules} from './refine'
 import {profileDocument,profileName} from './profile-file'
 import {openStructure} from './structure'
 let liveService:LiveBoard|undefined
@@ -18,6 +19,10 @@ export function bindProjectBoard(service:LiveBoard|undefined){
     }
   }
   liveService=service
+  // Verschiebt das Board später eine zusammengelegte Mail (oder nimmt das zurück), folgt die Rücknahme des Zusammenlegens ihrer neuen ID.
+  if(service)service.identityChanged=(from,to)=>{
+    for(const step of history)if(step.kind==='merge')step.mails=step.mails.map(id=>id===from?to:id)
+  }
   if(trigger){trigger.hidden=!service;trigger.disabled=!service}
 }
 type ProjectService=Pick<LiveBoard,'json'|'invoke'|'begin'|'writeBatch'|'move'>
@@ -36,15 +41,28 @@ function session():ProjectService{
 
 type Folder = {id:string; parentId:string; name:string; path:string; isInbox?:boolean}
 type Receipt = Folder & {previousName:string; previousParentId:string}
-type Step = {stamp:number; receipt:Receipt; kind:'rename'|'move'; oldPath:string; boardKeys:string[]; learnKeys:string[]|null}
+type FolderStep = {stamp:number; receipt:Receipt; kind:'rename'|'move'; oldPath:string; boardKeys:string[]; learnKeys:string[]|null}
+/** Was beim Zusammenlegen an den Einstellungen geändert wurde, für die Rücknahme. */
+type MergeConfig = {archived:string; targets?:{board:{from:boolean;to:boolean}; learn:{from:boolean;to:boolean}|null; rules:number[]; aiRules:number[]; learned:string[]}}
+/**
+ * Zusammenlegen (E4) als ein Schritt: `mails` sind die neuen IDs der verschobenen Mails im Zielordner,
+ * `receipt` die Verschiebung des Quellordners nach `_Zusammengelegt`, `config` die umgeschriebenen Einstellungen.
+ * `source.id` und `target.id` folgen späteren Ordnerverschiebungen (`remapFolderHistory`).
+ */
+type MergeStep = {stamp:number; kind:'merge'; source:Folder; target:Folder; mails:string[]; receipt?:Receipt; config?:MergeConfig}
+type Step = FolderStep | MergeStep
 const history:Step[]=[]
 const changed=()=>window.dispatchEvent(new Event('mailboard:foldersChanged'))
 export function projectUndoLatest(){return history.at(-1)?.stamp??0}
 export async function undoProjectIfLatest(mailStamp:number):Promise<boolean>{
   const step=history.at(-1)
   if(!step || step.stamp<mailStamp)return false
-  const r=step.receipt
   const api=session()
+  if(step.kind==='merge'){
+    try{await undoMerge(api,step)}finally{changed()}
+    return true
+  }
+  const r=step.receipt
   const before=await api.json<Folder[]>('outlook_folders')
   const current=before.find(f=>f.id===r.id)
   if(!current || current.path!==r.path || current.name!==r.name)
@@ -81,9 +99,15 @@ async function remapFolderHistory(api:ProjectService,before:Folder[],from:Folder
   }
   for(const previous of history){
     const item=previous.receipt
-    item.id=ids.get(item.id)??item.id
-    item.parentId=ids.get(item.parentId)??item.parentId
-    item.previousParentId=ids.get(item.previousParentId)??item.previousParentId
+    if(item){
+      item.id=ids.get(item.id)??item.id
+      item.parentId=ids.get(item.parentId)??item.parentId
+      item.previousParentId=ids.get(item.previousParentId)??item.previousParentId
+    }
+    if(previous.kind==='merge')for(const f of [previous.source,previous.target]){
+      f.id=ids.get(f.id)??f.id
+      f.parentId=ids.get(f.parentId)??f.parentId
+    }
   }
   liveService?.remapFolders(ids)
 }
@@ -112,6 +136,185 @@ function rekeyConfig(from:string,to:string){
   const ruleKey='outlook-kanban-ai-rules-v1',saved=localStorage.getItem(ruleKey)
   if(saved){const data=JSON.parse(saved);localStorage.setItem(ruleKey,JSON.stringify({...data,items:remapRules(data.items)}))}
   rekeyProfile(from,to)
+}
+/** Merkt eine Ordneränderung als Rückgängig-Schritt und schlüsselt Einstellungen und Steckbrief auf den neuen Pfad um. */
+function remember(receipt:Receipt,f:Folder,kind:FolderStep['kind'],membership?:'close'|'reopen'){
+  const projectKeys=(values:string[])=>values.filter(key=>within(key,f.path))
+  const learning=getLearningScope()
+  history.push({stamp:rememberUndo(()=>history.shift()),receipt,kind,oldPath:f.path,boardKeys:projectKeys(getBoardScope()),
+    learnKeys:learning&&projectKeys(learning)})
+  try {
+    rekeyConfig(f.path,receipt.path)
+    if(membership){
+      const selected=membership==='reopen'?[receipt.path]:[]
+      restoreMembership(receipt.path,selected,learning&&selected)
+    }
+  } finally {changed()}
+}
+/**
+ * Benennt einen Ordner im Schreibstapel um, als Rückgängig-Schritt wie „Ordner umbenennen“ (E4).
+ * Die Bestätigung holt der Aufrufer vorher ein. Bricht ab, wenn der Ordner inzwischen anders heißt oder fehlt.
+ */
+export async function renameFolder(folder:{id:string;path:string},name:string):Promise<Receipt>{
+  const api=session()
+  const all=await api.json<Folder[]>('outlook_folders')
+  const current=all.find(f=>f.id===folder.id)
+  if(!current||current.path!==folder.path)throw new Error('Der Ordner „'+folder.path+'“ wurde inzwischen geändert. Bitte Outlook aktualisieren.')
+  let receipt:Receipt|undefined
+  await api.writeBatch(async()=>{
+    receipt=await api.json<Receipt>('project_rename',{folder:current.id,name})
+    await remapFolderHistory(api,all,current,receipt)
+    remember(receipt,current,'rename')
+  })
+  return receipt!
+}
+
+/** Seitengröße beim Verschieben aller Mails eines Ordners. Jede Seite wird neu gelesen, bis der Ordner leer ist. */
+const MERGE_PAGE=200
+type Counted=Folder&{count?:number|null}
+export type MergeResult={moved:number;failed:string[];archived?:string;left?:number}
+const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
+/**
+ * Legt `source` in `target` zusammen (E4), als ein Rückgängig-Schritt nach `mergePlan` (refine.ts):
+ * alle Mails seitenweise verschieben, den leeren Ordner nach `_Zusammengelegt` neben ihm verschieben (bei Bedarf anlegen),
+ * Steckbrief umschlüsseln, Board- und Lernziele, Ablageregeln und Lernbeispiele auf den Zielordner umschreiben.
+ * Scheitert eine Mail, bleibt der Ordner, wo er ist, und die Einstellungen bleiben unverändert. Verschobenes nimmt Rückgängig zurück.
+ * Die Bestätigung mit Anzahl holt der Aufrufer vorher ein. Gelöscht wird nichts.
+ */
+export async function mergeFolders(source:{id:string;path:string},target:{id:string;path:string},progress?:(text:string)=>void):Promise<MergeResult>{
+  const api=session()
+  const all=await api.json<Counted[]>('outlook_folders')
+  const src=all.find(f=>f.id===source.id),dst=all.find(f=>f.id===target.id)
+  if(!src||src.path!==source.path||!dst||dst.path!==target.path)throw new Error('Die Ordner wurden inzwischen geändert. Bitte neu prüfen.')
+  if([src.path,dst.path].includes(getArchiveScope()))throw new Error('Der Archivordner lässt sich nicht zusammenlegen.')
+  const plan=mergePlan(src,dst,all)
+  const step:MergeStep={stamp:0,kind:'merge',source:{...src},target:{...dst},mails:[]}
+  const result:MergeResult={moved:0,failed:[]}
+  const record=()=>{
+    if(step.stamp)return
+    step.stamp=rememberUndo(()=>{const i=history.indexOf(step);if(i>=0)history.splice(i,1)})
+    history.push(step)
+  }
+  try{
+    await api.writeBatch(async()=>{
+      for(const planned of plan.steps){
+        if(planned.kind==='mails'){
+          for(let page=0;page<500;page++){
+            const mails=await api.json<{id:string;subject?:string}[]>('outlook_training',{folder:planned.from,limit:MERGE_PAGE,days:0})
+            if(!mails.length)break
+            for(const mail of mails){
+              try{
+                const receipt=await api.json<{id:string}>('outlook_move',{id:mail.id,source:planned.from,target:planned.to})
+                record();step.mails.push(receipt.id);liveService?.remapMail(mail.id,receipt.id);result.moved++
+              }catch(e){result.failed.push('„'+(mail.subject||'(ohne Betreff)')+'“: '+errorText(e))}
+            }
+            progress?.(result.moved+' Mails verschoben …')
+            if(result.failed.length)return
+          }
+        }else if(planned.kind==='holder'){
+          progress?.('Ordner wird nach „'+MERGED_FOLDER+'“ verschoben …')
+          planned.id??=(await api.json<Receipt>('project_create',{parent:planned.parent,name:planned.name})).id
+        }else if(planned.kind==='folder'){
+          const before=await api.json<Counted[]>('outlook_folders')
+          const left=before.find(f=>f.id===planned.folder)?.count
+          if(left)result.left=left
+          const holder=plan.steps.find(s=>s.kind==='holder')!
+          const receipt=await api.json<Receipt>('project_move',{folder:planned.folder,source:planned.from,target:holder.kind==='holder'?holder.id:''})
+          record();step.receipt=receipt;result.archived=receipt.path
+          await remapFolderHistory(api,before,src,receipt)
+        }else if(planned.kind==='profile'){
+          step.config={archived:step.receipt!.path}
+          rekeyNotes(planned.from,step.config.archived)
+        }else if(planned.kind==='targets'){
+          step.config!.targets=retargetTargets(planned.from,planned.to)
+        }
+      }
+    })
+  }catch(e){result.failed.push(errorText(e))}
+  finally{if(step.stamp)changed()}
+  return result
+}
+/** Schritt 5 des Plans: Board- und Lernziele, Ablageregeln und Lernbeispiele vom Quell- zum Zielordner. */
+function retargetTargets(from:string,to:string):NonNullable<MergeConfig['targets']>{
+  const board=getBoardScope(),learning=getLearningScope(),cfg=getLegacyConfig()
+  const rules=retargetRules(Array.isArray(cfg.filing_rules)?cfg.filing_rules:[],from,to)
+  const config={board:{from:board.includes(from),to:board.includes(to)},
+    learn:learning&&{from:learning.includes(from),to:learning.includes(to)},rules:rules.changed,aiRules:[] as number[],learned:[] as string[]}
+  updateConfig({project_folders:retarget(board,from,to),suggestion_folders:learning&&retarget(learning,from,to),filing_rules:rules.rules})
+  const ruleKey='outlook-kanban-ai-rules-v1',saved=localStorage.getItem(ruleKey)
+  if(saved){
+    const data=JSON.parse(saved),own=retargetRules(Array.isArray(data.items)?data.items:[],from,to)
+    config.aiRules=own.changed
+    if(own.changed.length)localStorage.setItem(ruleKey,JSON.stringify({...data,items:own.rules}))
+  }
+  config.learned=relabelLearning(from,to)
+  return config
+}
+function restoreConfig(step:MergeStep,{archived,targets:config}:MergeConfig,restored:string){
+  const from=restored,to=step.target.path
+  rekeyNotes(archived,restored)
+  if(!config)return
+  const learning=getLearningScope(),cfg=getLegacyConfig()
+  updateConfig({project_folders:restoreTargets(getBoardScope(),from,to,config.board),
+    suggestion_folders:learning&&config.learn?restoreTargets(learning,from,to,config.learn):learning,
+    filing_rules:restoreRules(Array.isArray(cfg.filing_rules)?cfg.filing_rules:[],config.rules,from,to)})
+  const ruleKey='outlook-kanban-ai-rules-v1',saved=localStorage.getItem(ruleKey)
+  if(saved&&config.aiRules.length){const data=JSON.parse(saved);localStorage.setItem(ruleKey,JSON.stringify({...data,items:restoreRules(Array.isArray(data.items)?data.items:[],config.aiRules,from,to)}))}
+  relabelLearning(to,from,new Set(config.learned))
+}
+/** Steckbrief und Ordnerbeschreibung eines Ordners (ohne Unterordner) auf einen neuen Pfad. */
+function rekeyNotes(from:string,to:string){
+  if(!from||!to||from===to)return
+  const descriptions={...(getLegacyConfig().folder_descriptions as Record<string,unknown>|undefined||{})}
+  if(from in descriptions){descriptions[to]=descriptions[from];delete descriptions[from];updateConfig({folder_descriptions:descriptions})}
+  rekeyProfile(from,to)
+}
+/**
+ * Rücknahme des Zusammenlegens: Ordner aus `_Zusammengelegt` an seinen Platz, Einstellungen zurück, dann die Mails zurück
+ * in den Ordner. Bleiben Mails hängen, bleibt der Schritt mit ihnen stehen und Rückgängig versucht es erneut.
+ */
+async function undoMerge(api:ProjectService,step:MergeStep){
+  if(step.receipt){
+    const r=step.receipt
+    const before=await api.json<(Folder&{rootId?:string})[]>('outlook_folders')
+    const current=before.find(f=>f.id===r.id)
+    if(!current||current.path!==r.path)
+      throw new Error('Der zusammengelegte Ordner ist unter „'+r.path+'“ nicht mehr eindeutig zu finden. Bitte den Ordner in Outlook prüfen.')
+    // Ordner auf oberster Ebene liegen im Postfachstamm, der selbst nicht in der Ordnerliste steht.
+    if(!before.some(f=>f.id===r.previousParentId||f.rootId===r.previousParentId))throw new Error('Der ursprüngliche übergeordnete Ordner ist in Outlook nicht mehr verfügbar. Bitte in Outlook prüfen.')
+    const result=await api.json<Receipt>('project_move',{folder:r.id,source:r.parentId,target:r.previousParentId})
+    step.receipt=undefined
+    await remapFolderHistory(api,before,current,result)
+    if(step.config){restoreConfig(step,step.config,result.path||step.source.path);step.config=undefined}
+  }
+  const stuck:string[]=[],errors:string[]=[]
+  for(const id of [...step.mails].reverse()){
+    try{
+      const back=await api.json<{id:string}>('outlook_undo',{id,source:step.target.id,target:step.source.id})
+      liveService?.remapMail(id,back.id)
+    }catch(e){stuck.unshift(id);errors.push(errorText(e))}
+  }
+  step.mails=stuck
+  const drop=()=>{
+    const index=history.indexOf(step)
+    if(index<0)return false
+    history.splice(index,1);forgetUndo(step.stamp);return true
+  }
+  // Stehen lassen: der nächste Versuch nimmt nur die übrigen Mails. Überspringen: sie bleiben, wo sie sind, der Stapel ist frei.
+  if(stuck.length)throw new UndoSkippable((stuck.length===1?'1 Mail konnte':stuck.length+' Mails konnten')+' nicht nach „'+step.source.path+
+    '“ zurückverschoben werden und '+(stuck.length===1?'bleibt':'bleiben')+' vorerst, wo '+(stuck.length===1?'sie ist':'sie sind')+'. '+[...new Set(errors)].join(' · '),drop)
+  drop()
+}
+/**
+ * Legt einen Ordner im Schreibstapel an und meldet die geänderte Ordnerliste (wie „Unterordner anlegen“).
+ * Die Bestätigung mit Ziel holt der Aufrufer vorher ein. Angelegte Ordner werden nie gelöscht.
+ */
+export async function createFolder(parentId:string,name:string){
+  const service=session()
+  let created:Receipt|undefined
+  await service.writeBatch(async()=>{created=await service.json<Receipt>('project_create',{parent:parentId,name})})
+  changed()
+  return created!
 }
 function button(label:string,handle:()=>void){
   const b=document.createElement('button');b.textContent=label;b.onclick=handle;return b
@@ -166,19 +369,6 @@ async function showTools(){
       await reload(receipt.id)
     })
   }))
-  function remember(receipt:Receipt,f:Folder,kind:Step['kind'],membership?:'close'|'reopen'){
-    const projectKeys=(values:string[])=>values.filter(key=>within(key,f.path))
-    const learning=getLearningScope()
-    history.push({stamp:rememberUndo(()=>history.shift()),receipt,kind,oldPath:f.path,boardKeys:projectKeys(getBoardScope()),
-      learnKeys:learning&&projectKeys(learning)})
-    try {
-      rekeyConfig(f.path,receipt.path)
-      if(membership){
-        const selected=membership==='reopen'?[receipt.path]:[]
-        restoreMembership(receipt.path,selected,learning&&selected)
-      }
-    } finally {changed()}
-  }
   function fill(){
     const f=current()
     if(!f)return

@@ -1,5 +1,10 @@
-import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderCards} from './views-logic'
+import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderByRelevance, orderCards} from './views-logic'
 import {BoardLayout} from './views-layout'
+import {cardRow, counter} from './card-content'
+import {shortcutFor} from './shortcuts'
+import type {ShortcutAction} from './shortcuts'
+import {showView} from './tabs'
+import {dateTerms} from './date-terms'
 import {getLegacyConfig, textSnippets,updateConfig} from './data-settings'
 import type {Focus, Group, Sort, Split, ViewMail} from './views-logic'
 export {matchesQuery} from './views-logic'
@@ -22,7 +27,12 @@ type BoardActions={
   openOriginal?(id:string):AsyncAction
   acceptSuggestion?(id:string):AsyncAction
   reply?(id:string,all:boolean):AsyncAction
+  toggleFocus?(ids:string[]):AsyncAction
+  assignCase?(ids:string[]):void
+  caseSuggestion?(id:string):{name:string;accept():void;dismiss():void}|undefined
 }
+/** Filter und Suche, die die Morgen-Triage beim Start merkt und beim Ende wiederherstellt. */
+export type ViewState={search:string;focus:Focus;split:string;tag:string}
 const statuses=['Offen','In Bearbeitung','Warten','Erledigt']
 const fields:Record<Field,string>={followUp:'Nachfassen',snoozeUntil:'Wiedervorlage',note:'Notiz'}
 function element<K extends keyof HTMLElementTagNameMap>(key:K,text=''){
@@ -78,6 +88,8 @@ export class BoardViews {
   private overdueDays=5
   private resetButton=button('Zurücksetzen',()=>this.clearFilters())
   private zoom=Number(remembered('zoom'))||100
+  private relevance:(()=>ReadonlyMap<string,number>|undefined)|undefined
+  private extra:((mail:ViewMail)=>boolean)|undefined
 
   constructor(private api:BoardActions) {
     this.layout.redraw=()=>{this.resetSelection();this.api.render()}
@@ -96,7 +108,7 @@ export class BoardViews {
     for(const [name,select] of [['sort',this.sort],['group',this.group]] as const){
       const value=remembered(name);if(Array.from(select.options).some(o=>o.value===value))select.value=value
     }
-    const edit=button('Kartenaktionen',()=>this.editSelection())
+    const edit=button('Kartenaktionen',()=>this.openMenu(edit,edit))
     edit.title='Status, Kategorie, Nachfassen, Wiedervorlage oder Notiz ändern'
     const controls=document.getElementById('viewControls')
     for(const select of [this.split,this.tag,this.sort,this.group]){
@@ -105,15 +117,12 @@ export class BoardViews {
       controls?.append(label)
     }
     controls?.append(edit,this.resetButton)
-    const tools=document.querySelector('.tools-panel')||controls
-    const threads=button('Unterhaltungen zusammenfassen',()=>{
-      this.threads=!this.threads;threads.setAttribute('aria-pressed',String(this.threads))
-      remember('threads',String(this.threads));refresh()
-    })
-    threads.setAttribute('aria-pressed',String(this.threads))
-    tools?.append(button('VIP-Liste',()=>this.editVip()),threads)
+    const threadBox=element('input');threadBox.type='checkbox';threadBox.checked=this.threads
+    threadBox.onchange=()=>{this.threads=threadBox.checked;remember('threads',String(this.threads));refresh()}
+    const threadLabel=element('label');threadLabel.append(threadBox,' Unterhaltungen zusammenfassen')
+    controls?.insertBefore(threadLabel,edit)
     window.addEventListener('kanban-analysis',()=>this.api.render())
-    for(const [key,label] of [['all','Alle aktiven'],['today','Heute dran'],['snoozed','Wiedervorlage']] as const){
+    for(const [key,label] of [['all','Alle aktiven'],['today','Heute dran'],['focus','Fokus'],['snoozed','Wiedervorlage']] as const){
       const b=button(label,()=>{this.focus=key;this.api.clearScope?.();refresh()});b.dataset.label=label
       this.focusButtons.set(key,b)
       document.getElementById('focusViews')?.append(b)
@@ -128,6 +137,8 @@ export class BoardViews {
       const ids=[...this.selected],first=this.byId.get(ids[0])
       if(!first)return
       for(const state of statuses)entries.push({label:'Status für Auswahl: '+state,run:()=>void this.perform(()=>this.api.changeStatus(ids,state))})
+      if(this.api.toggleFocus)entries.push({label:'Fokus für Auswahl umschalten (F)',run:()=>void this.perform(()=>this.api.toggleFocus!(ids))})
+      if(this.api.assignCase)entries.push({label:'Auswahl einem Vorgang zuordnen',run:()=>this.api.assignCase!(ids)})
       if(ids.length!==1)return
       if(this.api.acceptSuggestion)entries.push({label:'Ablagevorschlag prüfen',run:()=>void this.perform(()=>this.api.acceptSuggestion!(first.id))})
       if(this.api.reply)entries.push({label:'Antwortentwurf öffnen',run:()=>void this.perform(()=>this.api.reply!(first.id,false))})
@@ -194,9 +205,11 @@ export class BoardViews {
     const today=localDay()
     const source=this.threads?collapseThreads(mails,today):{rows:mails,hidden:new Map<string,number>()}
     this.hiddenThreads=source.hidden
-    const result=orderCards(source.rows.filter(m=> matchesFocus(m,this.focus,today,this.overdueDays) &&
+    const result=orderCards(source.rows.filter(m=> (!this.extra || this.extra(m)) && matchesFocus(m,this.focus,today,this.overdueDays) &&
       matchesSplit(m,this.split.value as Split,this.vipTokens,today,this.overdueDays) &&
       (!this.tag.value || m.tags.includes(this.tag.value))),this.sort.value as Sort,this.overdueDays)
+    const relevance=this.relevance?.()
+    if(relevance)result.splice(0,result.length,...orderByRelevance(result,relevance))
     result.sort((a,b)=>Number(this.marks.returned.has(b.id))-Number(this.marks.returned.has(a.id)))
     this.groups=groupCards(result,this.group.value as Group)
     const ids=new Set(result.map(m=>m.id))
@@ -256,23 +269,62 @@ export class BoardViews {
     const mail=this.byId.get(id)
     if(this.marks.returned.has(id)||this.marks.fresh.has(id)){
       const marker=element('b',this.marks.returned.has(id)?'Wieder da':'Neu')
-      marker.className='arrival-mark';card.append(marker)
+      marker.className='arrival-mark';cardRow(card,'flags').prepend(marker)
     }
     if(mail) {
-      const details=mail.note?['Notiz · '+mail.note]:[]
+      if(mail.note){
+        const note=element('em','Notiz · '+mail.note);note.className='card-note'
+        const foot=card.querySelector(':scope > .card-foot')
+        if(foot)foot.before(note);else card.append(note)
+      }
       const hidden=this.hiddenThreads.get(mail.id)
-      if(hidden)details.push('Unterhaltung +'+hidden)
-      if(details.length){const note=element('em',details.join(' · '));card.append(note)}
+      if(hidden)cardRow(card,'counters').append(counter('+'+hidden,hidden===1?'Eine weitere Mail der Unterhaltung':hidden+' weitere Mails der Unterhaltung','thread'))
     }
     card.setAttribute('aria-pressed',String(this.selected.has(id)))
     card.addEventListener('click',e=>{
       if(e.ctrlKey||e.metaKey||e.shiftKey){e.preventDefault();e.stopImmediatePropagation();this.pick(id,e.shiftKey,e.ctrlKey||e.metaKey)}
       else this.pick(id,false,false)
     },true)
-    card.addEventListener('contextmenu',e=>{e.preventDefault();if(!this.selected.has(id))this.pick(id,false,false); this.editSelection()})
+    card.addEventListener('contextmenu',e=>{e.preventDefault();if(!this.selected.has(id))this.pick(id,false,false);this.openMenu(e.clientX||e.clientY?{x:e.clientX,y:e.clientY}:card,card)})
     card.addEventListener('dragstart',()=>{if(!this.selected.has(id))this.pick(id,false,false)},true)
   }
   selectedIds(fallbackId:string) {return this.selected.has(fallbackId)?[...this.selected]:[fallbackId]}
+  /** Aktuell markierte Karten, etwa für die Zuordnung zu einem Vorgang. */
+  selection(){return [...this.selected]}
+  /** Bedeutungssuche (K5): liefert id → Relevanz, solange sie aktiv ist; die Spalten sortieren dann danach statt nach der Ansicht. */
+  setRelevance(relevance:(()=>ReadonlyMap<string,number>|undefined)|undefined){this.relevance=relevance}
+  /** Zusätzlicher Filter, etwa für den aktuellen Triage-Schritt. */
+  setExtraFilter(filter:((mail:ViewMail)=>boolean)|undefined){this.extra=filter;this.resetSelection()}
+  captureView():ViewState{
+    const search=document.getElementById('search') as HTMLInputElement|null
+    return {search:search?.value||'',focus:this.focus,split:this.split.value,tag:this.tag.value}
+  }
+  restoreView(state:ViewState){
+    const search=document.getElementById('search') as HTMLInputElement|null
+    if(search)search.value=state.search
+    this.focus=state.focus;this.split.value=state.split
+    if(state.tag && !Array.from(this.tag.options).some(o=>o.value===state.tag))this.tag.add(new Option(state.tag,state.tag))
+    this.tag.value=state.tag;this.resetSelection()
+  }
+  /** Zeigt nur Karten mit dieser Kategorie, etwa alle Mails eines Vorgangs. */
+  showTag(tag:string){
+    const search=document.getElementById('search') as HTMLInputElement|null
+    if(search)search.value=''
+    this.focus='all';this.split.value=''
+    if(!Array.from(this.tag.options).some(o=>o.value===tag))this.tag.add(new Option(tag,tag))
+    this.tag.value=tag;this.changed()
+  }
+  /** Zeigt eine Fokusansicht auf dem Board, etwa aus der Startseite. */
+  showFocus(key:'today'|'focus'){this.showBoard(key,'')}
+  /** Zeigt eine benannte Sicht (z. B. 'overdue') auf dem Board. */
+  showSplit(value:string){this.showBoard('all',value)}
+  private showBoard(focus:Focus,split:string){
+    const search=document.getElementById('search') as HTMLInputElement|null
+    if(search)search.value=''
+    this.focus=focus;this.split.value=split;this.tag.value=''
+    this.api.clearScope?.()
+    showView('board');this.changed()
+  }
   resetSelection(){this.layout.hide();this.selected.clear();this.anchor='';this.paint()}
   reset(){this.focus='all';this.split.value='';this.tag.value='';this.resetSelection()}
   private clearFilters(){
@@ -309,34 +361,108 @@ export class BoardViews {
   private async perform(action:()=>AsyncAction){
     try{await action()}catch(error){announce('Aktion fehlgeschlagen: '+String(error))}
   }
-  private editSelection(){
+  private menu?:HTMLElement
+  private menuBack?:HTMLElement
+  private closeMenu(restore=true){
+    const menu=this.menu;if(!menu)return
+    this.menu=undefined;menu.remove()
+    document.removeEventListener('pointerdown',this.menuOutside,true)
+    const back=this.menuBack;this.menuBack=undefined
+    if(restore&&back){
+      const card=back.dataset.viewId&&document.querySelector<HTMLElement>('[data-view-id="'+CSS.escape(back.dataset.viewId)+'"]')
+      ;(card||back).focus()
+    }
+  }
+  private menuOutside=(e:Event)=>{if(this.menu&&!this.menu.contains(e.target as Node))this.closeMenu(false)}
+  /** Kontextmenü der markierten Karten; `at` ist die Mausposition oder der Anker (Karte, Knopf). */
+  private openMenu(at:{x:number,y:number}|HTMLElement,backTo?:HTMLElement){
+    this.closeMenu(false)
     const ids=[...this.selected],first=this.byId.get(ids[0])
     if(!first){announce('Bitte zuerst eine Karte markieren. Strg+Klick markiert mehrere.');return}
-    const {dialog,form,actions,save}=formDialog(ids.length===1?first.subject:ids.length+' markierte Mails')
-    save.remove();actions.firstElementChild!.textContent='Schließen'
-    const run=(label:string,task:()=>AsyncAction)=>form.append(button(label,()=>{dialog.close();void this.perform(task)}))
-    for(const state of statuses)run('Status: '+state,()=>this.api.changeStatus(ids,state))
-    if(ids.length===1){
-      run('Details',()=>this.api.open(first.id))
-      if(this.api.openOriginal)run('In Outlook öffnen',()=>this.api.openOriginal!(first.id))
+    type Entry={label:string,key?:ShortcutAction,run:()=>AsyncAction}
+    const groups:[string,Entry[]][]=[['Status',[]],['Antworten',[]],['Planen',[]],['Ordnen',[]]]
+    const add=(group:string,label:string,run:()=>AsyncAction,key?:ShortcutAction)=>groups.find(g=>g[0]===group)![1].push({label,key,run})
+    const statusKeys:ShortcutAction[]=['status-open','status-progress','status-waiting','status-done']
+    statuses.forEach((state,i)=>add('Status',state,()=>this.api.changeStatus(ids,state),statusKeys[i]))
+    const one=ids.length===1
+    if(one){
+      add('Antworten','Details',()=>this.api.open(first.id),'details')
+      if(this.api.openOriginal)add('Antworten','In Outlook öffnen',()=>this.api.openOriginal!(first.id),'open')
       if(this.api.reply){
-        run('Antworten',()=>this.api.reply!(first.id,false))
-        run('Allen antworten',()=>this.api.reply!(first.id,true))
+        add('Antworten','Antworten',()=>this.api.reply!(first.id,false),'reply')
+        add('Antworten','Allen antworten',()=>this.api.reply!(first.id,true),'reply-all')
       }
-      if(first.replyEvidence)run('Warten abschließen',()=>{document.dispatchEvent(new CustomEvent('kanban-resolve-reply',{detail:first.id}))})
-      if(first.replyEvidence)run('Eingegangene Antwort öffnen',()=>{document.dispatchEvent(new CustomEvent('kanban-show-reply',{detail:first.id}))})
+      if(first.replyEvidence){
+        add('Antworten','Eingegangene Antwort öffnen',()=>{document.dispatchEvent(new CustomEvent('kanban-show-reply',{detail:first.id}))})
+        add('Antworten','Warten abschließen',()=>{document.dispatchEvent(new CustomEvent('kanban-resolve-reply',{detail:first.id}))})
+      }
       if(this.fieldsEnabled()){
-        for(const key of ['followUp','snoozeUntil','note'] as const){
-          if(key==='followUp'&&first.status!=='Warten')continue
-          run(fields[key],()=>this.editField(first,key))
-        }
+        add('Planen',fields.snoozeUntil,()=>this.editField(first,'snoozeUntil'),'snooze')
+        if(first.status==='Warten')add('Planen',fields.followUp,()=>this.editField(first,'followUp'),'follow-up')
+        add('Planen',fields.note,()=>this.editField(first,'note'),'note')
       }
-      if(this.api.setTags)run('Kategorien bearbeiten',()=>this.editField(first,'tags'))
+      if(this.api.setTags)add('Ordnen','Kategorien bearbeiten',()=>this.editField(first,'tags'))
     }
-    form.append(actions);dialog.showModal()
+    if(this.api.toggleFocus)add('Planen','Fokus umschalten',()=>this.api.toggleFocus!(ids),'focus')
+    if(this.api.assignCase)add('Ordnen','Vorgang zuordnen …',()=>this.api.assignCase!(ids))
+    const caseHint=one?this.api.caseSuggestion?.(first.id):undefined
+    if(caseHint){
+      add('Ordnen','Vorgang '+caseHint.name+' zuordnen',caseHint.accept)
+      add('Ordnen','Vorgangsvorschlag ablehnen',caseHint.dismiss)
+    }
+    if(one&&this.api.acceptSuggestion)add('Ordnen','Ablagevorschlag prüfen',()=>this.api.acceptSuggestion!(first.id),'accept-suggestion')
+    const menu=element('div');menu.className='card-menu';menu.setAttribute('role','menu')
+    const title=one?first.subject:ids.length+' markierte Mails'
+    menu.setAttribute('aria-label',title);this.menuBack=backTo
+    const head=element('p',title);head.className='card-menu-head';head.setAttribute('role','presentation');menu.append(head)
+    const items:HTMLButtonElement[]=[]
+    groups.forEach(([name,entries],index)=>{
+      if(!entries.length)return
+      const group=element('div');group.className='card-menu-group';group.setAttribute('role','group')
+      const label=element('p',name);label.className='card-menu-label';label.id='card-menu-'+index;label.setAttribute('role','presentation');group.setAttribute('aria-labelledby',label.id)
+      group.append(label)
+      for(const entry of entries){
+        const item=element('button');item.type='button';item.className='card-menu-item';item.tabIndex=-1;item.setAttribute('role','menuitem')
+        item.append(element('span',entry.label))
+        const hint=entry.key&&shortcutFor(entry.key)
+        if(hint){const kbd=element('kbd',hint);item.append(kbd)}
+        item.onclick=()=>{this.closeMenu(true);void this.perform(entry.run)}
+        group.append(item);items.push(item)
+      }
+      menu.append(group)
+    })
+    menu.addEventListener('keydown',e=>{
+      const at=items.indexOf(document.activeElement as HTMLButtonElement)
+      let next=-1
+      if(e.key==='ArrowDown')next=(at+1)%items.length
+      else if(e.key==='ArrowUp')next=(at<=0?items.length:at)-1
+      else if(e.key==='Home')next=0
+      else if(e.key==='End')next=items.length-1
+      else if(e.key==='Escape'){e.preventDefault();e.stopPropagation();this.closeMenu();return}
+      else if(e.key==='Tab'){e.preventDefault();this.closeMenu();return}
+      // Tastenkürzel mit Strg (Befehl suchen, Rückgängig) schließen das Menü und gelten weiter.
+      else if(e.ctrlKey||e.metaKey){this.closeMenu();return}
+      else{e.stopPropagation();return}
+      e.preventDefault();e.stopPropagation();items[next]?.focus()
+    })
+    document.body.append(menu);this.menu=menu
+    document.addEventListener('pointerdown',this.menuOutside,true)
+    const box=menu.getBoundingClientRect()
+    let x:number,y:number
+    if(at instanceof HTMLElement){const r=at.getBoundingClientRect();x=r.left+8;y=r.bottom}else{x=at.x;y=at.y}
+    menu.style.left=Math.max(4,Math.min(x,window.innerWidth-box.width-4))+'px'
+    menu.style.top=Math.max(4,Math.min(y,window.innerHeight-box.height-4))+'px'
+    items[0]?.focus()
   }
   private fieldsEnabled(){return !!this.api.setField && (!this.api.canSetFields || this.api.canSetFields())}
-  private editField(mail:ViewMail,field:Field|'tags'){
+  /** Bearbeitungsdialog für die Aktionsleiste der Maildetails; gibt `false` zurück, wenn die Aktion nicht möglich ist. */
+  editDetailField(id:string,field:Field,returnTo?:HTMLElement):boolean{
+    const mail=this.byId.get(id)
+    if(!mail||!this.fieldsEnabled()||(field==='followUp'&&mail.status!=='Warten'))return false
+    this.editField(mail,field,returnTo)
+    return true
+  }
+  private editField(mail:ViewMail,field:Field|'tags',returnTo?:HTMLElement){
     const {dialog,form,actions,save}=formDialog(field==='tags'?'Kategorien bearbeiten':fields[field])
     const label=element('label',field==='tags'?'Eine Kategorie pro Zeile':field==='note'?'Notiz':'Datum')
     const isDate=field==='followUp'||field==='snoozeUntil'
@@ -344,6 +470,7 @@ export class BoardViews {
     if(input instanceof HTMLInputElement)input.type='date'
     input.value=field==='tags'?mail.tags.join('\n'):isDate?(mail[field as Field]||'').slice(0,10):mail.note||''
     label.append(input);form.append(element('p',mail.subject),label)
+    if(field==='followUp'||field==='snoozeUntil'){const hint=element('p',field==='followUp'?dateTerms.nachfassen:dateTerms.wiedervorlage);hint.className='field-hint';input.setAttribute('aria-describedby','dateHint');hint.id='dateHint';form.append(hint)}
     if(field==='tags'){
       const names=[...new Set([...this.categories,...this.all.flatMap(m=>m.tags)])].sort((a,b)=>a.localeCompare(b,'de'))
       if(names.length){
@@ -389,9 +516,10 @@ export class BoardViews {
         dialog.close()
       }catch(error){err.textContent=String(error)}finally{save.disabled=false}
     }
+    if(returnTo)dialog.addEventListener('close',()=>returnTo.focus(),{once:true})
     dialog.showModal();input.focus()
   }
-  private editVip(){
+  editVip(){
     const {dialog,form,actions}=formDialog('VIP-Absender')
     const label=element('label','Ein Name oder eine Adresse pro Zeile')
     const input=element('textarea');input.value=this.vipTokens.join('\n');label.append(input)
@@ -432,6 +560,10 @@ export class BoardViews {
     }
     if(!node)return
     const id=node.dataset.viewId!, ids=this.selectedIds(id)
+    if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10')){
+      if(!this.selected.has(id))this.pick(id,false,false)
+      this.openMenu(node,node);e.preventDefault();return
+    }
     if(e.key.startsWith('Arrow')){
       const nodes=this.cardNodes(), lane=node.closest('.lane')
       if(!lane)return
@@ -458,6 +590,8 @@ export class BoardViews {
       this.pick(id,false,false);this.api.open(id)
     }else if(!modifier && e.key.toLowerCase()==='r' && this.api.reply){
       void this.perform(()=>this.api.reply!(id,e.shiftKey))
+    }else if(!modifier && e.key.toLowerCase()==='f' && this.api.toggleFocus){
+      void this.perform(()=>this.api.toggleFocus!(ids))
     }else if(!modifier && ['n','w','k'].includes(e.key.toLowerCase())&&this.fieldsEnabled()){
       const mail=this.byId.get(id)
       const field=({n:'followUp',w:'snoozeUntil',k:'note'} as const)[e.key.toLowerCase() as 'n'|'w'|'k']

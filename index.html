@@ -11,7 +11,8 @@
   <aside aria-label="Postfachnavigation" class="sidebar">
     <div class="brand"><span aria-hidden="true" class="board-mark"><i></i><i></i><i></i><i></i></span>Mail-Board</div>
     <div class="side-scroll">
-      <section class="focus-section"><h2>Fokus</h2><nav id="focusViews" aria-label="Fokus"></nav></section>
+      <section class="focus-section"><h2>Ansichten</h2><nav id="focusViews" aria-label="Ansichten"></nav></section>
+      <section id="casesSection" hidden><h2>Vorgänge</h2><nav id="caseViews" aria-label="Vorgänge"></nav></section>
       <section><h2>Ordner</h2><nav id="folders" aria-label="Ordner"></nav></section>
       <div id="sideActions"></div>
     </div>
@@ -31,6 +32,7 @@
       <label class="search-box">
         <span class="search-icon" aria-hidden="true"></span>
         <input id="search" type="search" placeholder="Mails durchsuchen …" aria-label="Mails durchsuchen (Strg+F)">
+        <button type="button" id="semanticToggle" class="semantic-toggle" aria-pressed="false" aria-label="≈ Bedeutung: Suche nach Sinn statt Wörtern" title="Sucht nach Bedeutung statt nach Wörtern (lokale Einbettungen)" hidden>≈ Bedeutung</button>
         <kbd aria-hidden="true">Strg F</kbd>
       </label>
       <div class="work-actions" id="workActions">
@@ -42,10 +44,11 @@
           <div class="tools-panel">
             <button id="paletteTrigger" aria-keyshortcuts="Control+K">Befehl suchen (Strg+K)</button>
             <button id="openSettings">Outlook und lokale KI</button>
-            <button id="cockpit-help">Hilfe und Tastenkürzel</button>
-            <button id="dataSettings">Lokale Daten und Textbausteine</button>
             <button hidden id="projectTools">Projektordner verwalten</button>
+            <button id="setupOpen">Einrichtung</button>
+            <button id="dataSettings">Lokale Daten und Textbausteine</button>
             <button id="backDemo">Beispielpostfach öffnen</button>
+            <button id="cockpit-help">Hilfe und Tastenkürzel</button>
           </div>
         </details>
       </div>
@@ -54,6 +57,10 @@
     <div class="board-heading">
       <div class="board-title"><h1 id="title">Outlook-Postfach</h1><p id="summary" aria-live="polite"></p></div>
       <span class="selection-count" id="selectionCount" aria-live="polite"></span>
+      <button id="triageStart" class="accent" type="button" aria-keyshortcuts="Control+T" hidden>Morgen-Triage starten</button>
+    </div>
+    <div class="view-bar">
+      <div id="viewTabs" class="view-tabs" role="tablist" aria-label="Ansichten"></div>
       <details id="viewMenu" hidden>
         <summary>Ansicht<span id="activeViewCount"></span></summary>
         <div id="viewControls" role="group" aria-label="Ansicht und Filter"></div>
@@ -67,6 +74,16 @@
     <form method="dialog" class="dialog-tools"><button class="close" aria-label="Maildetails schließen">×</button></form>
     <small class="dialog-label">Maildetails</small>
     <h2 id="subject"></h2><p id="from"></p>
+    <div id="detailBar" class="detail-bar" role="toolbar" aria-label="Aktionen für diese Mail">
+      <button type="button" data-draft="reply" data-key="reply">Antworten</button>
+      <button type="button" data-draft="reply-all" data-key="reply-all">Allen antworten</button>
+      <button type="button" data-draft="forward">Weiterleiten</button>
+      <button type="button" data-act="snoozeUntil" data-key="snooze">Wiedervorlage</button>
+      <button type="button" data-act="followUp" data-key="follow-up" hidden>Nachfassen</button>
+      <button type="button" data-act="note" data-key="note">Notiz</button>
+      <button type="button" data-act="focus" data-key="focus" aria-pressed="false">Fokus</button>
+      <button type="button" data-act="case">Vorgang zuordnen …</button>
+    </div>
     <article id="body"></article><p id="attachments"></p>
     <button hidden id="openOriginal">In Outlook öffnen</button><p id="openError" role="status"></p>
     <div class="fields">
@@ -74,11 +91,6 @@
       <label>Ordner<select id="folder"></select></label>
     </div>
     <div id="replyActions" hidden>
-      <div class="reply-buttons">
-        <button data-draft="reply">Antworten</button>
-        <button data-draft="reply-all">Allen antworten</button>
-        <button data-draft="forward">Weiterleiten</button>
-      </div>
       <div class="followup-row">
         <label>Textbaustein<select id="draftSnippet"></select></label>
         <button data-draft="follow-up">Nachfassentwurf öffnen</button>
@@ -90,6 +102,8 @@
       <p id="suggestionResult" role="status"></p>
       <button id="applySuggestion" hidden>Vorschlag übernehmen …</button>
     </section>
+    <section id="tasks" class="mail-tasks" aria-label="Aufgaben" hidden></section>
+    <section id="similar" class="mail-similar" aria-label="Ähnliche Mails" hidden></section>
     <section id="analysis" aria-label="Lokale KI-Analyse"></section>
   </dialog>
 
@@ -108,7 +122,7 @@
   <dialog id="moveConfirm" aria-labelledby="moveHeading">
     <h2 id="moveHeading">Verschieben bestätigen</h2><p id="moveQuestion"></p>
     <form method="dialog" class="dialog-actions">
-      <button value="cancel" autofocus>Abbrechen</button><button value="confirm" class="primary">Verschieben</button>
+      <button value="cancel" autofocus>Abbrechen</button><button value="confirm" id="moveConfirmOk" class="primary">Verschieben</button>
     </form>
   </dialog>
   <script src="board.js" defer></script>

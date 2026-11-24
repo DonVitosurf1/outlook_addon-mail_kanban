@@ -1,4 +1,5 @@
 """Regressionstest für Hintergrundlesen, Kartenfokus und den kombinierten Ordner-/Status-Drop."""
+import re
 import shutil
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -76,6 +77,7 @@ try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=shutil.which("chromium"))
         page = browser.new_page(viewport={"width": 960, "height": 620})
+        page.add_init_script("localStorage.setItem('board.layout.intro','1')")
         page.clock.install()
         page.add_init_script(bootstrap)
         errors = []
@@ -120,10 +122,10 @@ try:
         expect(page.locator("#viewControls")).to_be_hidden()
         expect(view_trigger).to_have_accessible_name("Ansicht · 1")
         drop(page,"#mail-aa","01")
-        expect(page.locator("#message")).to_contain_text("1 von 1")
+        expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
         assert page.evaluate("writes") == [["outlook_status","aa","01","Offen"]]
         page.locator("#undo").click()
-        expect(page.locator("#message")).to_contain_text("rückgängig")
+        expect(page.locator(".toast")).to_contain_text(re.compile("Zurückgenommen|rückgängig"))
         drop(page,"#mail-ab","02")
         page.locator('#moveConfirm button[value="confirm"]').click()
         expect(page.locator('.group-cell[data-folder="02"][data-status="Offen"] #mail-d1')).to_be_attached()

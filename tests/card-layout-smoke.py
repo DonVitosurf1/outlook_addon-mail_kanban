@@ -50,6 +50,7 @@ try:
  with sync_playwright() as pw:
   browser=pw.chromium.launch(executable_path=shutil.which('chromium'))
   p=browser.new_page(viewport={'width':1440,'height':900},timezone_id='Europe/Berlin')
+  p.add_init_script("localStorage.setItem('board.layout.intro','1')")
   p.clock.set_fixed_time(datetime(2026,11,21,12,0,tzinfo=timezone.utc))
   p.add_init_script(mock);p.goto(f'http://127.0.0.1:{server.server_port}/')
   source=p.locator('#mail-aa');expect(source).to_be_visible()

@@ -1,6 +1,6 @@
 import {strict as assert} from 'node:assert'
 import test from 'node:test'
-import {ArrivalMarks,collapseThreads, dueReasons, groupCards, matchesFocus, matchesQuery, matchesSplit, orderCards, workdaysSince, type ViewMail} from '../src/views-logic'
+import {ArrivalMarks,collapseThreads, dueReasons, groupCards, matchesFocus, matchesQuery, matchesSplit, orderByRelevance, orderCards, selectRelevant, workdaysSince, type ViewMail} from '../src/views-logic'
 
 const today='2026-11-23' // Montag
 const mail:ViewMail={id:'A',subject:'Preisangebot',sender:'Labor Braun',folder:'Einkauf',body:'Neue Serie',tags:['Wichtig'],attachments:['Kosten.xlsx'],status:'Warten',received:'2026-11-16T18:30:00'}
@@ -79,4 +79,13 @@ test('Nur frische zusätzliche Eingänge und zurückkehrende Wiedervorlagen werd
   state.seen('C')
   state.sync('Ordner A',[{...snoozed,hasReply:true}],'inbox',now)
   assert.equal(state.returned.size,0)
+})
+test('Bedeutungssuche: höchstens 50 Treffer über der Mindestähnlichkeit, Spalten nach Relevanz',()=>{
+  const ranked=[{id:'a',score:0.5},{id:'b',score:0.9},{id:'c',score:0.34},{id:'d',score:0.35}]
+  assert.deepEqual([...selectRelevant(ranked)],[['b',0.9],['a',0.5],['d',0.35]])
+  assert.equal(selectRelevant(Array.from({length:80},(_,i)=>({id:'m'+i,score:0.9-i/200}))).size,50)
+  const row=(id:string,status:string):ViewMail=>({...mail,id,status})
+  const rows=[row('1','Offen'),row('2','Warten'),row('3','Offen'),row('4','Offen'),row('5','Warten')]
+  const sorted=orderByRelevance(rows,new Map([['3',0.8],['1',0.4],['5',0.6],['2',0.4]]))
+  assert.deepEqual(sorted.map(m=>m.id),['3','1','4','5','2'])
 })

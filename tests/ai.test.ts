@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { setAiLive, suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis } from '../src/ai'
+import { setAiLive, suggestFolder, recordFiling, rejectSuggestion, trustedFolderBatch, holdout, evaluateHoldout, trainFromFolders, bindAiBoard, queueAnalyses, restoreAnalysis, pendingEmbeddings, embeddingId, embeddingIndex } from '../src/ai'
 import { LEGACY } from '../src/backup'
 
 function storage(files:Record<string,string>={}){
@@ -127,8 +127,13 @@ test('Gesamttestlauf zählt die tatsächlich ausgewählte Quelle und berücksich
   assert.deepEqual(result.bayes,{correct:20,shown:20})
   assert.deepEqual(result.combined,{correct:18,shown:20})
   assert.deepEqual(result.sources,{Regel:{correct:0,shown:1},Hybrid:{correct:1,shown:1},Embedding:{correct:0,shown:1},Bayes:{correct:17,shown:17}})
+  // Je Ordner zehn Testmails. Die Fehlablagen durch Regel (IT0) und Embedding (IT1) zählen bei IT.
+  assert.deepEqual(result.byFolder,{IT:{tested:10,shown:10,correct:8},Labor:{tested:10,shown:10,correct:10}})
+  // Verwechslungen für E4: richtiger Ordner → vorgeschlagener Ordner, nur Fehlablagen.
+  assert.deepEqual(result.confusion,{IT:{Labor:2}})
   const filtered=evaluateHoldout(rows,['IT','Labor'],fixed,['Regel','Hybrid'],semantic)
   assert.deepEqual(filtered.combined,{correct:17,shown:18})
+  assert.deepEqual(filtered.confusion,{IT:{Labor:1}})
   assert.equal(filtered.sources.Hybrid,undefined);assert.equal(filtered.sources.Regel,undefined)
 })
 
@@ -187,4 +192,44 @@ test('Ein Quellenwechsel während des Lernens verhindert weitere Outlook-Aufrufe
   finish(JSON.stringify([{...mail,id:'real'}]))
   await assert.rejects(running,/Outlook/)
   assert.equal(calls,1);assert.equal(localStorage.getItem('outlook-kanban-ai-training-v1'),original)
+})
+
+test('Einbettung: neueste Mails zuerst, gleiche Inhalte einmal, schon eingebettete übersprungen',()=>{
+  const at=(subject:string,received?:string,id?:string)=>({...mail,subject,received,id})
+  const mails=[at('Alt','2026-11-01T08:00:00','a'),at('Ohne Datum'),at('Neu','2026-11-20T09:00:00','n'),at('Mitte','2026-11-10T12:00:00','m'),at('Neu','2026-11-20T09:00:00','n-verschoben')]
+  assert.deepEqual(pendingEmbeddings(mails,new Set()).map(m=>m.id),['n','m','a',undefined])
+  assert.deepEqual(pendingEmbeddings(mails,new Set([embeddingId(mails[2]),embeddingId(mails[0])])).map(m=>m.subject),['Mitte','Ohne Datum'])
+  assert.equal(embeddingId(mails[2]),embeddingId(mails[4]))
+  assert.notEqual(embeddingId(mails[2]),embeddingId({...mails[2],body:'Geänderter Inhalt'}))
+})
+
+test('Hintergrund-Einbettung läuft nach der Analyse in Stapeln und nur mit aktiven Embeddings',async()=>{
+  storage()
+  const calls:{cmd:string;args:any}[]=[]
+  Object.defineProperty(globalThis,'document',{configurable:true,value:{getElementById:()=>null}})
+  Object.defineProperty(globalThis,'window',{configurable:true,value:{dispatchEvent:()=>{},__TAURI__:{core:{invoke:async(cmd:string,args:any)=>{
+    calls.push({cmd,args})
+    if(cmd==='ai_rank')return args.items.map((i:{id:string},n:number)=>({id:i.id,score:1-n/10}))
+    return args.items.length
+  }}}}})
+  const board=Array.from({length:20},(_,i)=>({...mail,subject:'Mail '+i,id:'E'+i,received:'2026-11-'+String(i+1).padStart(2,'0')+'T08:00:00'}))
+  bindAiBoard(()=>board,()=>['Labor'])
+  localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,embeddings:false,embedModel:'lokal-embed'}))
+  await queueAnalyses()
+  assert.equal(calls.length,0)
+  localStorage.setItem('outlook-kanban-ai-settings-v1',JSON.stringify({enabled:true,embeddings:true,embedModel:'lokal-embed'}))
+  await queueAnalyses()
+  assert.deepEqual(calls.map(c=>[c.cmd,c.args.items.length]),[['ai_embed',16],['ai_embed',4]])
+  assert.equal(calls[0].args.model,'lokal-embed')
+  assert.equal(calls[0].args.items[0].id,embeddingId(board[19]))
+  assert.ok(calls[0].args.items[0].text.includes('Mail 19'))
+  assert.deepEqual(embeddingIndex.ready(board.map(embeddingId)).length,20)
+  await queueAnalyses()
+  assert.equal(calls.length,2)
+  const ids=[embeddingId(board[3]),embeddingId(board[5]),'unbekannt']
+  assert.deepEqual((await embeddingIndex.rank('Lieferung',ids)).map(s=>s.id),ids.slice(0,2))
+  assert.deepEqual(calls[2].args.items.map((i:{id:string})=>i.id),ids.slice(0,2))
+  setAiLive(false)
+  assert.deepEqual(embeddingIndex.ready(ids),[])
+  await assert.rejects(embeddingIndex.rank('Lieferung',ids),/Outlook/)
 })

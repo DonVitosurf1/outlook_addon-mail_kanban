@@ -1,4 +1,5 @@
 """Mit installiertem Playwright und Chromium nach npm run build ausführen."""
+import re
 import os
 import shutil
 from functools import partial
@@ -55,6 +56,7 @@ try:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM") or shutil.which("chromium"))
         page = browser.new_page(viewport={"width": 1280, "height": 800})
+        page.add_init_script("localStorage.setItem('board.layout.intro','1')")
         page.add_init_script(bootstrap)
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
@@ -72,7 +74,7 @@ try:
         page.locator("#suggestFolder").click()
         accept.click()
         page.locator('#moveConfirm button[value="confirm"]').click()
-        expect(page.locator("#message")).to_contain_text("1 von 1")
+        expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
         assert page.evaluate("currentMail.folderId==='02'")
         page.locator("#loadInbox").click()
         expect(page.locator("#loadInbox")).to_be_enabled()
@@ -82,16 +84,16 @@ try:
         expect(page.locator("#undo")).to_be_enabled()
         page.evaluate("window.blockWrites=false")
         page.keyboard.press("Control+z")
-        expect(page.locator("#message")).to_contain_text("rückgängig")
+        expect(page.locator(".toast")).to_contain_text(re.compile("Zurückgenommen|rückgängig"))
         assert page.evaluate("currentMail.folderId==='01' && currentMail.id!=='aa'")
         card.click()
         page.locator("#status").select_option("Erledigt")
         expect(page.locator("#moveQuestion")).to_contain_text("Archiv")
         page.locator('#moveConfirm button[value="confirm"]').click()
-        expect(page.locator("#message")).to_contain_text("1 von 1")
+        expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
         assert page.evaluate("currentMail.folderId==='03' && currentMail.status==='Erledigt'")
         page.keyboard.press("Control+z")
-        expect(page.locator("#message")).to_contain_text("rückgängig")
+        expect(page.locator(".toast")).to_contain_text(re.compile("Zurückgenommen|rückgängig"))
         assert page.evaluate("currentMail.folderId==='01' && currentMail.status==='Offen' && currentMail.statusSince===''")
         page.evaluate("window.ageDone()")
         page.locator("#loadInbox").click()
@@ -99,14 +101,14 @@ try:
         expect(older).to_contain_text("1 Erledigte")
         older.click()
         page.locator('#moveConfirm button[value="confirm"]').click()
-        expect(page.locator("#message")).to_contain_text("1 von 1")
+        expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
         assert page.evaluate("currentMail.folderId==='03'")
         page.keyboard.press("Control+z")
-        expect(page.locator("#message")).to_contain_text("rückgängig")
+        expect(page.locator(".toast")).to_contain_text(re.compile("Zurückgenommen|rückgängig"))
         assert page.evaluate("currentMail.folderId==='01' && currentMail.statusSince.startsWith('2023-')")
         card.click()
         page.locator("#status").select_option("Warten")
-        expect(page.locator("#message")).to_contain_text("1 von 1")
+        expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
         page.evaluate("window.editInOutlook()")
         page.locator("#undo").click()
         conflict = page.get_by_role("dialog", name="Der Status wurde inzwischen", exact=False)

@@ -1,28 +1,52 @@
+import { showIntro } from './intro'
+import {dateTerms} from './date-terms'
 import metadata from '../package.json'
 import {renderLearningDashboard} from './ai'
 import { getLegacyConfig } from './data-settings'
 import { initCleanup, type CleanupOptions } from './cleanup'
-import { dueReasons, isSnoozed, localDay, type ViewMail } from './views-logic'
+import { dueRoutines, isFocusCard, snapshot, type Routine } from './planning-logic'
+import { shortcuts, shortcutGroups } from './shortcuts'
+import { dueReasons, localDay, type ViewMail } from './views-logic'
+export { snapshot }
 
 type Action = 'filed' | 'followed_up' | 'snoozed'
 type Options = CleanupOptions & {
   getMails: () => readonly ViewMail[]
   isLive: () => boolean
   onPick: (id: string) => void
-  openUnanswered?: () => Promise<void>|void
+  startTriage: () => void
+  triageActive: () => boolean
+  routines: () => Routine[]
+  openCalendar: () => void
+  /** Einrichtungsfortschritt wie „Einrichtung: 2 von 7 Schritten“, leer, wenn Start ihn nicht zeigen soll. */
+  setupProgress: () => string
+  openSetup: () => void
+  markRoutine: (id: string) => void
+  showFocus: (key: 'today' | 'focus') => void
+  showOverdue: () => void
 }
-type Page = 'start' | 'week' | 'today' | 'hygiene' | 'ritual' | 'help' | 'learning'
+export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning' | 'shortcuts'
 
 const states = ['Offen', 'In Bearbeitung', 'Warten', 'Erledigt']
-const steps = ['Heute dran', 'Offen durchgehen', 'Rest parken']
 const help = [
   ['Wo finde ich meine echten Mails?', 'Unter Windows lädt das Board beim Start automatisch dein klassisches Outlook-Profil. Bei einem Verbindungsfehler kannst du Outlook öffnen und es erneut versuchen. Über Werkzeuge → Beispielpostfach öffnen kannst du mit Beispieldaten arbeiten.'],
-  ['Wie finde ich eine Mail?', 'Strg+F setzt den Fokus in die Suche. Mit dem Ordnerfilter schränkst du die Anzeige ein. Öffne die gewünschte Karte für die Maildetails.'],
+  ['Welche Tastenkürzel gibt es?', 'Die Taste ? zeigt alle Tastenkürzel, gruppiert nach Karte, Board, Ansichten, Triage und Dialogen. Du erreichst die Übersicht auch über den Knopf „Tastenkürzel anzeigen“ in dieser Hilfe.'],
+  ['Wie finde ich eine Mail?', 'Strg+F setzt den Fokus in die Suche. Mit dem Ordnerfilter schränkst du die Anzeige ein. Öffne die gewünschte Karte für die Maildetails. Mit „≈ Bedeutung“ im Suchfeld suchst du nach dem Sinn statt nach Wörtern (nur mit Outlook und lokalen Embeddings). Escape schaltet zurück. In den Maildetails zeigt „Ähnliche Mails“ die fünf passendsten anderen Mails.'],
   ['Was zeigt „Heute dran“?', 'Hier stehen fällige Wiedervorlagen, wartende Mails mit Antwort, heutige oder überfällige Nachfassfristen und fällige KI-Fristen. Eine Mail kann aus mehreren Gründen fällig sein.'],
-  ['Wie funktioniert die Morgen-Triage?', 'Prüfe zuerst „Heute dran“, sichte dann die offenen Mails und entscheide zum Schluss, was noch warten darf. Jede Änderung löst du selbst aus.'],
+  ['Wie funktioniert die Morgen-Triage?', 'Strg+T oder Start → „Morgen-Triage starten“ blendet über dem Board ein Banner mit Briefing ein. Das Board zeigt nacheinander „Heute dran“, „Offen durchgehen“ und „Rest parken“. Du arbeitest mit den gewohnten Kartenaktionen. Eine Karte verlässt den Schritt, sobald sich ihr Status, ihre Wiedervorlage oder ihr Ordner ändert. Beenden oder Abbrechen stellt deine vorherige Ansicht wieder her.'],
+  ['Was zeigt das Briefing?', 'Zahlen zu fälligen, wartenden und zu beantwortenden Mails, die seit der letzten beendeten Triage eingegangenen Mails sowie fällige Routinen und Checklistenpunkte. Beim ersten Mal gelten die letzten 24 Stunden als neu.'],
+  ['Was bewirkt die Taste F?', 'F nimmt die markierten Karten in den Fokus oder wieder heraus. Dafür setzt das Board die Outlook-Kategorie „Fokus“. Sie bleibt beim Verschieben erhalten und ist mit Strg+Z rücknehmbar. Die Seitenleiste zeigt unter „Ansichten“ in der Ansicht „Fokus“ alle nicht erledigten Fokuskarten.'],
+  ['Welche Datumsarten gibt es?', 'Wiedervorlage: '+dateTerms.wiedervorlage+' Nachfassen: '+dateTerms.nachfassen+' Frist: '+dateTerms.frist+' KI-Frist: '+dateTerms.kiFrist],
+  ['Wie funktionieren Routinen?', 'Im Tab „Routinen“ legst du wiederkehrende Aufgaben an: täglich, werktags, wöchentlich oder monatlich. Eine Routine kann eine Ansicht wie die Warten-Hygiene öffnen. Eine verpasste Routine bleibt fällig, bis du sie abhakst.'],
+  ['Was zeigt der Wochenkalender?', 'Der Tab „Kalender“ zeigt Nachfasstermine, Wiedervorlagen, KI-Fristen, Routinen und Checklistenpunkte einer Woche, Überfälliges gesammelt vorn. Ziehst du eine Mail auf einen Tag, erhält eine wartende Mail dort ihren Nachfasstermin und jede andere eine Wiedervorlage.'],
+  ['Was ist ein Vorgang?', 'Ein Vorgang bündelt zusammengehörige Mails über die Outlook-Kategorie „Vorgang: Name“ und führt eine lokale Checkliste mit optionalen Terminen. Zuordnen lässt sich über das Kontextmenü einer Karte, Strg+K oder den Tab „Vorgänge“.'],
+  ['Woher kommt der Vorgangsvorschlag?', 'Mit eingeschalteten Embeddings vergleicht das Board Mails ohne Vorgang mit den Mails deiner offenen Vorgänge. Passt eine Mail deutlich zu einem Vorgang, zeigt die Karte „Vorgang Name?“. Ein Klick ordnet sie zu und lässt sich mit Rückgängig zurücknehmen, mit „×“ lehnst du den Vorschlag ab. Die Ablehnung gilt für diesen Mailinhalt und diesen Vorgang, auch nach dem Verschieben. Strg+K bietet „Vorgangsvorschlag übernehmen“ für die markierte Karte. Ähnlichkeit und Abstand stellst du unter Einstellungen, Lernen ein. Im Beispielpostfach und ohne Embeddings gibt es keine Vorschläge.'],
+  ['Wie werden Aufgaben aus Mails übernommen?', 'Hat die lokale KI in einer Mail ausdrücklich verlangte Handlungen gefunden, zeigt die Karte „n Aufgaben“. In den Maildetails prüfst du Text und Datum, wählst die Punkte aus und übernimmst sie in den Vorgang der Mail. Gibt es noch keinen, legt das Board nach Rückfrage einen neuen Vorgang an und ordnet die Mail zu. Übernommene Aufgaben erscheinen in der Checkliste und im Kalender.'],
   ['Wie lese ich eine Nachricht?', 'Öffne eine Karte und wähle „In Outlook öffnen“. Outlook zeigt dir das Original und die Anhänge. Die Anwendung sendet keine Mails.'],
-  ['Wie lege ich eine Mail ab?', 'Prüfe den vorgeschlagenen Zielordner und bestätige die Ablage. Mit Strg+Z kannst du die letzte erfolgreiche Aktion in dieser Sitzung zurücknehmen.'],
+  ['Wie lege ich eine Mail ab?', 'Prüfe den vorgeschlagenen Zielordner und bestätige die Ablage. Mit Strg+Z kannst du die letzte erfolgreiche Aktion in dieser Sitzung zurücknehmen. Nach jeder Änderung erscheint kurz eine Meldung mit dem Knopf „Rückgängig“.'],
+  ['Wie richte ich das Board ein?', 'Werkzeuge → Einrichtung führt mit deinem Outlook-Postfach durch sieben Schritte: Ordner wählen, Lernen und messen, Ausreißer prüfen, Struktur verfeinern, Steckbriefe, neu lernen und vergleichen, Posteingang abarbeiten. Pausieren bringt dich zurück zum Board. Der Fortschritt bleibt gespeichert, Start zeigt ihn an. Ohne lokale KI kannst du die Schritte 4 und 5 überspringen. In Schritt 4 geht ohne KI nur das Zusammenlegen nach der Messung. Bei den Ausreißern verschiebst du eine Mail mit Bestätigung und Rückgängig, lässt sie mit „Bleibt hier“ als richtig stehen oder nimmst sie mit „Nicht lernen“ dauerhaft vom Lernen aus. Ohne Embeddings prüft das Board die Ausreißer mit Bayes. Beim Verfeinern der Struktur unterteilst du überfüllte Ordner, legst ähnliche Ordner zusammen und benennst unklare Ordner um. Mit „Posteingang prüfen“ gruppiert das Board Mails ohne passenden Lernordner. Für jede Gruppe ab fünf Mails bekommst du einen Namensvorschlag, den du änderst, und wählst den Elternordner. „Anlegen und verteilen“ legt den Ordner an, nimmt ihn als Lernziel auf und verschiebt die Mails mit Bestätigung und Rückgängig. Beim Zusammenlegen wandern alle Mails in den anderen Ordner, der leere Ordner kommt nach „_Zusammengelegt“. Gelöscht wird nichts, Rückgängig stellt Ordner und Mails wieder her. Bei den Steckbriefen entwirft die lokale KI nacheinander einen Vorschlag für jeden Lernordner ohne Steckbrief. Du bearbeitest ihn, übernimmst ihn oder verwirfst ihn, gespeichert wird nur Übernommenes. „Neu lernen und vergleichen“ wiederholt die Messung und stellt sie dem Ausgangswert gegenüber. Ordner mit schlechterer Trefferquote sind markiert. Beim Abarbeiten des Posteingangs liest das Board bis zu 2.000 Mails ohne Status, älteste zuerst. Sichere Vorschläge legst du als Stapel je Zielordner ab, jeder Stapel ist ein Rückgängig-Schritt. Unsichere gehst du mit „Einzeln durchgehen“ im Aufräumen durch. Mails ohne Ziel, die älter als die eingestellte Grenze sind (Standard drei Monate), verschiebst du gesammelt ins Archiv. Ohne Archivordner führt dich der Schritt zur Ordnerwahl zurück. „Einrichtung abschließen“ beendet den letzten Schritt. Sind alle Schritte erledigt oder übersprungen, verschwindet der Fortschritt aus Start.'],
   ['Was passiert bei fehlender KI?', 'Die lokale KI ist optional. Du kannst dein Board auch bei ausgeschaltetem oder langsamem Modell weiter bedienen.'],
+  ['Einführung erneut zeigen', 'Die kurze Einführung zeigt in drei Schritten das Board, die Karten und die Tab-Leiste. Sie startet mit dem Knopf „Einführung erneut zeigen“ unter den Hilfethemen und ist über Weiter, Überspringen oder Escape bedienbar.'],
   ['Warum fehlen Zahlen im Wochenblick?', 'Der Wochenblick zählt die aktuell geladenen Karten. Die Aktivitätszahlen sammeln erfolgreich im Board ausgeführte Aktionen der laufenden Woche lokal.'],
 ]
 
@@ -69,20 +93,8 @@ export function recordWeekly(live:boolean, action:Action, delta=1, occurredAt=ne
   try {localStorage.setItem(key,JSON.stringify(counts))} catch { /* optional */ }
 }
 
-export function snapshot(mails: readonly ViewMail[], today = localDay(), overdueDays = 5) {
-  const active = mails.filter(m => !isSnoozed(m,today))
-  const due = active.filter(m => dueReasons(m,today,overdueDays).length > 0)
-  const waiting = active.filter(m => m.status === 'Warten' && !m.hasReply)
-  const late = waiting.filter(m => dueReasons(m,today,overdueDays).some(r => r === 'Nachfassen' || r === 'Überfällig'))
-  const overdueIds = new Set(late.map(m => m.id))
-  const undated = waiting.filter(m => !m.followUp && !overdueIds.has(m.id))
-  return {active, due, late, undated, snoozed: mails.length-active.length}
-}
-
 export function initCockpit(options: Options) {
   let page: Page = 'start'
-  let step = 0
-  let ritual = false
   let helpTerm = ''
   const openCleanup = initCleanup(options)
   const versionKey = 'mailboard-intro-'+metadata.version
@@ -100,16 +112,13 @@ export function initCockpit(options: Options) {
   dialog.append(close, title, body)
   document.body.append(dialog)
   const open = (next: Page) => {
-    page = !options.hasMailbox()&&next!=='help'?'start':next
+    page = !options.hasMailbox()&&next!=='help'&&next!=='shortcuts'?'start':next
     render()
     if (!dialog.open) dialog.showModal()
   }
   const go = (label:string, next:Page) => button(label, () => open(next))
-  const startRitual = () => {
-    if (!ritual) step = 0
-    ritual = true
-    open('ritual')
-  }
+  const startTriage = () => { dialog.close(); options.startTriage() }
+  const link = (label:string, run:()=>void) => button(label, () => { dialog.close(); run() })
   function mailList(rows: readonly ViewMail[], describe?: (mail:ViewMail) => string) {
     const list = element('div')
     list.className = 'cockpit-list'
@@ -147,11 +156,38 @@ export function initCockpit(options: Options) {
     }
     input.oninput = filter
     filter()
-    body.append(input,found)
+    const again=button('Einführung erneut zeigen',()=>{dialog.close();showIntro()})
+    body.append(input,found,button('Tastenkürzel anzeigen',()=>open('shortcuts')),again)
+  }
+  function renderShortcuts() {
+    title.textContent = 'Tastenkürzel'
+    body.append(element('p','Mit ? öffnest du diese Übersicht jederzeit außerhalb von Eingabefeldern.'))
+    for (const group of shortcutGroups) {
+      const table = element('table')
+      table.className = 'shortcut-table'
+      table.append(element('caption',group))
+      const head = element('tr')
+      for (const label of ['Taste','Wirkung']) { const th = element('th',label); th.scope = 'col'; head.append(th) }
+      const thead = element('thead'); thead.append(head)
+      const tbody = element('tbody')
+      for (const entry of shortcuts.filter(item => item.group === group)) {
+        const row = element('tr'), keys = element('td')
+        entry.keys.split('+').forEach((part,i) => {
+          if (i) keys.append('+')
+          keys.append(element('kbd',part))
+        })
+        row.append(keys,element('td',entry.action))
+        tbody.append(row)
+      }
+      table.append(thead,tbody)
+      body.append(table)
+    }
+    body.append(go('Zur Hilfe','help'))
   }
   function render() {
     body.replaceChildren()
     if(page==='help'){renderHelp();return}
+    if(page==='shortcuts'){renderShortcuts();return}
     if(!options.hasMailbox()){
       title.textContent='Start'
       body.append(element('p','Es ist kein Postfach geöffnet. Verbinde Outlook oder öffne die Beispieldaten zum Ausprobieren.'),go('Hilfe','help'))
@@ -176,40 +212,52 @@ export function initCockpit(options: Options) {
       for (const name of states) list.append(element('li',name+' · '+s.active.filter(m=>m.status===name).length))
       body.append(element('h3','Aktuell geladene Karten'),list,element('p','Auf Wiedervorlage: '+s.snoozed))
       const waiting=s.active.filter(m=>m.status==='Warten'&&!m.hasReply)
-      body.append(element('p','Heute dran: '+s.due.length+' · Warten ohne Frist: '+waiting.filter(m=>!m.followUp).length+' · Nachfassen fällig: '+s.late.length+' · Antwort nötig: '+s.active.filter(m=>m.needsReply).length))
+      body.append(element('p','Heute dran: '+s.due.length+' · Warten ohne Frist: '+waiting.filter(m=>!m.followUp).length+' · Nachfassen fällig: '+s.late.length+' · Antwort nötig: '+s.active.filter(m=>m.needsReply).length+' · Im Fokus: '+options.getMails().filter(m=>isFocusCard(m,day)).length))
       const {counts} = weeklyCounts(options.isLive())
       body.append(element('h3','Diese Woche'),element('p',
         'Abgelegt: '+counts.filed+' · Nachgefasst: '+counts.followed_up+' · Wiedervorlage gesetzt: '+counts.snoozed))
-      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene')))
-    } else if (page === 'ritual') {
-      title.textContent = steps[step]
-      const rows = step === 0 ? s.due : s.active.filter(m => m.status==='Offen')
-      body.append(element('p',`Morgen-Triage · Schritt ${step+1} von ${steps.length}`),
-        element('p',['Prüfe Termine, Antworten und Nachfassfristen.','Wähle offene Mails zum Bearbeiten oder Ablegen.','Öffne verbleibende Karten, um bei Bedarf eine Wiedervorlage oder einen Wartestatus zu setzen.'][step]),
-        mailList(rows,step === 0 ? m=>reasons(m).join(', ') : undefined))
-      const advance = button(step === 2 ? 'Triage beenden' : 'Nächster Schritt', () => {
-        if(step===2){ ritual=false; dialog.close() } else {step++;render()}
-      })
-      body.append(actions(advance,button('Triage abbrechen',()=>{ritual=false;dialog.close()})))
-      return
+      body.append(actions(go('Heute dran · '+s.due.length,'today'),go('Warten-Hygiene','hygiene'),link('Wochenkalender',options.openCalendar)))
     } else {
       title.textContent = 'Start'
-      body.append(element('h3','Heute'),element('p',s.due.length+' fällig · '+s.late.length+' wartend und fällig · '+s.snoozed+' auf Wiedervorlage'),
-        actions(go('Heute dran','today'),button(ritual?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startRitual)),
-        actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}),go('Hilfe','help')))
-      if(options.openUnanswered)body.append(button('Gesendet ohne Antwort',()=>{dialog.close();void options.openUnanswered!()}))
+      const focusCount=options.getMails().filter(m=>isFocusCard(m,day)).length
+      const show=(run:()=>void)=>()=>{dialog.close();run()}
+      const stats=element('div');stats.className='cockpit-actions'
+      stats.append(button(s.due.length+' fällig',show(()=>options.showFocus('today'))),
+        button(focusCount+' im Fokus',show(()=>options.showFocus('focus'))),
+        button(s.late.length+' wartend und fällig',show(options.showOverdue)))
+      const triage=button(options.triageActive()?'Morgen-Triage fortsetzen':'Morgen-Triage starten',startTriage)
+      triage.className='cockpit-primary'
+      const setup=options.setupProgress()
+      if(setup){
+        const row=element('p',setup+' ');row.className='cockpit-setup'
+        row.append(link('Einrichtung öffnen',options.openSetup))
+        body.append(row)
+      }
+      body.append(element('h3','Heute'),stats,triage,element('h3','Routinen heute'))
+      const due=dueRoutines(options.routines(),day)
+      if(!due.length)body.append(element('p','Keine Routine fällig.'))
+      for(const {routine} of due){
+        const row=element('div');row.className='cockpit-actions'
+        row.append(element('span',routine.title),button('Erledigt',()=>{options.markRoutine(routine.id);render()}))
+        row.lastElementChild?.setAttribute('aria-label',routine.title+' erledigt')
+        body.append(row)
+      }
+      const more=actions(go('Warten-Hygiene','hygiene'),go('Wochenblick','week'),go('Ablage-Auswertung','learning'),button('Posteingang aufräumen',()=>{dialog.close();void openCleanup()}))
+      body.append(element('h3','Weitere Ansichten'),more)
       const startup=element('input');startup.type='checkbox';startup.checked=preference(launchKey)
       startup.onchange=()=>remember(launchKey,startup.checked)
       const label=element('label');label.append(startup,' Diese Übersicht beim Start öffnen')
       body.append(label)
       if(!preference(versionKey)){
-        const intro=element('section')
-        intro.append(element('h3','Mail-Board '+metadata.version),element('p','Die Windows-App lädt dein klassisches Outlook-Profil beim Start. Wähle Werkzeuge → Beispielpostfach öffnen, um das Board mit Beispielen zu erkunden.'),
-          button('Versionshinweis schließen',()=>{remember(versionKey,true);intro.remove()}))
+        const intro=element('p');intro.className='cockpit-note'
+        intro.append('Mail-Board '+metadata.version+' lädt dein klassisches Outlook-Profil beim Start. ',
+          button('Ausblenden',()=>{remember(versionKey,true);intro.remove()}))
         body.append(intro)
       }
       const tips = [
         ['Strg+R führt durch den Rückstand im Posteingang.', 'Rückstände'],
+        ['Strg+T startet die Morgen-Triage direkt auf dem Board.', 'Morgen-Triage'],
+        ['F nimmt markierte Karten in deinen Fokus.', 'Taste F'],
         ['Mit W parkst du eine Karte bis zu deinem gewählten Datum.', 'Termin'],
         ['Strg+K findet Boardbefehle per Tastatur.', 'Befehlspalette'],
         ['Fällige Nachfassfristen und Antworten findest du unter „Heute dran“.', 'Heute dran'],
@@ -217,7 +265,9 @@ export function initCockpit(options: Options) {
       const today = new Date()
       const index = Math.floor(Date.UTC(today.getFullYear(),today.getMonth(),today.getDate()) / 86400000) % tips.length
       const [tip, term] = tips[index]
-      body.append(element('p',tip),button('Tipp in der Hilfe öffnen',()=>{helpTerm=term;open('help')}))
+      const tipRow=element('p');tipRow.className='cockpit-note'
+      tipRow.append('Tipp: '+tip+' ',button('Mehr in der Hilfe',()=>{helpTerm=term;open('help')}))
+      body.append(tipRow)
       return
     }
     body.append(go('Zur Übersicht','start'))
@@ -225,15 +275,23 @@ export function initCockpit(options: Options) {
   document.addEventListener('board-commands', event=>{
     const entries=(event as CustomEvent<{label:string;run:()=>void}[]>).detail
     if(!options.hasMailbox())return
-    entries.push({label:'Morgen-Triage',run:startRitual},{label:'Wochenblick',run:()=>open('week')},{label:'Ablage-Auswertung',run:()=>open('learning')},
+    entries.push({label:'Wochenblick',run:()=>open('week')},{label:'Ablage-Auswertung',run:()=>open('learning')},
       {label:'Warten-Hygiene',run:()=>open('hygiene')},{label:'Posteingang aufräumen',run:()=>void openCleanup()})
   })
   document.addEventListener('mailboard:source-changed',()=>{
-    step=0;ritual=false;page='start';body.replaceChildren()
+    page='start';body.replaceChildren()
     if(dialog.open)dialog.close()
   })
   document.getElementById('cockpit-start')?.addEventListener('click',()=>open('start'))
   document.getElementById('cockpit-help')?.addEventListener('click',()=>open('help'))
+  document.addEventListener('keydown',event=>{
+    if(event.key!=='?'||event.defaultPrevented||event.ctrlKey||event.metaKey||event.altKey)return
+    if(event.target instanceof Element&&event.target.closest('input,textarea,select,[contenteditable=true]'))return
+    const openDialog=document.querySelector('dialog[open]')
+    if(openDialog&&!(openDialog===dialog&&page==='help'))return
+    event.preventDefault()
+    open('shortcuts')
+  })
   document.addEventListener('keydown',event=>{
     if(event.key!=='F1')return
     event.preventDefault()
@@ -247,9 +305,12 @@ export function initCockpit(options: Options) {
   })
   if(preference(launchKey))queueMicrotask(()=>open('start'))
   return {
-    refresh(){if(dialog.open && page!=='help')render()},
+    refresh(){if(dialog.open && page!=='help' && page!=='shortcuts')render()},
     openStart:()=>open('start'),
     openHelp:()=>open('help'),
+    openPage:(next:Page)=>open(next),
+    /** Ohne Liste der Rückstand des Boards, mit Liste genau diese Mails (E7). */
+    openCleanup:(list?:ViewMail[],onClose?:()=>void)=>void openCleanup(list,onClose),
     record(action:Action,delta=1) {
       recordWeekly(options.isLive(),action,delta)
     },

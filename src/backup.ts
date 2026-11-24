@@ -42,7 +42,7 @@ export function parseBackup(data:Uint8Array): {values:Snapshot; legacy:boolean; 
       if(key in manifest.values && !isRecord(JSON.parse(String(manifest.values[key]))))
         throw new Error('Ungültige lokale Einstellungen in der Sicherung.')
     }
-    for(const key of ['kanban-snippets-v1','kanban-config-revisions-v1']){
+    for(const key of ['kanban-snippets-v1','kanban-config-revisions-v1','mailboard-routines-v1','mailboard-cases-v1']){
       if(key in manifest.values && !Array.isArray(JSON.parse(String(manifest.values[key]))))
         throw new Error('Ungültige Einstellungsliste in der Sicherung.')
     }

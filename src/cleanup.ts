@@ -2,6 +2,11 @@ import type {Folder} from './live'
 import {isSnoozed, type ViewMail} from './views-logic'
 import {suggestFolder, trustedFolderBatch} from './ai'
 
+/**
+ * `onStatus` und `onFolder` bekommen bei einer vorgegebenen Mailliste (`open(list)`) die betroffenen Mails mit.
+ * Sie stehen nicht unbedingt auf dem Board. Der Aufrufer ändert sie dann direkt: `status` nach einer Statusänderung,
+ * `folderId` und `folder` nach dem Verschieben.
+ */
 export type CleanupOptions = {
   hasMailbox:()=>boolean
   getMails:()=>readonly ViewMail[]
@@ -9,8 +14,8 @@ export type CleanupOptions = {
   getSuggestionFolders?:()=>readonly Folder[]
   loadBacklog:()=>Promise<boolean>
   closeBacklog?:()=>Promise<void>|void
-  onStatus:(ids:string[],status:string)=>Promise<void>|void
-  onFolder:(ids:string[],folder:string)=>Promise<void>|void
+  onStatus:(ids:string[],status:string,rows?:ViewMail[])=>Promise<void>|void
+  onFolder:(ids:string[],folder:string,rows?:ViewMail[])=>Promise<void>|void
   onUndo:()=>Promise<void>|void
 }
 const statuses=['Offen','In Bearbeitung','Warten','Erledigt']
@@ -40,6 +45,8 @@ export function initCleanup(api:CleanupOptions) {
   let pending=false
   let sourceVersion=0,openedVersion=0
   let viewVersion=0
+  /** Vorgegebene Mailliste mit Ausgangsordner je Mail, sonst `undefined` (Rückstand des Boards). */
+  let given:{mails:ViewMail[];start:Map<string,string>;onClose?:()=>void}|undefined
   const commands=label('div'), navigation=label('div')
   commands.className=navigation.className='cockpit-actions'
   const hints=button('Ablagevorschlag ermitteln',()=>void propose())
@@ -79,6 +86,10 @@ export function initCleanup(api:CleanupOptions) {
     if(dialog.open)subject.focus()
   }
   function candidates() {
+    if(given){
+      const list=given
+      return list.mails.filter(m=>m.status!=='Erledigt'&&(m.folderId??m.folder)===list.start.get(m.id))
+    }
     const inboxNames=new Set(['Posteingang',...api.getFolders().filter(f=>f.isInbox).map(f=>f.name)])
     return api.getMails().filter(m=>m.status!=='Erledigt'&&!isSnoozed(m)&&inboxNames.has(m.folder))
       .sort((a,b)=>(a.received||'').localeCompare(b.received||''))
@@ -114,7 +125,7 @@ export function initCleanup(api:CleanupOptions) {
         for(const m of rows)list.append(label('li',m.subject))
         box.append(list,button((rows.length===1?'Diese Mail':'Diese '+rows.length+' Mails')+' nach „'+path+'“ ablegen',async()=>{
           if(pending)return
-          try{lock(true);await api.onFolder(rows.map(m=>m.id),folder.id)}
+          try{lock(true);await api.onFolder(rows.map(m=>m.id),folder.id,given&&rows)}
           catch(error){lock(false);statusLine.textContent=String(error);return}
           lock(false)
         }))
@@ -133,14 +144,15 @@ export function initCleanup(api:CleanupOptions) {
     if(!api.hasMailbox()||openedVersion!==sourceVersion||pending||(!mail && kind!=='undo'))return
     const current=mail
     const beforeFolder=mail?.folder
+    const rows=given&&current?[current]:undefined
     let message=''
     try {
       lock(true)
       if(kind==='undo') {await api.onUndo();done.clear()}
       else if(current){
-        if(kind==='folder')await api.onFolder([current.id],value)
-        else await api.onStatus([current.id],value)
-        const updated=api.getMails().find(m=>m.id===current.id)
+        if(kind==='folder')await api.onFolder([current.id],value,rows)
+        else await api.onStatus([current.id],value,rows)
+        const updated=given?current:api.getMails().find(m=>m.id===current.id)
         if (!updated || (kind==='status'&&updated.status===value) || (kind==='folder'&&updated.folder!==beforeFolder))done.add(current.id)
         else message='Die Mail bleibt zur Durchsicht geöffnet.'
       }
@@ -163,12 +175,18 @@ export function initCleanup(api:CleanupOptions) {
     } catch(error){if(token===viewVersion)statusLine.textContent=String(error)}
     finally {if(token===viewVersion)hints.disabled=false}
   }
-  async function open() {
-    if(!api.hasMailbox()||loading||pending)return
+  /**
+   * Öffnet die Durchsicht. Ohne `list` lädt sie den Rückstand des Boards (`loadBacklog`), mit `list` geht sie genau diese Mails durch
+   * (etwa die unsicheren aus der Einrichtung, E7). `onClose` läuft dann beim Schließen.
+   */
+  async function open(list?:ViewMail[],onClose?:()=>void) {
+    // Eine vorgegebene Liste ersetzt keine laufende Durchsicht und umgekehrt.
+    if(!api.hasMailbox()||loading||pending||(list||given)&&dialog.open)return
     const version=sourceVersion
     loading=true
     try{
-      if(!await api.loadBacklog()||version!==sourceVersion||!api.hasMailbox())return
+      given=list&&{mails:list,start:new Map(list.map(m=>[m.id,m.folderId??m.folder])),onClose}
+      if(!list&&!await api.loadBacklog()||version!==sourceVersion||!api.hasMailbox())return
       openedVersion=sourceVersion
       done.clear()
       render()
@@ -181,10 +199,12 @@ export function initCleanup(api:CleanupOptions) {
     subject.textContent=sender.textContent=content.textContent=progress.textContent=statusLine.textContent=''
     folders.replaceChildren();groups.replaceChildren()
     if(dialog.open)dialog.close()
+    given=undefined
   })
   dialog.addEventListener('cancel',event=>{if(pending)event.preventDefault()})
   dialog.addEventListener('close',()=>{
     viewVersion++;hints.disabled=false
+    if(given){const finished=given.onClose;given=undefined;finished?.();return}
     if(openedVersion!==sourceVersion||!api.hasMailbox())return
     Promise.resolve(api.closeBacklog?.()).catch(error=>{
       const message=document.getElementById('message');if(message)message.textContent=String(error)

@@ -1,10 +1,11 @@
 import { getLegacyConfig, getLegacyProfiles, getLegacyFile, updateConfig } from './data-settings'
 import type { Folder, Invoke } from './live'
+import { openTasks, type Task } from './tasks-taken'
 
-export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[]}
-type Suggestion = {folder:string;reason:string}
+export type AiMail = {subject:string; sender:string; body:string; senderEmail?:string; conversationId?:string; received?:string;id?:string;storeId?:string;folder?:string;folderPath?:string;tags?:string[];needsReply?:boolean;deadline?:string;aiSummary?:string;aiTypes?:string[];aiTasks?:Task[]}
+export type Suggestion = {folder:string;reason:string}
 type FolderInfo = {key:string;profile:string}
-type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[]}
+type Analysis = {zusammenfassung:string;antwort_noetig:boolean;frist:string|null;ordner:string|null;arten:string[];aufgaben?:Task[]}
 type Config = {enabled:boolean;auto:boolean;autoLearn:boolean;embeddings:boolean;url:string;embedUrl:string;model:string;embedModel:string}
 const settingsKey='outlook-kanban-ai-settings-v1'
 const feedbackKey='outlook-kanban-filing-feedback-v1'
@@ -22,7 +23,7 @@ export function setAiLive(live:boolean,mode:'offline'|'demo'|'outlook'=live?'out
   if(mode===mailboxMode&&live===liveSource)return
   mailboxMode=mode;liveSource=live;sourceEpoch++
   if(typeof window!=='undefined')window.clearTimeout?.(learnTimer)
-  training=undefined;processing=false;retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
+  training=undefined;processing=false;embedding=false;embedded.clear();retryAt=0;retryDelay=120000;lastTraining='';queueStatus=''
   recent=undefined;legacyCache=undefined;importedCache.clear()
   refreshAiPanel?.()
   if(typeof document!=='undefined')document.dispatchEvent?.(new Event('mailboard:source-changed'))
@@ -59,7 +60,7 @@ function native():Invoke {
 function words(s:string) {
   return [...new Set(s.toLocaleLowerCase('de').match(/[\p{L}][\p{L}\p{N}-]{2,}/gu)||[])].filter(w=>!stop.has(w))
 }
-function features(m:AiMail):string[] {
+export function features(m:AiMail):string[] {
   const tokens=words(m.subject).map(w=>'w:'+w)
   if(m.sender)tokens.push('n:'+m.sender.trim().toLocaleLowerCase('de'))
   if(m.senderEmail){
@@ -107,7 +108,7 @@ function ruleForSender(address:string,folders:FolderInfo[],rulesList:unknown[]):
     }
   }
 }
-type LearnRow = { folder:string; features:string[]; id?:string; received?:string }
+export type LearnRow = { folder:string; features:string[]; id?:string; received?:string }
 const trainingKey='outlook-kanban-ai-training-v1'
 const statisticsKey='outlook-kanban-ai-statistics-v1'
 const sourceHints = new WeakMap<AiMail,Suggestion>()
@@ -158,21 +159,77 @@ export function recordFiling(mail:AiMail,folder:string) {
   // Outlook has already committed the move when this callback runs.
   try{
     localStorage.setItem(feedbackKey,JSON.stringify({rows:rows.slice(-3000)}))
+    // Lernbeispiel umhängen: Ein Lernbeispiel derselben Mail aus dem bisherigen Ordner zählt nicht mehr.
+    if(mail.id)dropTrainingRows(r=>r.id===mail.id&&r.folder!==folder)
     const hint=sourceHints.get(mail)
     if(hint?.folder){rate(hint.reason,hint.folder===folder);sourceHints.delete(mail)}
   }catch{ /* Local statistics are best effort if WebView storage is full. */ }
 }
+function dropTrainingRows(drop:(row:LearnRow)=>boolean){
+  const state=stored(trainingKey),rows=history(trainingKey),kept=rows.filter(r=>!drop(r))
+  if(kept.length!==rows.length)localStorage.setItem(trainingKey,JSON.stringify({...state,rows:kept}))
+}
+const rowKey=(r:LearnRow)=>JSON.stringify([r.id??'',r.received??'',r.features])
+/**
+ * Hängt die gespeicherten Lernbeispiele (Lernlauf und Ablagen) von Ordner `from` an Ordner `to` um, etwa beim Zusammenlegen (E4).
+ * Mit `only` nur die Beispiele mit diesen Kennungen. Liefert die Kennungen der umgehängten Beispiele für die Rücknahme.
+ */
+export function relabelLearning(from:string,to:string,only?:ReadonlySet<string>):string[]{
+  const moved:string[]=[]
+  if(!from||!to||from===to)return moved
+  for(const key of [trainingKey,feedbackKey]){
+    const state=stored(key),rows=history(key)
+    let changed=false
+    const next=rows.map(r=>{
+      if(r.folder!==from||(only&&!only.has(rowKey(r))))return r
+      changed=true;moved.push(rowKey(r));return {...r,folder:to}
+    })
+    try{if(changed)localStorage.setItem(key,JSON.stringify({...state,rows:next}))}catch{ /* Lernbeispiele sind nur ein Zwischenstand, E6 lernt neu. */ }
+  }
+  return moved
+}
+const excludedKey='mailboard-learn-excluded-v1'
+/** Kennungen (`embeddingId`) der Mails, die nach „Nicht lernen“ (E3) kein Lernbeispiel und kein Teil eines Ordnerprofils mehr sind. */
+export function learnExcluded():Set<string>{
+  const ids=stored(excludedKey).ids
+  return new Set(Array.isArray(ids)?ids.filter((id):id is string=>typeof id==='string'):[])
+}
+/** Lässt ausgeschlossene Mails weg. Gilt für die Lernbeispiele (`learnFolders`) und das Ordnerprofil (`trainCenter`). */
+export function withoutExcluded<T extends AiMail>(mails:T[],excluded:ReadonlySet<string>=learnExcluded()):T[]{
+  return excluded.size?mails.filter(m=>!excluded.has(embeddingId(m))):mails
+}
+/** „Nicht lernen“: merkt die Mails unter `mailboard-learn-excluded-v1` und entfernt ihre gespeicherten Lernbeispiele sofort. Falsch ohne Outlook oder Speicher. */
+export function excludeFromLearning(list:AiMail[]):boolean{
+  if(!liveSource)return false
+  if(!list.length)return true
+  try{
+    const ids=[...new Set([...learnExcluded(),...list.map(embeddingId)])].slice(-5000)
+    localStorage.setItem(excludedKey,JSON.stringify({ids}))
+    const drop=new Set(list.flatMap(m=>m.id?[m.id]:[]))
+    dropTrainingRows(r=>!!r.id&&drop.has(r.id))
+    const feedback=history()
+    if(feedback.some(r=>r.id&&drop.has(r.id)))localStorage.setItem(feedbackKey,JSON.stringify({rows:feedback.filter(r=>!(r.id&&drop.has(r.id)))}))
+    return true
+  }catch{return false}
+}
+/** Mindestzahl an Lernbeispielen, ab der Bayes einen Ordner vorschlägt. */
+export const BAYES_MIN_DOCS=3
 const weight=(token:string)=>token.startsWith('c:')?4:token.startsWith('e:')?2:1
-/** Multinomial Bayes over sender and subject, with the reference's minimum support and certainty. */
-function classifier(rows:LearnRow[]) {
-  const vocab=new Set<string>()
+/** Bayes-Ergebnis: `best` ist der Vorschlag nach den bisherigen Regeln, `probs` die Wahrscheinlichkeit je Ordner (bei Unterhaltungen der Stimmenanteil). */
+export type BayesVerdict={best?:Suggestion;probs:Map<string,number>}
+/**
+ * Multinomial Bayes over sender and subject, with the reference's minimum support and certainty.
+ * `without` lässt ein Lernbeispiel des Modells aus (Leave-one-out für die Ausreißerprüfung), ohne neu zu trainieren.
+ */
+export function bayesModel(rows:LearnRow[]) {
+  const vocab=new Map<string,number>()
   const groups=new Map<string,{docs:number;total:number;counts:Map<string,number>}>()
   const conversations=new Map<string,Map<string,number>>()
   for(const row of rows){
     const group=groups.get(row.folder)??{docs:0,total:0,counts:new Map<string,number>()}
     group.docs++;groups.set(row.folder,group)
     for(const token of row.features){
-      vocab.add(token)
+      vocab.set(token,(vocab.get(token)||0)+1)
       const w=weight(token);group.total+=w
       group.counts.set(token,(group.counts.get(token)||0)+w)
       if(token.startsWith('c:')){
@@ -181,20 +238,37 @@ function classifier(rows:LearnRow[]) {
       }
     }
   }
-  return (feat:string[]):Suggestion|undefined=>{
+  return (feat:string[],without?:LearnRow):BayesVerdict=>{
+    const own=new Map<string,number>()
+    for(const token of without?.features??[])own.set(token,(own.get(token)||0)+1)
+    const left=(token:string)=>(vocab.get(token)||0)-(own.get(token)||0)
     const conv=feat.find(t=>t.startsWith('c:'))
-    const matches=[...(conversations.get(conv||'')||[])].sort((a,b)=>b[1]-a[1])
-    if(matches.length && matches[0][1]>=3*(matches[1]?.[1]||0))return {folder:matches[0][0],reason:'Frühere Ablage dieser Unterhaltung'}
-    const known=feat.filter(t=>vocab.has(t))
-    if(!known.length||known.every(t=>t.startsWith('w:'))&&known.length<2)return
-    const ranked=[...groups.entries()].filter(([,g])=>g.docs>=3).map(([folder,g])=>{
-      const score=Math.log(g.docs)+known.reduce((n,t)=>n+weight(t)*Math.log(((g.counts.get(t)||0)+1)/(vocab.size+g.total)),0)
-      return {folder,score}
-    }).sort((a,b)=>b.score-a.score)
-    if(!ranked.length)return
-    const best=ranked[0],prob=1/ranked.reduce((n,r)=>n+Math.exp(r.score-best.score),0)
-    if(prob>=0.85)return {folder:best.folder,reason:'Aus früheren Ablagen gelernt'}
+    const votes=new Map(conversations.get(conv||''))
+    if(without&&conv&&own.has(conv))votes.set(without.folder,(votes.get(without.folder)||0)-own.get(conv)!)
+    const matches=[...votes].filter(([,n])=>n>0).sort((a,b)=>b[1]-a[1])
+    if(matches.length && matches[0][1]>=3*(matches[1]?.[1]||0)){
+      const total=matches.reduce((n,[,v])=>n+v,0)
+      return {best:{folder:matches[0][0],reason:'Frühere Ablage dieser Unterhaltung'},probs:new Map(matches.map(([f,v])=>[f,v/total]))}
+    }
+    const known=feat.filter(t=>left(t)>0)
+    if(!known.length||known.every(t=>t.startsWith('w:'))&&known.length<2)return {probs:new Map()}
+    const size=vocab.size-[...own.keys()].filter(t=>left(t)<=0).length
+    const ranked=[...groups.entries()].map(([folder,g])=>{
+      const mine=without?.folder===folder
+      const docs=mine?g.docs-1:g.docs
+      const total=mine?g.total-without.features.reduce((n,t)=>n+weight(t),0):g.total
+      const count=(t:string)=>(g.counts.get(t)||0)-(mine?weight(t)*(own.get(t)||0):0)
+      return {folder,docs,score:Math.log(docs)+known.reduce((n,t)=>n+weight(t)*Math.log((count(t)+1)/(size+total)),0)}
+    }).filter(g=>g.docs>=BAYES_MIN_DOCS).sort((a,b)=>b.score-a.score)
+    if(!ranked.length)return {probs:new Map()}
+    const best=ranked[0],sum=ranked.reduce((n,r)=>n+Math.exp(r.score-best.score),0)
+    const probs=new Map(ranked.map(r=>[r.folder,Math.exp(r.score-best.score)/sum]))
+    return {best:probs.get(best.folder)!>=0.85?{folder:best.folder,reason:'Aus früheren Ablagen gelernt'}:undefined,probs}
   }
+}
+function classifier(rows:LearnRow[]) {
+  const model=bayesModel(rows)
+  return (feat:string[]):Suggestion|undefined=>model(feat).best
 }
 function area(key:string){
   const first=key.replace(/\\/g,'/').split('/').filter(Boolean)[0]||''
@@ -231,8 +305,14 @@ type Tally={shown:number;correct:number}
 type Source='Regel'|'Bayes'|'Hybrid'|'Embedding'
 type Prediction={truth:string;id:string;folder:string;gap:number}
 type SemanticEvaluation={tested:number;missing:number;profiled:Tally;plain:Tally;predictions:Prediction[]}
-type EvaluationResult={tested:number;folders:number;combined:Tally;bayes:Tally;rule:Tally;sources:Partial<Record<Source,Tally>>;
-  embedding:Tally|null;plain:Tally|null;semanticTested:number;missing:number}
+/**
+ * `byFolder` zählt das Gesamtergebnis je Ordner der zurückgehaltenen Mails (`tested` = Testmails des Ordners).
+ * `confusion` zählt falsche Gesamtvorschläge als `confusion[richtiger Ordner][vorgeschlagener Ordner]`, Grundlage für
+ * Überschneidungen in E4. Ältere gespeicherte Messungen haben das Feld nicht.
+ */
+export type EvaluationResult={tested:number;folders:number;combined:Tally;bayes:Tally;rule:Tally;sources:Partial<Record<Source,Tally>>;
+  embedding:Tally|null;plain:Tally|null;semanticTested:number;missing:number;byFolder:Record<string,Tally&{tested:number}>;
+  confusion?:Record<string,Record<string,number>>}
 const tally=():Tally=>({shown:0,correct:0})
 function count(target:Tally,guess:string|undefined,truth:string){
   if(!guess)return
@@ -253,8 +333,10 @@ export function evaluateHoldout(rows:LearnRow[],targets:string[],configuredRules
   const evidence=new Map(semantics?.predictions.map(p=>[JSON.stringify([p.truth,p.id]),p]))
   const result:EvaluationResult={tested:test.length,folders:new Set(test.map(r=>r.folder)).size,
     combined:tally(),bayes:tally(),rule:tally(),sources:{},embedding:semantics?.profiled??null,plain:semantics?.plain??null,
-    semanticTested:semantics?.tested??0,missing:semantics?.missing??0}
+    semanticTested:semantics?.tested??0,missing:semantics?.missing??0,byFolder:{},confusion:{}}
   for(const row of test){
+    const own=result.byFolder[row.folder]??={tested:0,...tally()}
+    own.tested++
     const bayes=predict(row.features)?.folder, sender=row.features.find(f=>f.startsWith('e:'))?.slice(2)||''
     count(result.bayes,bayes,row.folder)
     const rule=hidden.includes('Regel')?undefined:ruleForSender(sender,destinations,configuredRules)?.folder
@@ -264,11 +346,13 @@ export function evaluateHoldout(rows:LearnRow[],targets:string[],configuredRules
     const final=rule?{folder:rule,source:'Regel' as const}:combineForecast(bayes,sem)
     if(!final||hidden.includes(final.source))continue
     count(result.combined,final.folder,row.folder)
+    count(own,final.folder,row.folder)
+    if(final.folder!==row.folder){const wrong=result.confusion![row.folder]??={};wrong[final.folder]=(wrong[final.folder]||0)+1}
     count(result.sources[final.source]??=tally(),final.folder,row.folder)
   }
   return result
 }
-function renderEvaluation(parent:HTMLElement,result:EvaluationResult){
+export function renderEvaluation(parent:HTMLElement,result:EvaluationResult){
   const table=document.createElement('table'),caption=document.createElement('caption')
   table.className='ai-evaluation'
   caption.textContent='Ablage-Testlauf · '+result.tested+' zurückgehaltene Mails aus '+result.folders+' Ordnern'
@@ -317,7 +401,7 @@ async function semanticScores(mail:AiMail,targets:FolderInfo[],cfg:Config){
 }
 async function trainCenter(folder:string,samples:AiMail[],ai:Config){
   const profile=folderInfo([folder])[0].profile, options=embeddingOptions()
-  const selected=samples.slice(0,Math.min(300,Math.max(1,Number(getLegacyConfig().embedding_samples)||150)))
+  const selected=withoutExcluded(samples).slice(0,Math.min(300,Math.max(1,Number(getLegacyConfig().embedding_samples)||150)))
   const weighted=selected.map((m,i)=>{
     const weight=options.recent&&selected.length>1?1-i/(2*(selected.length-1)):1
     return {text:embedText(m),weight}
@@ -342,26 +426,42 @@ export function trainFromFolders(folders:Folder[],progress?:(message:string)=>vo
   return training
 }
 function scopeStamp(folders:Folder[]){return JSON.stringify(folders.filter(f=>!f.isInbox&&allowed(f.path)).map(f=>[f.id,f.path]).sort())}
-async function learnFolders(folders:Folder[],progress?:(message:string)=>void) {
-  const epoch=sourceEpoch,invoke=native(), cfg=getLegacyConfig()
-  const limit=300
+/** Lernmails eines Lernordners aus `outlook_training`, ohne ausgeschlossene Mails. `error`, wenn Outlook den Ordner nicht liefern konnte. */
+export type TrainingFolder={folder:Folder;mails?:AiMail[];error?:string}
+/**
+ * Liest die Lernmails je Lernordner (bis zu 300 aus `learn_max_days`, Standard zwei Jahre) wie das Lernen selbst.
+ * Posteingang und `_`-Ordner zählen nicht. „Nicht lernen“-Mails fehlen bereits. Genutzt von `learnFolders` und der Ausreißerprüfung (E3).
+ */
+export async function trainingMails(folders:Folder[],progress?:(message:string)=>void):Promise<TrainingFolder[]>{
+  const epoch=sourceEpoch,invoke=native(),cfg=getLegacyConfig()
   const days=Math.max(0,Math.min(3650,Number(cfg.learn_max_days??730)))
+  const excluded=learnExcluded(),targets=folders.filter(f=>!f.isInbox && allowed(f.path)),result:TrainingFolder[]=[]
+  for(const [index,folder] of targets.entries()){
+    requireLive(epoch)
+    progress?.('Lese '+folder.path+' ('+(index+1)+'/'+targets.length+') …')
+    try{result.push({folder,mails:withoutExcluded(JSON.parse(await invoke<string>('outlook_training',{folder:folder.id,limit:300,days})),excluded)})}
+    catch(err){result.push({folder,error:String(err)})}
+  }
+  requireLive(epoch)
+  return result
+}
+async function learnFolders(folders:Folder[],progress?:(message:string)=>void) {
+  const epoch=sourceEpoch
+  requireLive(epoch)
   const known=history(trainingKey)
   const rows:LearnRow[]=[], failures:string[]=[],semanticFailures:string[]=[]
   const ai=config(),centers:Centers=Object.create(null), oldCenters=stored(centersKey) as Centers
   const targets=folders.filter(f=>!f.isInbox && allowed(f.path))
   if(!targets.length)throw new Error('Bitte Outlook laden und mindestens einen Lernordner auswählen.')
-  for(const [index,f] of targets.entries()){
+  for(const {folder:f,mails:samples,error} of await trainingMails(targets,progress)){
     requireLive(epoch)
-    progress?.('Lese '+f.path+' ('+(index+1)+'/'+targets.length+') …')
-    try{
-      const samples:AiMail[]=JSON.parse(await invoke<string>('outlook_training',{folder:f.id,limit,days}))
-      if(ai.enabled&&ai.embeddings&&samples.length){
-        try{centers[f.path]=await trainCenter(f.path,samples,ai)}
-        catch(e){semanticFailures.push(f.path+': '+String(e));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path]}
-      }
-      rows.push(...samples.map(m=>({folder:f.path,id:m.id,received:m.received,features:features(m)})))
-    }catch(err){failures.push(f.path+': '+String(err));rows.push(...known.filter(r=>r.folder===f.path));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path]}
+    if(!samples){failures.push(f.path+': '+error);rows.push(...known.filter(r=>r.folder===f.path));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path];continue}
+    if(ai.enabled&&ai.embeddings&&samples.length){
+      progress?.('Ordnerprofil für '+f.path+' …')
+      try{centers[f.path]=await trainCenter(f.path,samples,ai)}
+      catch(e){semanticFailures.push(f.path+': '+String(e));if(oldCenters[f.path])centers[f.path]=oldCenters[f.path]}
+    }
+    rows.push(...samples.map(m=>({folder:f.path,id:m.id,received:m.received,features:features(m)})))
   }
   requireLive(epoch)
   if(failures.length!==targets.length)localStorage.setItem(trainingKey,JSON.stringify({rows,stamp:Date.now(),scope:scopeStamp(folders)}))
@@ -392,7 +492,8 @@ export async function localChatModel() {
 }
 async function analyze(m:AiMail, folders:FolderInfo[],cfg:Config) {
   const invoke=native(), model=await activeModel(cfg)
-  return invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
+  const result=await invoke<Analysis>('ai_analyze',{url:cfg.url, model,mail:m,folders})
+  return {...result,aufgaben:Array.isArray(result.aufgaben)?result.aufgaben:[]}
 }
 
 const cacheKey='outlook-kanban-ai-cache-v1'
@@ -447,8 +548,8 @@ function cache(){
   return recent
 }
 // Keep content-sensitive invalidation without retaining mail bodies in the analysis cache.
-function signature(mail:AiMail){
-  let hash=2166136261
+function signature(mail:AiMail,seed=2166136261){
+  let hash=seed
   for(const value of [mail.subject,mail.sender,mail.body,mail.received||'']){
     for(let i=0;i<value.length;i++)hash=Math.imul(hash^value.charCodeAt(i),16777619)
     hash=Math.imul(hash,16777619)
@@ -467,7 +568,7 @@ function lookupAnalysis(mail:AiMail):Analysis|undefined {
     ordner:typeof old.folder==='string'?old.folder:null,arten:Array.isArray(old.types)?old.types.filter((v):v is string=>typeof v==='string'):[]}
 }
 function applyAnalysis(mail:AiMail,result:Analysis){
-  Object.assign(mail,{needsReply:result.antwort_noetig,deadline:result.frist||'',aiSummary:result.zusammenfassung,aiTypes:result.arten})
+  Object.assign(mail,{needsReply:result.antwort_noetig,deadline:result.frist||'',aiSummary:result.zusammenfassung,aiTypes:result.arten,aiTasks:openTasks(result.aufgaben,embeddingId(mail))})
 }
 function retainAnalysis(mail:AiMail,result:Analysis){
   const key=feedbackId(mail)
@@ -498,6 +599,29 @@ export function trustedFolderBatch(folders:string[]){
     const hide=Array.isArray(hidden)?hidden:[]
     const match=(!hide.includes('Regel')?rule(mail,targets.filter(f=>!ignored.includes(f.key))):undefined)||(!hide.includes('Bayes')?predict(features(mail)):undefined)
     return match&&!ignored.includes(match.folder)?match:undefined
+  }
+}
+/** Mindestanteil des Bayes-Favoriten für einen Vorschlag ohne hohe Sicherheit (`likelyFolderBatch`). */
+export const LIKELY_SHARE=0.5
+/**
+ * Vorschlag ohne hohe Sicherheit und ohne Modellaufruf, für das Einteilen des Posteingangs (E7): der Bayes-Favorit ab
+ * `LIKELY_SHARE` auch unter der Sicherheitsschwelle, sonst ein Begriff aus Ordnername oder Steckbrief. Abgelehnte Ordner zählen nicht.
+ */
+export function likelyFolderBatch(folders:string[]){
+  const epoch=sourceEpoch
+  if(!liveSource)return ()=>undefined
+  const targets=folderInfo(folders)
+  const all=new Set(targets.map(f=>f.key))
+  const model=bayesModel([...history(trainingKey),...history()].filter(r=>all.has(r.folder)))
+  return (mail:AiMail):Suggestion|undefined=>{
+    if(!current(epoch))return
+    const ignored=rejected(mail)
+    const hidden=getLegacyConfig().hidden_sources
+    if(!(Array.isArray(hidden)&&hidden.includes('Bayes'))){
+      const [best]=[...model(features(mail)).probs].filter(([f])=>!ignored.includes(f)).sort((a,b)=>b[1]-a[1])
+      if(best&&best[1]>=LIKELY_SHARE)return {folder:best[0],reason:'Aus früheren Ablagen, ohne hohe Sicherheit'}
+    }
+    return lexical(mail,targets.filter(f=>!ignored.includes(f.key)))
   }
 }
 export function trustedFolder(mail:AiMail,folders:string[]){
@@ -588,7 +712,7 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
   container.append(button,feedback,types)
   const cached=lookupAnalysis(mail)
   if(cached)show(cached)
-  button.onclick=async()=>{
+  const run=async()=>{
     if(!current(epoch))return
     button.disabled=true
     feedback.textContent='Lokale KI wertet die Mail aus …'
@@ -600,6 +724,9 @@ export function renderAnalysis(container:HTMLElement, mail:AiMail, folders:strin
     }catch(error){feedback.textContent=String(error)}
     finally{button.disabled=false}
   }
+  button.onclick=run
+  // Ältere Analysen kennen keine Aufgaben. Beim Öffnen der Details werden sie einmal neu berechnet.
+  if(cached&&!Array.isArray(cached.aufgaben))void run()
   if(openDraft){
     const generate=document.createElement('button');generate.type='button';generate.textContent='KI-Antwort entwerfen'
     const draft=document.createElement('textarea');draft.hidden=true;draft.rows=6;draft.setAttribute('aria-label','KI-Antwort vor dem Öffnen bearbeiten')
@@ -658,6 +785,11 @@ function reportQueue(text:string){queueStatus=text;const node=document.getElemen
 export async function queueAnalyses(){
   if(!liveSource)return
   const epoch=sourceEpoch
+  await analysisQueue()
+  if(current(epoch)&&!processing)await queueEmbeddings()
+}
+async function analysisQueue(){
+  const epoch=sourceEpoch
   scheduleLearning()
   const cfg=config()
   if(!cfg.enabled||!cfg.auto||processing||!readBoard)return
@@ -675,26 +807,175 @@ export async function queueAnalyses(){
   }catch(error){if(current(epoch))reportQueue('Hintergrundanalyse angehalten. '+String(error))}
   finally{if(current(epoch))processing=false}
 }
-export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[]) {
+/** Stable across Outlook moves (new EntryID): two content hashes of subject, sender, body and receipt time. */
+export function embeddingId(mail:AiMail){return signature(mail)+'.'+signature(mail,0x5bd1e995)}
+/** Mails still to embed: newest first, each content only once, already embedded ones skipped. */
+export function pendingEmbeddings(mails:AiMail[],done:ReadonlySet<string>):AiMail[]{
+  const seen=new Set(done)
+  return mails.filter(m=>{const id=embeddingId(m);if(seen.has(id))return false;seen.add(id);return true})
+    .sort((a,b)=>(b.received||'').localeCompare(a.received||''))
+}
+const embedBatch=16
+let embedding=false, embeddedStamp=''
+const embedded=new Set<string>()
+function embeddingsOn(cfg:Config){return mailboxMode==='outlook'&&cfg.enabled&&cfg.embeddings}
+const embeddingStamp=(cfg:Config)=>JSON.stringify([cfg.embedUrl,cfg.embedModel,embeddingOptions()])
+/** Vectors live in the Rust cache; this only remembers which contents were sent for the current model and text options. */
+function embeddedFor(cfg:Config){
+  const stamp=embeddingStamp(cfg)
+  if(stamp!==embeddedStamp){embedded.clear();embeddedStamp=stamp}
+  return embedded
+}
+export async function queueEmbeddings(){
+  if(!liveSource)return
+  const epoch=sourceEpoch, cfg=config()
+  if(!embeddingsOn(cfg)||embedding||!readBoard)return
+  embedding=true
+  try{
+    const done=embeddedFor(cfg), pending=pendingEmbeddings(readBoard(),done)
+    if(!pending.length)return
+    const invoke=native(), stamp=embeddedStamp
+    for(let i=0;i<pending.length;i+=embedBatch){
+      if(!current(epoch)||!embeddingsOn(config())||embeddingStamp(config())!==stamp)return
+      const batch=pending.slice(i,i+embedBatch)
+      reportQueue('Einbettung '+(i+batch.length)+' von '+pending.length+' …')
+      await invoke<number>('ai_embed',{url:cfg.embedUrl,model:cfg.embedModel,items:batch.map(m=>({id:embeddingId(m),text:embedText(m)}))})
+      if(current(epoch)&&embeddedStamp===stamp){for(const m of batch)done.add(embeddingId(m));if(typeof document!=='undefined')document.dispatchEvent?.(new CustomEvent('mailboard:embedding-progress'))}
+    }
+    if(current(epoch)){reportQueue('Einbettung abgeschlossen.');if(typeof document!=='undefined')document.dispatchEvent(new CustomEvent('mailboard:embedded'))}
+  }catch(error){if(current(epoch))reportQueue('Einbettung angehalten. '+String(error))}
+  finally{if(current(epoch))embedding=false}
+}
+export type GroupMatch={id:string;best:string;score:number;margin:number}
+type IndexItem={id:string;text:string}
+/** Ids are `embeddingId(mail)` of loaded board mails; unknown ids are ignored. */
+function indexItems(ids:string[]):IndexItem[]{
+  const board=new Map((readBoard?.()||[]).map(m=>[embeddingId(m),m]))
+  return [...new Set(ids)].flatMap(id=>{const m=board.get(id);return m?[{id,text:embedText(m)}]:[]})
+}
+async function indexCall<T>(command:string,args:Record<string,unknown>,items:IndexItem[]):Promise<T>{
+  const invoke=native(), cfg=config()
+  if(!embeddingsOn(cfg))throw new Error('Bitte die lokale KI und Embeddings in den Einstellungen aktivieren.')
+  const done=embeddedFor(cfg), stamp=embeddedStamp
+  const result=await invoke<T>(command,{url:cfg.embedUrl,model:cfg.embedModel,...args})
+  if(embeddedStamp===stamp)for(const item of items)done.add(item.id)
+  return result
+}
+/** Similarity over the background embeddings; vectors stay in Rust, only scores come back. */
+export const embeddingIndex={
+  ready(ids:string[]):string[]{
+    const cfg=config()
+    if(!liveSource||!embeddingsOn(cfg))return []
+    const done=embeddedFor(cfg)
+    return ids.filter(id=>done.has(id))
+  },
+  rank(query:string,ids:string[]):Promise<{id:string;score:number}[]>{
+    const items=indexItems(ids)
+    return indexCall('ai_rank',{query,items},items)
+  },
+  /** Ähnlichkeit der Mails `ids` zum Text von `mail` (K5, „Ähnliche Mails“). */
+  similar(mail:AiMail,ids:string[]):Promise<{id:string;score:number}[]>{return this.rank(embedText(mail),ids)},
+  groups(groups:{name:string;ids:string[]}[],ids:string[]):Promise<GroupMatch[]>{
+    const sets=groups.map(g=>({name:g.name,items:indexItems(g.ids)})), items=indexItems(ids)
+    return indexCall('ai_groups',{groups:sets,items},[...sets.flatMap(g=>g.items),...items])
+  },
+}
+/** Verdächtige Lernmail (E3). `id` ist `embeddingId(mail)`, `own`/`other` die Ähnlichkeit zum eigenen bzw. besten fremden Profil. */
+export type Outlier={id:string;folder:string;suggested:string;own:number;other:number}
+/** Ob Embeddings eingeschaltet sind. Ohne sie prüft die Ausreißerprüfung mit Bayes. */
+export function embeddingsEnabled(){return liveSource&&embeddingsOn(config())}
+/**
+ * Ausreißer über den Vektor-Cache (`ai_outliers`): Ähnlichkeit zum eigenen Profil ohne die Mail gegen das beste fremde Profil.
+ * Verdächtig ab `margin` Vorsprung und über der Ablageschwelle (`embedding_threshold`). Gleicher Einbettungstext wie beim Lernen.
+ */
+export async function embeddingOutliers(groups:{key:string;mails:AiMail[]}[],margin=0.05):Promise<Outlier[]>{
+  const invoke=native(),cfg=config()
+  if(!embeddingsOn(cfg))throw new Error('Bitte die lokale KI und Embeddings in den Einstellungen aktivieren.')
+  return invoke<Outlier[]>('ai_outliers',{url:cfg.embedUrl,model:cfg.embedModel,threshold:Number(getLegacyConfig().embedding_threshold??0.78),margin,
+    folders:groups.map(g=>({key:g.key,items:g.mails.map(m=>({id:embeddingId(m),text:embedText(m)}))}))})
+}
+/** Start der Gruppierung: Mails mit Kosinus ab diesem Wert zum Gruppenmittel gehören zusammen. */
+export const CLUSTER_THRESHOLD=0.82
+/** Gruppen mit weniger Mails entfallen. */
+export const CLUSTER_MIN=5
+/**
+ * Gruppen ähnlicher Mails über den Vektor-Cache (`ai_clusters`), größte zuerst (E4, neue Ordner aus dem Posteingang).
+ * Mails mit gleichem Einbettungstext zählen als eine Anfrage und landen zusammen in einer Gruppe.
+ */
+export async function embeddingClusters<T extends AiMail>(mails:T[],minSize=CLUSTER_MIN,threshold=CLUSTER_THRESHOLD):Promise<T[][]>{
+  const invoke=native(),cfg=config()
+  if(!embeddingsOn(cfg))throw new Error('Bitte die lokale KI und Embeddings in den Einstellungen aktivieren.')
+  const byId=new Map<string,T[]>()
+  for(const m of mails){const id=embeddingId(m);byId.set(id,[...(byId.get(id)??[]),m])}
+  const items=[...byId.keys()].map(id=>({id,text:embedText(byId.get(id)![0])}))
+  const found=await invoke<{ids:string[]}[]>('ai_clusters',{url:cfg.embedUrl,model:cfg.embedModel,items,minSize,threshold})
+  return found.map(c=>c.ids.flatMap(id=>byId.get(id)??[])).filter(g=>g.length>=minSize)
+}
+/**
+ * Namensvorschlag der lokalen KI für eine Gruppe von Posteingangsmails (E4, `ai_cluster_name`) aus bis zu 20 Betreffs.
+ * Der Aufrufer prüft das Ergebnis mit `cleanFolderName` und auf Dubletten.
+ */
+export async function suggestClusterName(subjects:string[]){
+  const invoke=native(),cfg=config(),model=await activeModel(cfg)
+  return invoke<string>('ai_cluster_name',{url:cfg.url,model,subjects:subjects.map(s=>s.slice(0,200)).filter(s=>s.trim()).slice(0,20)})
+}
+/**
+ * Gespeicherte Ordnerprofile (Zentroiden aus dem Lernlauf) der Ordner `keys`, nur passend zum aktuellen Embedding-Modell
+ * und nur mit eingeschalteten Embeddings. Grundlage für ähnliche Ordner in E4, ohne neuen Modellaufruf.
+ */
+export function profileVectors(keys:string[]):Record<string,number[]>{
+  const cfg=config()
+  if(!liveSource||!embeddingsOn(cfg))return {}
+  const state=stored(centersKey) as Centers,options=JSON.stringify(embeddingOptions())
+  return Object.fromEntries(keys.flatMap(key=>{
+    const c=state[key]
+    return c&&Array.isArray(c.vector)&&c.url===cfg.embedUrl&&c.model===cfg.embedModel&&c.options===options?[[key,c.vector]]:[]
+  }))
+}
+/**
+ * Namensvorschlag der lokalen KI für einen Ordner mit unklarem Namen (E4, `ai_folder_name`) aus Steckbrief und bis zu
+ * 20 Beispielbetreffs. Der Aufrufer prüft das Ergebnis mit `cleanFolderName` und auf Dubletten.
+ */
+export async function suggestFolderName(folder:Folder){
+  const invoke=native(),cfg=config(),model=await activeModel(cfg)
+  const mails:AiMail[]=JSON.parse(await invoke<string>('outlook_training',{folder:folder.id,limit:20,days:0}))
+  const subjects=mails.map(m=>(m.subject||'').slice(0,200)).filter(s=>s.trim())
+  if(!subjects.length)throw new Error('Im Ordner „'+(folder.path||folder.name)+'“ fehlen Mails für einen Namensvorschlag.')
+  const profile=folderInfo([folder.path])[0]?.profile??''
+  return invoke<string>('ai_folder_name',{url:cfg.url,model,key:folder.path,profile,subjects})
+}
+export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   learningFolders=getTrainingFolders
-  const panel=document.createElement('div')
-  container.replaceChildren(panel)
+  const panel=document.createElement('div'),learnPanel=learningContainer===container?panel:document.createElement('div')
+  container.append(panel);if(learnPanel!==panel)learningContainer.append(learnPanel)
   refreshAiPanel=()=>{
-    panel.replaceChildren()
-    if(liveSource)renderLiveAiSettings(panel,getTrainingFolders)
+    panel.replaceChildren();learnPanel.replaceChildren()
+    if(liveSource)renderLiveAiSettings(panel,getTrainingFolders,learnPanel)
+    else renderOfflineAiSettings(panel)
   }
   refreshAiPanel()
 }
-function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[]) {
+function renderOfflineAiSettings(container:HTMLElement) {
+  const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen';test.disabled=true
+  const note=document.createElement('p');note.className='field-hint';note.textContent='Die lokale KI gibt es nur mit geöffnetem Outlook-Postfach.'
+  container.append(note,test)
+}
+const sampleMail:AiMail={subject:'Rückfrage zur Lieferung',sender:'Beispiel Lieferant',body:'Guten Tag, wann wird unsere Bestellung 4711 geliefert? Bitte um kurze Rückmeldung bis Freitag.'}
+function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   const epoch=sourceEpoch
   const cfg=config()
   const section=document.createElement('fieldset')
   section.className='ai-section'
-  const legend=document.createElement('legend');legend.textContent='Lokale KI · Ollama oder llama.cpp'
+  const legend=document.createElement('legend');legend.textContent='Lokale KI · Ollama, llama.cpp oder LM Studio'
   section.append(legend)
-  const bool=(title:string,v:boolean)=>{
+  const bool=(title:string,v:boolean,hint?:string,target:HTMLElement=section)=>{
     const label=document.createElement('label'),input=document.createElement('input')
-    input.type='checkbox';input.checked=v;label.append(input,' '+title);section.append(label);return input
+    input.type='checkbox';input.checked=v;label.append(input,' '+title);target.append(label)
+    if(hint){
+      const note=document.createElement('p');note.className='field-hint';note.textContent=hint
+      note.id='hint-'+title.replace(/\W+/g,'-').toLowerCase();input.setAttribute('aria-describedby',note.id);target.append(note)
+    }
+    return input
   }
   const field=(title:string,v:string)=>{
     const label=document.createElement('label'),input=document.createElement('input')
@@ -704,21 +985,38 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const url=field('Adresse des lokalen Modellservers',cfg.url)
   const model=field('Sprachmodell',cfg.model)
   model.placeholder='Automatisch auswählen'
-  const autoLearn=bool('Lernordner stündlich aktualisieren',cfg.autoLearn)
+  const learnSection=document.createElement('div')
+  const autoLearn=bool('Lernordner stündlich aktualisieren',cfg.autoLearn,'Liest die Lernordner jede Stunde neu ein.',learnSection)
   const trainingState=document.createElement('p');trainingState.id='aiTrainingState';trainingState.setAttribute('role','status')
-  trainingState.textContent=lastTraining;section.append(trainingState)
-  const auto=bool('Geladene Outlook-Mails im Hintergrund analysieren',cfg.auto)
+  trainingState.textContent=lastTraining;learnSection.append(trainingState)
+  const auto=bool('Geladene Outlook-Mails im Hintergrund analysieren',cfg.auto,'Analysiert geladene Mails nacheinander mit dem Sprachmodell. Belastet Rechner und Grafikkarte, solange sie läuft.')
   const queue=document.createElement('p');queue.id='aiQueueState';queue.setAttribute('role','status');queue.textContent=queueStatus;section.append(queue)
-  const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings)
+  const embeddings=bool('Ordner mit Embeddings vergleichen',cfg.embeddings,'Vergleicht Mails mit gelernten Ordnerprofilen und bettet geladene Mails im Hintergrund ein. Schnell, braucht das Embedding-Modell.')
   const embedModel=field('Embedding-Modell',cfg.embedModel)
   const embedUrl=field('Adresse des lokalen Embedding-Servers',cfg.embedUrl)
   const list=document.createElement('datalist')
   list.id='local-models-list';model.setAttribute('list',list.id);embedModel.setAttribute('list',list.id)
   const check=document.createElement('button');check.type='button';check.textContent='Lokale Modelle laden'
   const save=document.createElement('button');save.type='button';save.textContent='KI-Einstellungen speichern'
+  const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen'
   const feedback=document.createElement('p');feedback.setAttribute('role','status')
-  section.append(list,check,save,feedback);container.append(section)
-  renderLearning(container,getTrainingFolders)
+  section.append(list,check,test,save,feedback);container.append(section)
+  learningContainer.append(learnSection)
+  renderLearning(learningContainer,getTrainingFolders)
+  test.onclick=async()=>{
+    test.disabled=true;feedback.textContent='Verbindung wird getestet …'
+    try{
+      const probe={...config(),enabled:on.checked,url:url.value.trim(),model:model.value.trim(),embedModel:embedModel.value.trim()}
+      const names=await native()<string[]>('ai_models',{url:probe.url})
+      const chat=await activeModel(probe)
+      const embed=names.some(n=>n===probe.embedModel||n.replace(/:latest$/,'')===probe.embedModel.replace(/:latest$/,''))
+      const started=performance.now()
+      await analyze(sampleMail,[],probe)
+      const seconds=((performance.now()-started)/1000).toLocaleString('de-DE',{maximumFractionDigits:1})
+      if(current(epoch))feedback.textContent='Outlook: verbunden · Sprachmodell: '+chat+' · Embedding-Modell '+probe.embedModel+': '+(embed?'vorhanden':'nicht gefunden')+' · Antwortzeit: '+seconds+' s'
+    }catch(error){if(current(epoch))feedback.textContent='Verbindung fehlgeschlagen: '+(error instanceof Error?error.message:String(error))}
+    finally{test.disabled=false}
+  }
   check.onclick=async()=>{
     check.disabled=true;feedback.textContent='Lokaler Modellserver wird geprüft …'
     try{
@@ -742,6 +1040,50 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   }
 }
 
+/** Ergebnis eines Testlaufs: Auswertung, Lernbeispiele je Ordner und ein Hinweis zum Semantikvergleich. */
+export type Measurement={date:string;report:EvaluationResult;samples:Record<string,number>;note:string}
+/**
+ * Testlauf auf den gespeicherten Lernbeispielen: je Ordner bleiben die zehn neuesten Mails zurück (`evaluateHoldout`).
+ * Mit lokaler KI und Embeddings fließt der Vektorvergleich ein, sonst nur Bayes und Regeln. Speichert das Ergebnis für die Ablage-Auswertung.
+ */
+export async function measureLearning(folders?:Folder[],progress?:(message:string)=>void):Promise<Measurement>{
+  const epoch=sourceEpoch
+  requireLive(epoch)
+  const cfg=config(),legacy=getLegacyConfig(),rows=history(trainingKey)
+  const scope=folders?.map(f=>f.path)??[...new Set(rows.map(r=>r.folder))]
+  const targets=scope.filter(allowed),valid=new Set(targets),{test}=splitHoldout(rows.filter(r=>valid.has(r.folder)))
+  if(!test.length)throw new Error('Für den Testlauf braucht ein gewählter Lernordner mindestens 13 Beispiele (10 für den Test, mindestens 3 zum Lernen).')
+  const heldByFolder=new Map<string,Set<string>>()
+  for(const row of test){
+    if(!row.id)continue
+    const ids=heldByFolder.get(row.folder)??new Set<string>();ids.add(row.id);heldByFolder.set(row.folder,ids)
+  }
+  const centers=stored(centersKey) as Centers,options=JSON.stringify(embeddingOptions())
+  const semanticFolders=Object.entries(centers).flatMap(([key,c])=>{
+    if(!valid.has(key)||!c.index||c.memberIds?.length!==c.index.members.length||c.url!==cfg.embedUrl||c.model!==cfg.embedModel||c.options!==options)return []
+    const ids=heldByFolder.get(key)
+    const held=Object.fromEntries(c.memberIds.flatMap((id,i)=>ids?.has(id)?[[i,id]]:[]))
+    return [{key,index:c.index,held}]
+  })
+  let semantic:SemanticEvaluation|undefined
+  if(cfg.enabled&&cfg.embeddings&&semanticFolders.length){
+    progress?.('Gespeicherte Vektoren werden mit den zurückgehaltenen Mails verglichen …')
+    semantic=await native()<SemanticEvaluation>('ai_holdout',{folders:semanticFolders,weight:embeddingOptions().profileWeight,
+      threshold:Number(legacy.embedding_threshold??0.78),margin:Number(legacy.embedding_min_margin??0.03)})
+  }
+  requireLive(epoch)
+  const hidden=Array.isArray(legacy.hidden_sources)?legacy.hidden_sources.map(String):[]
+  const report=evaluateHoldout(rows,targets,rules(),hidden,semantic)
+  const note=cfg.enabled&&cfg.embeddings&&!semanticFolders.length?' Für den Semantikvergleich bitte die Lernordner aktualisieren.':''
+  const date=new Date().toLocaleDateString('de')
+  const stats=stored(statisticsKey)
+  localStorage.setItem(statisticsKey,JSON.stringify({...stats,evaluation:{date,report}}))
+  const samples:Record<string,number>=Object.fromEntries(targets.map(key=>[key,0]))
+  for(const row of rows)if(valid.has(row.folder))samples[row.folder]++
+  return {date,report,samples,note}
+}
+/** Ob die lokale KI eingeschaltet ist. Ohne sie lernt und misst das Board nur mit Bayes und Regeln. */
+export function localAiEnabled(){return config().enabled}
 export function renderLearningDashboard(container:HTMLElement){
   if(!liveSource){
     const note=document.createElement('p');note.textContent='Die Ablage-Auswertung verwendet die Lernordner deines geöffneten Outlook-Postfachs.'
@@ -841,36 +1183,10 @@ function renderLearning(container:HTMLElement,getTrainingFolders?:()=>Folder[],e
     if(!current(epoch))return
     evaluate.disabled=true
     try{
-      const cfg=config(),legacy=getLegacyConfig(),rows=history(trainingKey)
-      const scope=getTrainingFolders?.()?.map(f=>f.path)??[...new Set(rows.map(r=>r.folder))]
-      const targets=scope.filter(allowed),valid=new Set(targets),{test}=splitHoldout(rows.filter(r=>valid.has(r.folder)))
-      if(!test.length){status.textContent='Für den Testlauf braucht ein gewählter Lernordner mindestens 13 Beispiele (10 für den Test, mindestens 3 zum Lernen).';return}
-      const heldByFolder=new Map<string,Set<string>>()
-      for(const row of test){
-        if(!row.id)continue
-        const ids=heldByFolder.get(row.folder)??new Set<string>();ids.add(row.id);heldByFolder.set(row.folder,ids)
-      }
-      const centers=stored(centersKey) as Centers,options=JSON.stringify(embeddingOptions())
-      const folders=Object.entries(centers).flatMap(([key,c])=>{
-        if(!valid.has(key)||!c.index||c.memberIds?.length!==c.index.members.length||c.url!==cfg.embedUrl||c.model!==cfg.embedModel||c.options!==options)return []
-        const ids=heldByFolder.get(key)
-        const held=Object.fromEntries(c.memberIds.flatMap((id,i)=>ids?.has(id)?[[i,id]]:[]))
-        return [{key,index:c.index,held}]
-      })
-      let semantic:SemanticEvaluation|undefined
-      if(cfg.enabled&&cfg.embeddings&&folders.length){
-        status.textContent='Gespeicherte Vektoren werden mit den zurückgehaltenen Mails verglichen …'
-        semantic=await native()<SemanticEvaluation>('ai_holdout',{folders,weight:embeddingOptions().profileWeight,
-          threshold:Number(legacy.embedding_threshold??0.78),margin:Number(legacy.embedding_min_margin??0.03)})
-      }
-      const hidden=Array.isArray(legacy.hidden_sources)?legacy.hidden_sources.map(String):[]
-      const report=evaluateHoldout(rows,targets,rules(),hidden,semantic)
-      const additional=cfg.enabled&&cfg.embeddings&&!folders.length?' Für den Semantikvergleich bitte die Lernordner aktualisieren.':''
-      status.textContent='Testlauf abgeschlossen. '+report.combined.correct+' richtige Ablagen bei '+report.combined.shown+' Vorschlägen.'+additional
-      const stats=stored(statisticsKey)
-      localStorage.setItem(statisticsKey,JSON.stringify({...stats,evaluation:{date:new Date().toLocaleDateString('de'),report}}))
+      const {report,note}=await measureLearning(getTrainingFolders?.(),text=>{status.textContent=text})
+      status.textContent='Testlauf abgeschlossen. '+report.combined.correct+' richtige Ablagen bei '+report.combined.shown+' Vorschlägen.'+note
       refresh()
-    }catch(error){status.textContent=String(error)}
+    }catch(error){status.textContent=error instanceof Error?error.message:String(error)}
     finally{evaluate.disabled=false}
   }
 }

@@ -93,6 +93,8 @@ def check_board(page, base_url, font_size):
     settings = page.locator("#settingsDialog")
     expect(settings).to_be_visible()
     assert settings.evaluate("(dialog) => dialog.scrollWidth <= dialog.clientWidth + 1")
+    for title in ["Outlook", "Board", "Lokale KI", "Lernen", "Darstellung"]:
+        assert settings.locator("h3", has_text=title).count() == 1
     settings.get_by_label("Echte Mails verschieben erlauben").focus()
     expect(settings.get_by_label("Echte Mails verschieben erlauben")).to_be_in_viewport()
     page.keyboard.press("Escape")
@@ -108,6 +110,7 @@ if __name__ == "__main__":
                 browser = pw.chromium.launch(executable_path=os.getenv("CHROMIUM") or shutil.which("chromium"))
                 for width, height, font in [(1920, 1080, 16), (1280, 720, 16), (960, 640, 24), (680, 480, 24)]:
                     page = browser.new_page(viewport={"width": width, "height": height})
+                    page.add_init_script("localStorage.setItem('board.layout.intro','1')")
                     errors = []
                     page.on("pageerror", lambda error: errors.append(str(error)))
                     check_board(page, f"http://127.0.0.1:{server.server_port}", font)

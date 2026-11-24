@@ -45,7 +45,9 @@ internal sealed class BoardCommands
             foreach(string id in keys) board.AddRange(BoardRows(Folder(id),days,done,limit));
             return board;
         case "--backlog":
+            // Älteste zuerst. Ohne Parameter wie bisher die ältesten 300, sonst Grenze und Versatz für das seitenweise Lesen.
             if(args.Length==1) return FolderCards(inbox,true,0,0,300);
+            if(args.Length==3) return FolderCards(inbox,true,0,0,Range(args[1],1,5000),Range(args[2],0,100000));
             break;
         case "--training":
             if(args.Length==4) return Training(Folder(args[1]),Range(args[2],0,5000),Range(args[3],0,36500));
@@ -129,13 +131,20 @@ internal sealed class BoardCommands
                 string key = isInbox ? "" : relative == null ? full :
                     (relative.Length == 0 ? name : relative + "/" + name);
                 result.Add(new { id, name, path = key, isInbox,
-                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID });
+                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID, count = ItemCount((object)sub) });
                 if (depth < 8) ChildFolders(sub, full, isInbox || relative != null ? key : null, depth+1, result);
             } catch (COMException ex) {
                 // A delegated folder may be visible in the tree without read access.
                 if (ex.ErrorCode != unchecked((int)0x80070005)) throw;
             }
         }
+    }
+
+    // Number of items in the folder for the setup (E1, E4). Null if Outlook cannot count it.
+    private static int? ItemCount(object folder)
+    {
+        try { return (int)((dynamic)folder).Items.Count; }
+        catch (COMException) { return null; }
     }
 
     private dynamic Mail(string id, string expected)
@@ -605,7 +614,7 @@ internal sealed class BoardCommands
     }
 
     private IEnumerable<object> SafeCards(object folder, object collection, int scan, DateTime? cutoff,
-        int doneDays, bool requireStatus, bool backlog, HashSet<string> seen=null)
+        int doneDays, bool requireStatus, bool backlog, HashSet<string> seen=null, int skip=0)
     {
         foreach(dynamic mail in Walk(collection,scan)) {
             object card;
@@ -618,6 +627,9 @@ internal sealed class BoardCommands
                 if(status=="Erledigt" && (backlog || DoneExpired(mail,doneDays))) continue;
                 string id=(string)mail.EntryID;
                 if(seen!=null && seen.Contains(id)) continue;
+                // Versatz: übersprungene Mails zählen wie gelieferte, werden aber nicht vollständig gelesen.
+                // Der Betreff ist die Lesbarkeitsprobe, damit unlesbare Mails auf keiner Seite zählen.
+                if(skip>0) { GC.KeepAlive((string)mail.Subject); skip--; continue; }
                 card=Card(mail,folder,all,status);
                 if(seen!=null) seen.Add(id);
             } catch(Exception ex) {
@@ -628,12 +640,12 @@ internal sealed class BoardCommands
         }
     }
 
-    private List<object> FolderCards(dynamic folder,bool backlog,int days,int doneDays,int limit)
+    private List<object> FolderCards(dynamic folder,bool backlog,int days,int doneDays,int limit,int offset=0)
     {
         dynamic items=folder.Items;
         items.Sort("[ReceivedTime]",!backlog);
         DateTime? cutoff=days>0 ? (DateTime?)DateTime.Now.AddDays(-days) : null;
-        return SafeCards((object)folder,(object)items,limit*4,cutoff,doneDays,false,backlog).Take(limit).ToList();
+        return SafeCards((object)folder,(object)items,(offset+limit)*4,cutoff,doneDays,false,backlog,null,offset).Take(limit).ToList();
     }
 
     private static bool DoneExpired(dynamic mail,int days)

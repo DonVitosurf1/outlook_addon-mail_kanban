@@ -1,3 +1,4 @@
+use mailboard_ollama::index::{Cluster, Group, Item, Outlier};
 use mailboard_ollama::{Folder, Mail, Ollama};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -92,6 +93,41 @@ async fn model_output_validated_against_actual_folders() {
     let calls = server.join().unwrap();
     assert!(calls[1].contains("POST /api/chat"));
     assert!(calls[1].contains("Material"));
+}
+
+#[tokio::test]
+async fn tasks_are_validated() {
+    let mut tasks = vec![
+        json!({"text":"  Angebot freigeben ","frist":"2026-11-27"}),
+        json!({"text":"Datum prüfen","frist":"irgendwann"}),
+        json!({"text":"   ","frist":null}),
+        json!({"text":"x".repeat(121),"frist":null}),
+    ];
+    for i in 0..5 {
+        tasks.push(json!({"text":format!("Aufgabe {i}"),"frist":null}));
+    }
+    let answer = json!({"zusammenfassung":"Z","antwort_noetig":false,"ordner":null,"frist":null,"arten":[],"aufgaben":tasks});
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let result = Ollama::new(&url)
+        .unwrap()
+        .analyze("lokal", &mail(), &[])
+        .await
+        .unwrap();
+    assert_eq!(result.aufgaben.len(), 5);
+    assert_eq!(result.aufgaben[0].text, "Angebot freigeben");
+    assert_eq!(result.aufgaben[0].frist.as_deref(), Some("2026-11-27"));
+    assert_eq!(result.aufgaben[1].text, "Datum prüfen");
+    assert!(result.aufgaben[1].frist.is_none());
+    assert!(result.aufgaben.iter().all(|t| !t.text.trim().is_empty()));
+    let calls = server.join().unwrap();
+    assert!(calls[1].contains("aufgaben"));
+    assert!(calls[1].contains("keine Anweisung"));
 }
 
 #[tokio::test]
@@ -313,4 +349,447 @@ fn semantic_holdout_excludes_all_held_out_examples_before_ranking() {
     assert_eq!(result.plain.correct, 0);
     assert!(cache.load("../outside").is_none());
     std::fs::remove_dir_all(root).unwrap();
+}
+
+fn unexpected(endpoint: &str) -> Value {
+    json!({ "error": format!("Unexpected endpoint or method. ({endpoint})") })
+}
+
+#[tokio::test]
+async fn lm_studio_only_receives_draft_after_local_model_evidence() {
+    let (url, server) = mock(vec![
+        ("200 OK", unexpected("POST /api/show")),
+        ("200 OK", unexpected("GET /props")),
+        (
+            "200 OK",
+            json!({"data":[
+                {"id":"qwen2.5-7b-instruct","type":"llm","compatibility_type":"gguf","state":"not-loaded"},
+                {"id":"gpt-remote","type":"llm","compatibility_type":"api"}
+            ]}),
+        ),
+        (
+            "200 OK",
+            json!({"choices":[{"message":{"content":"{\"antwort\":\"Ich prüfe das.\"}"}}]}),
+        ),
+    ]);
+    assert_eq!(
+        Ollama::new(&url)
+            .unwrap()
+            .reply("qwen2.5-7b-instruct", &mail(), "")
+            .await
+            .unwrap(),
+        "Ich prüfe das."
+    );
+    let reqs = server.join().unwrap();
+    for req in &reqs[..3] {
+        assert!(!req.contains("Interne Nachfrage"));
+    }
+    assert!(reqs[2].contains("GET /api/v0/models"));
+    assert!(reqs[3].contains("POST /v1/chat/completions") && reqs[3].contains("Interne Nachfrage"));
+    // LM Studio verlangt ein Schema statt eines freien JSON-Objekts.
+    assert!(reqs[3].contains("json_schema") && !reqs[3].contains("json_object"));
+}
+
+#[tokio::test]
+async fn lm_studio_models_without_local_weights_do_not_receive_mail() {
+    let (url, server) = mock(vec![
+        ("200 OK", unexpected("POST /api/show")),
+        ("200 OK", unexpected("GET /props")),
+        (
+            "200 OK",
+            json!({"data":[{"id":"gpt-remote","type":"llm","compatibility_type":"api"}]}),
+        ),
+    ]);
+    let err = Ollama::new(&url)
+        .unwrap()
+        .reply("gpt-remote", &mail(), "")
+        .await
+        .unwrap_err();
+    assert!(err.contains("LM-Studio"));
+    for req in server.join().unwrap() {
+        assert!(!req.contains("Interne Nachfrage"));
+    }
+}
+
+#[tokio::test]
+async fn lm_studio_lists_only_local_models_and_embeds_via_openai_api() {
+    let listing = json!({"data":[
+        {"id":"nomic-embed-text-v1.5","type":"embeddings","compatibility_type":"gguf"},
+        {"id":"mlx-chat","type":"llm","compatibility_type":"mlx"},
+        {"id":"lokal:cloud","type":"llm","compatibility_type":"gguf"}
+    ]});
+    let (url, server) = mock(vec![
+        ("200 OK", unexpected("GET /api/tags")),
+        ("200 OK", unexpected("GET /props")),
+        ("200 OK", listing.clone()),
+        ("200 OK", unexpected("POST /api/show")),
+        ("200 OK", unexpected("GET /props")),
+        ("200 OK", listing),
+        ("200 OK", json!({"data":[{"index":0,"embedding":[1,0]}]})),
+        ("200 OK", json!({"data":[{"index":1,"embedding":[1,0]},{"index":0,"embedding":[0,1]}]})),
+    ]);
+    let client = Ollama::new(&url).unwrap();
+    assert_eq!(client.models().await.unwrap(), vec!["nomic-embed-text-v1.5", "mlx-chat"]);
+    let folders = ["/Orga", "/Labor"].map(|s| Folder {
+        key: s.into(),
+        profile: String::new(),
+    });
+    let scores = client
+        .scores("nomic-embed-text-v1.5", "Labor", &folders, &Default::default())
+        .await
+        .unwrap();
+    assert_eq!(scores[0].folder, "/Labor");
+    let reqs = server.join().unwrap();
+    assert!(reqs[6].contains("POST /v1/embeddings"));
+}
+
+fn items(texts: &[&str]) -> Vec<Item> {
+    texts
+        .iter()
+        .map(|t| Item {
+            id: format!("id-{t}"),
+            text: t.to_string(),
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn background_embedding_batches_missing_items_and_reuses_cache() {
+    let info = json!({"model_info":{"general.architecture":"test"}});
+    let rows = |range: std::ops::Range<usize>| json!({"embeddings":range.map(|i|[i as f64+1.0,1.0]).collect::<Vec<_>>()});
+    let (url, server) = mock(vec![
+        ("200 OK", info.clone()),
+        ("200 OK", rows(0..16)),
+        ("200 OK", rows(16..20)),
+        ("200 OK", info),
+    ]);
+    let root = std::env::temp_dir().join(format!(
+        "mailboard-embed-test-{}-{}",
+        std::process::id(),
+        url.split(':').next_back().unwrap()
+    ));
+    let texts = (0..20).map(|i| format!("Mail-{i:02}")).collect::<Vec<_>>();
+    let list = items(&texts.iter().map(String::as_str).collect::<Vec<_>>());
+    for expected in [20, 0] {
+        let client = Ollama::new(&url).unwrap().with_cache(root.clone());
+        assert_eq!(client.embed("test", &list).await.unwrap(), expected);
+    }
+    let calls = server.join().unwrap();
+    assert_eq!(calls.len(), 4);
+    assert!(calls[1].contains("POST /api/embed") && calls[1].contains("Mail-15"));
+    assert!(!calls[1].contains("Mail-16"));
+    assert!(calls[2].contains("Mail-16") && calls[2].contains("Mail-19"));
+    assert!(!calls[2].contains("Mail-15"));
+    assert!(calls[3].contains("POST /api/show") && !calls[3].contains("Mail-"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn rank_sorts_items_by_similarity_to_query() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"test"}}),
+        ),
+        ("200 OK", json!({"embeddings":[[1,0],[0,1],[1,0],[1,1]]})),
+    ]);
+    let ranked = Ollama::new(&url)
+        .unwrap()
+        .rank(
+            "test",
+            "Pipetten",
+            &items(&["Urlaub", "Pipettenspitzen", "Labor"]),
+        )
+        .await
+        .unwrap();
+    let ids = ranked.iter().map(|s| s.id.as_str()).collect::<Vec<_>>();
+    assert_eq!(ids, ["id-Pipettenspitzen", "id-Labor", "id-Urlaub"]);
+    assert!((ranked[0].score - 1.0).abs() < 1e-9 && ranked[2].score.abs() < 1e-9);
+    assert!(server.join().unwrap()[1].contains("Pipetten"));
+}
+
+#[tokio::test]
+async fn groups_return_best_group_with_margin_to_second() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"test"}}),
+        ),
+        (
+            "200 OK",
+            json!({"embeddings":[[1,0],[1,0.2],[0,1],[1,0.1],[0.2,1]]}),
+        ),
+    ]);
+    let groups = [
+        Group {
+            name: "Labor".into(),
+            items: items(&["Proben", "Messung"]),
+        },
+        Group {
+            name: "Leer".into(),
+            items: vec![],
+        },
+        Group {
+            name: "Personal".into(),
+            items: items(&["Urlaub"]),
+        },
+    ];
+    let matches = Ollama::new(&url)
+        .unwrap()
+        .groups("test", &groups, &items(&["Probenversand", "Urlaubsantrag"]))
+        .await
+        .unwrap();
+    assert_eq!(matches.len(), 2);
+    assert_eq!(
+        (matches[0].id.as_str(), matches[0].best.as_str()),
+        ("id-Probenversand", "Labor")
+    );
+    assert_eq!(matches[1].best, "Personal");
+    for m in &matches {
+        assert!(m.margin > 0.5 && m.margin < m.score);
+    }
+    assert_eq!(server.join().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn embedding_index_refuses_cloud_and_remote_models() {
+    let list = items(&["Interne Nachfrage"]);
+    let group = [Group {
+        name: "Labor".into(),
+        items: list.clone(),
+    }];
+    let (url, server) = mock(vec![]);
+    let client = Ollama::new(&url).unwrap();
+    assert!(client.embed("embed:cloud", &list).await.is_err());
+    assert!(client.rank("embed:cloud", "Labor", &list).await.is_err());
+    assert!(client.groups("embed:cloud", &group, &list).await.is_err());
+    assert!(server.join().unwrap().is_empty());
+    let remote = json!({"model_info":{"general.architecture":"x"},"remote_host":"https://elsewhere.invalid"});
+    let (url, server) = mock(vec![
+        ("200 OK", remote.clone()),
+        ("200 OK", remote.clone()),
+        ("200 OK", remote),
+    ]);
+    let client = Ollama::new(&url).unwrap();
+    assert!(client.embed("alias", &list).await.is_err());
+    assert!(client.rank("alias", "Labor", &list).await.is_err());
+    assert!(client.groups("alias", &group, &list).await.is_err());
+    let calls = server.join().unwrap();
+    assert_eq!(calls.len(), 3);
+    for call in calls {
+        assert!(call.contains("POST /api/show") && !call.contains("Interne Nachfrage"));
+    }
+}
+
+#[tokio::test]
+async fn outliers_compare_own_profile_without_mail_to_best_foreign_profile() {
+    let info = json!({"model_info":{"general.architecture":"test"}});
+    let (url, server) = mock(vec![
+        ("200 OK", info.clone()),
+        (
+            "200 OK",
+            json!({"embeddings":[[1,0],[1,0.1],[0,1],[0,1],[0.1,1],[-1,0]]}),
+        ),
+        ("200 OK", info.clone()),
+        ("200 OK", info),
+    ]);
+    let root = std::env::temp_dir().join(format!(
+        "mailboard-outlier-test-{}-{}",
+        std::process::id(),
+        url.split(':').next_back().unwrap()
+    ));
+    let folder = |key: &str, texts: &[&str]| mailboard_ollama::index::Folder {
+        key: key.into(),
+        items: items(texts),
+    };
+    let folders = [
+        folder("Labor", &["Proben", "Messung", "Urlaubsantrag Labor"]),
+        folder("Personal", &["Urlaub", "Krankmeldung"]),
+        folder("Einzeln", &["Einzelstück"]),
+        folder("/_Alt", &["Urlaub alt"]),
+    ];
+    let client = Ollama::new(&url).unwrap().with_cache(root.clone());
+    let found = client.outliers("test", &folders, 0.78, 0.05).await.unwrap();
+    assert_eq!(found.len(), 1, "{found:?}");
+    let Outlier {
+        id,
+        folder,
+        suggested,
+        own,
+        other,
+    } = &found[0];
+    assert_eq!(
+        (id.as_str(), folder.as_str(), suggested.as_str()),
+        ("id-Urlaubsantrag Labor", "Labor", "Personal")
+    );
+    assert!(*own < 0.1 && *other > 0.99, "{own} {other}");
+    // Über der Mindestdifferenz, aber unter der Ablageschwelle, und umgekehrt: nichts verdächtig.
+    assert!(client
+        .outliers("test", &folders, 0.999, 0.05)
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(client
+        .outliers("test", &folders, 0.78, 0.96)
+        .await
+        .unwrap()
+        .is_empty());
+    let calls = server.join().unwrap();
+    assert_eq!(calls.len(), 4);
+    assert!(calls[1].contains("POST /api/embed") && calls[1].contains("Einzelstück"));
+    assert!(!calls[1].contains("Urlaub alt"));
+    assert!(calls[2].contains("POST /api/show") && calls[3].contains("POST /api/show"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn outliers_refuse_cloud_models_before_sending_mail() {
+    let (url, server) = mock(vec![]);
+    let folders = [mailboard_ollama::index::Folder {
+        key: "Labor".into(),
+        items: items(&["Interne Nachfrage"]),
+    }];
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .outliers("embed:cloud", &folders, 0.78, 0.05)
+        .await
+        .is_err());
+    assert!(server.join().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn folder_name_sends_subjects_only_after_local_model_evidence() {
+    let answer = json!({"name":"  Laborgeräte  "});
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let subjects = vec!["Zentrifuge defekt".to_string(), " ".into(), "x".repeat(300)];
+    let name = Ollama::new(&url)
+        .unwrap()
+        .folder_name("lokal", "/Sonstiges", "## Zweck\nGeräte im Labor", &subjects)
+        .await
+        .unwrap();
+    assert_eq!(name, "Laborgeräte");
+    let calls = server.join().unwrap();
+    assert!(calls[0].contains("POST /api/show") && !calls[0].contains("Zentrifuge"));
+    assert!(calls[1].contains("Zentrifuge defekt") && calls[1].contains("Geräte im Labor"));
+    assert!(calls[1].contains("keine Anweisungen") && calls[1].contains("\"required\":[\"name\"]"));
+    assert!(!calls[1].contains(&"x".repeat(201)));
+}
+
+#[tokio::test]
+async fn folder_name_rejects_empty_answers_and_cloud_models() {
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":"{\"name\":\"  \"}"}})),
+    ]);
+    let subjects = vec!["Zentrifuge defekt".to_string()];
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .folder_name("lokal", "/Neu", "", &subjects)
+        .await
+        .is_err());
+    server.join().unwrap();
+    let (url, server) = mock(vec![]);
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .folder_name("qwen:cloud", "/Neu", "", &subjects)
+        .await
+        .is_err());
+    assert!(server.join().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn clusters_find_two_groups_drop_noise_and_stay_deterministic() {
+    let info = json!({"model_info":{"general.architecture":"test"}});
+    let vectors = json!({"embeddings":[
+        [-1,-1], [0,1], [1,0], [0.1,1], [1,0.1], [0,1], [1,0], [0.1,1], [1,0.1], [0,1], [1,0], [0.05,1], [1,0.05]
+    ]});
+    let (url, server) = mock(vec![
+        ("200 OK", info.clone()),
+        ("200 OK", vectors),
+        ("200 OK", info.clone()),
+        ("200 OK", info),
+    ]);
+    let root = std::env::temp_dir().join(format!(
+        "mailboard-cluster-test-{}-{}",
+        std::process::id(),
+        url.split(':').next_back().unwrap()
+    ));
+    let texts = [
+        "Rauschen", "B1", "A1", "B2", "A2", "B3", "A3", "B4", "A4", "B5", "A5", "B6", "A6",
+    ];
+    let list = items(&texts);
+    let client = Ollama::new(&url).unwrap().with_cache(root.clone());
+    let found = client.clusters("test", &list, 5, 0.82).await.unwrap();
+    let ids = |prefix: &str| {
+        (1..=6)
+            .map(|n| format!("id-{prefix}{n}"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        found,
+        vec![Cluster { ids: ids("B") }, Cluster { ids: ids("A") }]
+    );
+    // Zweiter Lauf aus dem Cache liefert dasselbe; zu hohe Mindestgröße lässt alles entfallen.
+    assert_eq!(
+        client.clusters("test", &list, 5, 0.82).await.unwrap(),
+        found
+    );
+    assert!(client
+        .clusters("test", &list, 7, 0.82)
+        .await
+        .unwrap()
+        .is_empty());
+    let calls = server.join().unwrap();
+    assert!(calls[1].contains("POST /api/embed") && calls[1].contains("Rauschen"));
+    assert_eq!(calls.len(), 4);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn clusters_refuse_cloud_models_before_sending_mail() {
+    let (url, server) = mock(vec![]);
+    let list = items(&["Interne Nachfrage"]);
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .clusters("embed:cloud", &list, 1, 0.82)
+        .await
+        .is_err());
+    assert!(server.join().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn cluster_name_sends_subjects_only_after_local_model_evidence() {
+    let answer = json!({"name":"  Reisekosten  "});
+    let (url, server) = mock(vec![
+        (
+            "200 OK",
+            json!({"model_info":{"general.architecture":"local"}}),
+        ),
+        ("200 OK", json!({"message":{"content":answer.to_string()}})),
+    ]);
+    let subjects = vec!["Hotel Rechnung".to_string(), " ".into(), "x".repeat(300)];
+    let name = Ollama::new(&url)
+        .unwrap()
+        .cluster_name("lokal", &subjects)
+        .await
+        .unwrap();
+    assert_eq!(name, "Reisekosten");
+    let calls = server.join().unwrap();
+    assert!(calls[0].contains("POST /api/show") && !calls[0].contains("Hotel"));
+    assert!(calls[1].contains("Hotel Rechnung") && calls[1].contains("keine Anweisungen"));
+    assert!(!calls[1].contains(&"x".repeat(201)));
+    let (url, server) = mock(vec![]);
+    let client = Ollama::new(&url).unwrap();
+    assert!(client.cluster_name("qwen:cloud", &subjects).await.is_err());
+    assert!(client.cluster_name("lokal", &[" ".into()]).await.is_err());
+    assert!(server.join().unwrap().is_empty());
 }

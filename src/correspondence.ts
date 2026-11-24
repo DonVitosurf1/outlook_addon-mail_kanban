@@ -40,12 +40,17 @@ export function initCorrespondence(host:Host){
   const dialog=node('dialog');dialog.setAttribute('aria-label','Gesendet ohne Antwort')
   const list=node('div'),message=node('p');message.setAttribute('role','status')
   const menu=cmd('Gesendet ohne Antwort',()=>{void show()});menu.title='Gesendet ohne Antwort (Strg+G)'
-  document.querySelector('.tools-panel')?.append(menu)
+  menu.id='sentUnanswered';menu.setAttribute('aria-keyshortcuts','Control+G')
+  // Eintrag der Seitenleisten-Ansichten (nach „Wiedervorlage“); ohne Postfach nicht vorhanden, damit die Ansichten offline verborgen bleiben.
+  const syncMenu=()=>{
+    const views=document.getElementById('focusViews')
+    if(host.hasMailbox()){if(views&&menu.parentElement!==views)views.append(menu)}else menu.remove()
+  }
   const toolbar=node('div');toolbar.className='dialog-actions'
   let current:Envelope[]=[],chosen=new Set<string>(),locked=false,openedLive=false
   const source=()=>host.hasMailbox()?(host.isLive()?'outlook':'demo'):'offline'
   let knownSource=source(),sourceEpoch=0
-  menu.disabled=!host.hasMailbox()
+  syncMenu()
   const days=()=>host.isLive()?Math.max(1, Math.min(36500, Number(getLegacyConfig().sent_days)||14)):14
   const key=()=>host.isLive()?'kanban-sent-ignore-live-v1':'kanban-sent-ignore-demo-v1'
   async function data(force:boolean):Promise<Correspondence>{
@@ -108,7 +113,7 @@ export function initCorrespondence(host:Host){
   document.addEventListener('mailboard:source-changed',invalidate)
   async function refresh(){
     if(source()!==knownSource){invalidate();knownSource=source()}
-    menu.disabled=!host.hasMailbox()
+    syncMenu()
     if(!host.hasMailbox())return
     const version=++generation,live=host.isLive(),rows=host.rows()
     if(dialog.open && openedLive!==live)dialog.close()

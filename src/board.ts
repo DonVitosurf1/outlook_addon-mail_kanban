@@ -1,15 +1,35 @@
 import {undoLimit} from './undo-limit'
+import {describeChange, undoTooltip} from './change-label'
+import {showToast, hideToast} from './toast'
 import './shell'
-import {renderCardContent} from './card-content'
+import {renderCardContent, type CaseState} from './card-content'
 import {colorSettings,applyLaneColor} from './category-colors'
 import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, updateConfig } from './data-settings'
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
 import demo from './demo.json'
-import { countsAsFiling, LiveBoard, UndoConflict, type Folder, type Invoke } from './live'
+import { countsAsFiling, LiveBoard, UndoSkippable, type Folder, type Invoke } from './live'
+import { initSemanticSearch, renderSimilar } from './semantic-search'
 import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
 import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
 import { initCockpit, recordWeekly } from './cockpit'
+import { maybeIntro } from './intro'
+import { initTriage } from './triage'
+import { initRoutines, markRoutine } from './routines'
+import { initCalendar } from './calendar'
+import { renderMailTasks } from './mail-tasks'
+import { caseLimits, initCaseSuggest } from './case-suggest'
+import { allCases, initCases, toggleCaseItem } from './cases'
+import { shortcutFor, type ShortcutAction } from './shortcuts'
+import { caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
+import { loadRoutines, useSamplePlanning } from './planning-store'
+import { initTabs } from './tabs'
+import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
+import './setup-outliers'
+import './setup-refine'
+import './setup-profiles'
+import './setup-compare'
+import './setup-inbox'
 
 type Counter='filed'|'followed_up'|'snoozed'
 type Field = 'note'|'followUp'|'snoozeUntil'
@@ -19,6 +39,7 @@ const states = ['Offen','In Bearbeitung','Warten','Erledigt']
 const demoFolders:Folder[] = [...new Set(['Posteingang','Organisation','Pipettenspitzen',...demo.map(m=>m.folder)])].map(name=>({id:name,name,path:name}))
 const el = <T extends HTMLElement>(id:string) => document.getElementById(id) as T
 const search = el<HTMLInputElement>('search')
+let semantic:ReturnType<typeof initSemanticSearch>|undefined
 const dialog = el<HTMLDialogElement>('detail')
 const undoButton = el<HTMLButtonElement>('undo')
 const inboxButton=el<HTMLButtonElement>('loadInbox')
@@ -27,7 +48,8 @@ const core=window.__TAURI__?.core
 const service=core && new LiveBoard((command,args)=>core.invoke(command,args),(delta,occurredAt)=>recordWeekly(true,'filed',delta,occurredAt))
 function mayMove(){return getLegacyConfig().allow_move===true}
 const storageKey='outlook-kanban-demo-positions-v1'
-const demoUndo:{mails:Mail[],events:Counter[]}[]=[]
+let demoSteps=0
+const demoUndo:{mails:Mail[],events:Counter[],label?:string}[]=[]
 let demoMails:Mail[]=[]
 let mails:Mail[]=[]
 let folders:Folder[]=[]
@@ -43,6 +65,11 @@ let syncColors:ReturnType<typeof colorSettings>
 let correspondence:ReturnType<typeof initCorrespondence>
 let cockpit:ReturnType<typeof initCockpit>
 let views:BoardViews
+let triage:ReturnType<typeof initTriage>|undefined
+let cases:ReturnType<typeof initCases>|undefined
+let caseSuggest:ReturnType<typeof initCaseSuggest>|undefined
+let calendarView:ReturnType<typeof initCalendar>|undefined
+let setup:ReturnType<typeof initSetup>|undefined
 let suggestionVersion=0
 let currentSuggestion:((apply:boolean)=>Promise<void>)|undefined
 let reloadPending=false
@@ -72,8 +99,16 @@ function controls() {
   inboxButton.disabled=el<HTMLButtonElement>('connectOutlook').disabled=busy||!!connection
   back.disabled=busy
   undoButton.disabled=busy||!(isLive()?(service?.canUndo||projectUndoLatest()):demoUndo.length)
+  undoButton.title=undoTooltip(latestUndoLabel())
   for(const id of ['folder','status','suggestFolder','applySuggestion','openOriginal'])
     el<HTMLButtonElement>(id).disabled=busy
+}
+/** Beschriftung des Schritts, den Rückgängig gerade zurücknimmt. Bei Projektänderungen unbekannt. */
+function latestUndoLabel() {
+  if(!hasMailbox())return undefined
+  if(!isLive())return demoUndo.at(-1)?.label
+  if(projectUndoLatest()>=(service?.latest||0))return undefined
+  return service?.latestLabel
 }
 function saveDemo() {
   try {
@@ -97,11 +132,12 @@ function loadDemo() {
     }
   } catch {notify('Das Demo-Postfach startet mit den Beispieldaten.')}
 }
-function changeDemo(action:()=>void,events:Counter[]=[]) {
+function changeDemo(action:()=>void,events:Counter[]=[],label?:string) {
   if(mailbox!=='demo')return
   const before=structuredClone(demoMails)
   action()
-  demoUndo.push({mails:before,events})
+  demoSteps++
+  demoUndo.push({mails:before,events,label})
   if(demoUndo.length>undoLimit)demoUndo.shift()
   for(const event of events)cockpit.record(event)
   saveDemo()
@@ -117,10 +153,13 @@ function hydrate(rows:Mail[],items:Folder[]){
 function sourceUpdated(rows:Mail[],source:Mailbox,items:Folder[],key:string) {
   const outlook=source==='outlook'
   if(source!==mailbox)search.value=''
+  // Eine Rückmeldung mit Rückgängig gehört zum bisherigen Postfach.
+  if(source!==mailbox)hideToast()
   if(dialog.open)dialog.close()
   suggestionVersion++
   mailbox=source;mails=rows;folders=items;scope=key;selected=undefined
   useSampleSettings(source==='demo')
+  useSamplePlanning(source==='demo')
   setAiLive(outlook,source)
   bindProjectBoard(outlook?service:undefined)
   if(outlook)hydrate(rows,items)
@@ -135,6 +174,7 @@ function sourceUpdated(rows:Mail[],source:Mailbox,items:Folder[],key:string) {
   if(outlook)void queueAnalyses()
   void syncColors?.(outlook)
   void correspondence?.refresh()
+  maybeIntro(source)
 }
 function boardFolders(list:Folder[], paths:string[]) {
   const targets=new Set(paths.map(p=>p.toLocaleLowerCase('de')))
@@ -187,19 +227,20 @@ async function connect(startOutlook=false) {
   if(wasLive)await exclusive(load)
   else await load()
 }
-function confirmMove(question:string) {
+function confirmMove(question:string,confirmLabel='Verschieben') {
   const prompt=el<HTMLDialogElement>('moveConfirm')
   el('moveQuestion').textContent=question
+  el('moveConfirmOk').textContent=confirmLabel
   prompt.returnValue='cancel'
   return new Promise<boolean>(resolve=>{
-    prompt.addEventListener('close',()=>resolve(prompt.returnValue==='confirm'),{once:true})
+    prompt.addEventListener('close',()=>{el('moveConfirmOk').textContent='Verschieben';resolve(prompt.returnValue==='confirm')},{once:true})
     prompt.showModal()
   })
 }
 
-function archiveFolder(){
+function archiveFolder(needAllowed=true){
   const path=getArchiveScope()
-  return isLive() && mayMove() && path?folders.find(f=>f.path===path):undefined
+  return isLive() && (!needAllowed || mayMove()) && path?folders.find(f=>f.path===path):undefined
 }
 function isInInbox(mail:Mail) {return folders.some(f=>f.isInbox && f.id===mail.folderId)}
 function archiveCandidates(){
@@ -212,50 +253,80 @@ let mutationVersion=0
 function needsStatus(mail:Mail,value:string){
   return mail.status!==value || mail.hasStatus===false
 }
-type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string}
-async function change(ids:string[],action:Mutation) {
-  await exclusive(async()=>{
-    const rows=mails.filter(m=>ids.includes(m.id))
+/**
+ * `tagsFor` berechnet die Kategorien je Mail, etwa beim Umschalten des Fokus für eine gemischte Auswahl.
+ * `offBoard` (nur Outlook): Mails, die nicht auf dem Board stehen, etwa Lernbeispiele aus der Ausreißerprüfung (E3).
+ * Sie laufen mit derselben Bestätigung, demselben Undo-Schritt und derselben Rückmeldung. `moved` meldet jede verschobene Mail (bisherige ID),
+ * `failed` zusätzlich zur Meldungszeile den Fehlertext.
+ */
+type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[];offBoard?:Mail[];moved?:(id:string)=>void;failed?:(text:string)=>void}
+const assignCase=(ids:string[],name:string,on:boolean)=>applyChange(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,caseTag(name),on)})
+/**
+ * Ergebnis einer Änderung: `recorded` mit neuem Rückgängig-Schritt, `unchanged` ohne Fehler, aber ohne Schritt
+ * (Outlook hatte den Wert schon oder es gab nichts zu tun), `failed` bei Fehler, Abbruch oder beschäftigtem Board.
+ */
+export type ChangeOutcome='recorded'|'unchanged'|'failed'
+async function change(ids:string[],action:Mutation){await applyChange(ids,action)}
+async function applyChange(ids:string[],action:Mutation):Promise<ChangeOutcome> {
+  if(action.offBoard&&!isLive())return 'failed'
+  let outcome:ChangeOutcome='failed'
+  await exclusive(()=>reporting(action.failed,async()=>{
+    const rows=action.offBoard?.filter(m=>ids.includes(m.id))??mails.filter(m=>ids.includes(m.id))
     const field=action.kind
     const value=action.value as string
+    const wanted=(m:Mail)=>action.tagsFor?action.tagsFor(m):action.value as string[]
     const todo=rows.filter(m=>{
       if(field==='move')return (m.folderId||m.folder)!==value || (!!action.status && needsStatus(m,action.status))
       if(field==='status')return needsStatus(m,value)
-      if(field==='tags')return JSON.stringify(m.tags)!==JSON.stringify(action.value)
+      if(field==='tags')return JSON.stringify(m.tags)!==JSON.stringify(wanted(m))
       return m[field]!==value
     })
-    if(!todo.length) return
+    if(!todo.length){outcome='unchanged';return}
+    const added:string[]=[],removed:string[]=[]
+    if(field==='tags')for(const m of todo){
+      const next=wanted(m).map(t=>t.toLowerCase()),prev=m.tags.map(t=>t.toLowerCase())
+      added.push(...wanted(m).filter(t=>!prev.includes(t.toLowerCase())))
+      removed.push(...m.tags.filter(t=>!next.includes(t.toLowerCase())))
+    }
     const dest=folders.find(f=>f.id===value)
     if(field==='move'&&!dest)throw new Error('Zielordner nicht verfügbar.')
     const moving=field==='move'?todo.filter(m=>(m.folderId||m.folder)!==value):[]
-    const archive=field==='status' && value==='Erledigt'?archiveFolder():undefined
+    const archive=field==='status' && value==='Erledigt'?archiveFolder(false):undefined
     const archiving=archive?todo.filter(isInInbox):[]
-    if(isLive() && moving.length && !mayMove()){
-      if(selected)fillDetail(selected)
-      throw new Error('Verschieben ist gesperrt. In den Einstellungen „Echte Mails verschieben erlauben“ aktivieren.')
-    }
+    const summary=describeChange({kind:field,value:action.value,count:todo.length,folder:field==='move'?(dest!.name):undefined,added,removed},FOCUS_TAG,CASE_PREFIX)
     const label=todo.length===1?'„'+todo[0].subject+'“':todo.length+' Mails'
     let question=''
     if(moving.length)question=label+' nach „'+(dest!.path||dest!.name)+'“ verschieben'+(action.status?' und auf „'+action.status+'“ setzen':'')+'?'
     if(archiving.length)question=label+' als erledigt markieren und '+archiving.length+' aus dem Posteingang nach „'+archive!.path+'“ archivieren?'
-    if(isLive() && question && !await confirmMove(question)) {
+    const needsAllow=isLive() && !mayMove() && (moving.length>0 || archiving.length>0)
+    if(needsAllow)question='Das Board darf noch keine Mails in Outlook verschieben. Jetzt erlauben und '+question
+    if(isLive() && question && !await confirmMove(question,needsAllow?'Erlauben und verschieben':'Verschieben')) {
       if(selected)fillDetail(selected)
       return
+    }
+    if(needsAllow){
+      updateConfig({allow_move:true})
+      const toggle=document.querySelector<HTMLInputElement>('#allowMove')
+      if(toggle)toggle.checked=true
+      render()
     }
     if(!isLive()) {
       const events:Counter[]=field==='move'?moving.filter(()=>dest?.name!=='Posteingang').map(()=>'filed'):
         field==='followUp'&&value?todo.map(()=>'followed_up'):field==='snoozeUntil'&&value?todo.map(()=>'snoozed'):[]
       changeDemo(()=>{for(const m of todo) {
         if(field==='move'){m.folder=value;if(action.status)m.status=action.status}
-        else if(field==='tags')m.tags=[...action.value as string[]]
+        else if(field==='tags')m.tags=[...wanted(m)]
         else m[field]=value
-      }},events)
+      }},events,summary)
+      outcome='recorded'
+      showToast(summary,undoThisStep())
       if(selected)fillDetail(selected)
       return
     }
     mutationVersion++
+    const before=undoMarker()
     await service!.writeBatch(async()=>{
-      const batch=service!.begin()
+      const batch=service!.begin(summary)
       const errors:string[]=[]
       let succeeded=0
       for(const m of todo) {
@@ -272,6 +343,7 @@ async function change(ids:string[],action:Mutation) {
                   try {recordFiling(m,dest!.path||dest!.name)} catch { /* Outlook already saved the move. */ }
                 }
               }
+              action.moved?.(m.id)
             }
             if(action.status && needsStatus(m,action.status)){
               try {await service!.status(batch,id,value,action.status);m.status=action.status;m.hasStatus=true}
@@ -285,7 +357,7 @@ async function change(ids:string[],action:Mutation) {
               catch(e){throw new Error('Status geändert. Archivieren fehlgeschlagen: '+errorText(e))}
             }
           } else if(field==='tags') {
-            m.tags=await service!.tags(batch,m.id,m.folderId,m.tags,action.value as string[])
+            m.tags=await service!.tags(batch,m.id,m.folderId,m.tags,wanted(m))
           } else {
             await service!.field(batch,m.id,m.folderId,field,value)
             m[field]=value
@@ -298,34 +370,63 @@ async function change(ids:string[],action:Mutation) {
       if(dialog.open)dialog.close()
       render()
       try {await refresh()} catch(e) {errors.push('Aktualisieren: '+errorText(e))}
-      notify(succeeded+' von '+todo.length+' geändert.'+(errors.length?' '+errors.join(' · '):''))
+      if(errors.length){const text=succeeded+' von '+todo.length+' geändert. '+errors.join(' · ');notify(text);action.failed?.(text)}
+      else if(undoMarker()!==before){outcome='recorded';notify('');showToast(summary,undoThisStep())}
+      // Outlook hatte die Werte schon: kein eigener Schritt, also auch kein Rückgängig, das einen früheren träfe.
+      else{outcome='unchanged';notify('');showToast(summary+' (in Outlook war das schon so)')}
     })
-  })
+  }))
+  return outcome
+}
+/** Gibt einen Fehler zusätzlich an `failed` weiter, bevor `exclusive` ihn in der Meldungszeile zeigt. */
+function reporting(failed:((text:string)=>void)|undefined,action:()=>Promise<void>){
+  return failed?action().catch(e=>{failed(errorText(e));throw e}):action()
+}
+/** Kennung des letzten Rücknahme-Schritts, um einen eigenen Schritt später gezielt zurückzunehmen. */
+function undoMarker(){return isLive()?(service?.latest||0)+':'+projectUndoLatest():String(demoSteps)}
+async function undoIfLatest(marker:string){
+  if(undoMarker()!==marker)return false
+  await undo()
+  return true
+}
+/** Rückgängig für die Rückmeldung: nimmt nur den gerade aufgezeichneten Schritt zurück, nie einen späteren. */
+function undoThisStep(){
+  const marker=undoMarker()
+  return ()=>void undoIfLatest(marker).then(done=>{if(!done)showToast('Rückgängig nicht mehr möglich, weil danach etwas anderes geändert wurde.')})
 }
 async function undo() {
   if(!hasMailbox())return
   await exclusive(async()=>{
+    const label=latestUndoLabel()
+    const done=()=>showToast(label?'Zurückgenommen: '+label:'Änderung rückgängig gemacht.')
     if(isLive()) {
+      // Ein Schritt, der nicht ganz zurückgeht, lässt sich überspringen, damit er den Stapel nicht blockiert.
+      const offerSkip=async(error:unknown)=>{
+        if(!(error instanceof UndoSkippable))throw error
+        const skip=await ask(document.body,error.message+' Diesen Rückgängig-Schritt überspringen und den aktuellen Outlook-Wert behalten?', 'Schritt überspringen')
+        if(skip)error.skip()
+        notify(skip?'Rückgängig-Schritt übersprungen.':'Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
+      }
       await service!.writeBatch(async()=>{
-        if(await undoProjectIfLatest(service?.latest||0))return
+        try {if(await undoProjectIfLatest(service?.latest||0)){done();return}}
+        catch(error){await offerSkip(error);return}
         if(!service?.canUndo)return
         try {await service.undo(step=>{
           if(step.kind==='field'&&step.value&&step.field==='followUp')cockpit.record('followed_up',-1)
           if(step.kind==='field'&&step.value&&step.field==='snoozeUntil')cockpit.record('snoozed',-1)})} catch(error){
-          if(!(error instanceof UndoConflict))throw error
-          const skip=await ask(document.body,error.message+' Diesen Rückgängig-Schritt überspringen und den aktuellen Outlook-Wert behalten?', 'Schritt überspringen')
-          if(skip)error.skip()
-          notify(skip?'Rückgängig-Schritt übersprungen.':'Rücknahme abgebrochen. Der Schritt bleibt verfügbar.')
+          await offerSkip(error)
           return
         } finally {await refresh()}
-        notify('Änderung rückgängig gemacht.')
+        done()
       })
     } else {
       const old=demoUndo.pop()
       if(!old)return
+      // Neue Kennung, damit eine ältere Rückmeldung nicht den nächsten Schritt zurücknimmt.
+      demoSteps++
       for(const event of old.events)cockpit.record(event,-1)
       demoMails=old.mails;sourceUpdated(demoMails,'demo',demoFolders,scope);saveDemo()
-      notify('Änderung rückgängig gemacht.')
+      done()
     }
   })
 }
@@ -339,6 +440,58 @@ function dropZone(node:HTMLElement,action:(ids:string[])=>void) {
     if(mail){e.preventDefault();action(views.selectedIds(mail.id))}
   }
 }
+function toggleFocus(ids:string[]) {
+  const rows=mails.filter(m=>ids.includes(m.id)),on=focusTarget(rows)
+  return change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,FOCUS_TAG,on)})
+}
+const draftOnly='Entwürfe gibt es nur im Outlook-Postfach.'
+function fillDetailBar(mail:Mail) {
+  for(const b of document.querySelectorAll<HTMLButtonElement>('#detailBar [data-draft]')) {
+    b.disabled=!isLive();b.title=isLive()?'':draftOnly
+  }
+  const follow=el('detailBar').querySelector<HTMLButtonElement>('[data-act=followUp]')!
+  follow.hidden=mail.status!=='Warten'
+  const focus=el('detailBar').querySelector<HTMLButtonElement>('[data-act=focus]')!
+  focus.setAttribute('aria-pressed',String(hasFocus(mail)))
+}
+function initDetailBar() {
+  const bar=el('detailBar')
+  for(const b of bar.querySelectorAll<HTMLButtonElement>('button[data-key]')) {
+    const keys=shortcutFor(b.dataset.key as ShortcutAction)
+    if(!keys)continue
+    b.setAttribute('aria-keyshortcuts',keys.replace('Umschalt','Shift'))
+    const hint=tag('kbd',keys);b.append(' ',hint)
+  }
+  const edit=(field:'snoozeUntil'|'followUp'|'note',from?:HTMLElement)=>{if(selected)views.editDetailField(selected.id,field,from)}
+  const act=(name:string,from?:HTMLElement)=>{
+    if(!selected)return
+    if(name==='focus')void toggleFocus([selected.id]).catch(e=>notify('Aktion fehlgeschlagen: '+errorText(e)))
+    else if(name==='case')cases?.openAssign([selected.id])
+    else edit(name as 'snoozeUntil'|'followUp'|'note',from)
+  }
+  for(const b of bar.querySelectorAll<HTMLButtonElement>('button[data-act]'))b.onclick=()=>act(b.dataset.act!,b)
+  dialog.addEventListener('keydown',e=>{
+    const t=e.target as HTMLElement
+    if(e.ctrlKey||e.altKey||e.metaKey||e.defaultPrevented||!selected||t.closest('input,textarea,select,[contenteditable]'))return
+    const key=e.key.toLowerCase()
+    if(key==='r'){
+      const b=bar.querySelector<HTMLButtonElement>('[data-draft='+(e.shiftKey?'reply-all':'reply')+']')
+      if(b&&!b.disabled)b.click()
+    }else{
+      const name=({w:'snoozeUntil',n:'followUp',k:'note',f:'focus'} as Record<string,string>)[key]
+      const b=name&&bar.querySelector<HTMLButtonElement>('[data-act='+name+']')
+      if(!b||b.hidden||e.shiftKey)return
+      act(name,b)
+    }
+    e.preventDefault()
+  })
+}
+function showTasks(mail:Mail) {
+  renderMailTasks(el('tasks'),mail,{cases:()=>allCases(mails),canAssign:hasMailbox,confirm:(question,label)=>ask(dialog,question,label),
+    assign:(m,name)=>assignCase([m.id],name,true),marker:undoMarker,undoIfLatest,
+    refresh:()=>{for(const m of mails)restoreAnalysis(m);if(selected)selected=mails.find(m=>m.id===selected!.id)||selected;window.dispatchEvent(new Event('kanban-analysis'))}})
+}
+window.addEventListener('kanban-analysis',()=>{if(selected&&dialog.open)showTasks(selected)})
 function fillDetail(mail:Mail) {
   const version=++suggestionVersion
   correspondence?.detail(mail.id,el('detailActions'))
@@ -351,6 +504,7 @@ function fillDetail(mail:Mail) {
   el<HTMLSelectElement>('status').value=mail.status
   el<HTMLSelectElement>('folder').value=mail.folderId||mail.folder
   el('replyActions').hidden=!isLive()
+  fillDetailBar(mail)
   fillOptions(el('draftSnippet'),[{id:'',label:'Ohne Textbaustein'},...textSnippets('follow_up').map(s=>({id:s.body,label:s.label}))])
   el('rejectSuggestion')?.remove()
   const result=el('suggestionResult'), accept=el<HTMLButtonElement>('applySuggestion')
@@ -358,6 +512,8 @@ function fillDetail(mail:Mail) {
   const choices=learnerFolders().filter(f=>f.id!==(mail.folderId||mail.folder)).map(f=>f.path)
   renderAnalysis(el('analysis'),mail,choices,isLive()?async(text:string)=>{await draft(mail,'reply',text)}:undefined,
     async(tags:string[])=>{await change([mail.id],{kind:'tags',value:tags})})
+  showTasks(mail)
+  renderSimilar(el('similar'),mail,{mails:()=>mails,open:pick})
   const suggest=el<HTMLButtonElement>('suggestFolder')
   suggest.disabled=false
   currentSuggestion=async(apply:boolean)=>{
@@ -387,11 +543,12 @@ function pick(id:string) {
   selected=m;fillDetail(m)
   if(!dialog.open)dialog.showModal()
 }
-function makeCard(mail:Mail,config:Record<string,unknown>,hint?:string) {
+function makeCard(mail:Mail,config:Record<string,unknown>,hint?:string,caseStates:readonly CaseState[]=[]) {
+  const suggestion=caseSuggest?.suggestionFor(mail)
   const card=tag('button','')
   card.className='card';card.id='mail-'+mail.id;card.draggable=true
   card.ondragstart=e=>e.dataTransfer?.setData('application/x-mailboard-item',mail.id)
-  renderCardContent(card,mail,config,hint)
+  renderCardContent(card,mail,config,hint,caseStates,suggestion)
   card.onclick=()=>pick(mail.id)
   views.bindCard(card,mail.id)
   return card
@@ -420,17 +577,24 @@ function render() {
     if(f.id)dropZone(btn,ids=>void change(ids,{kind:'move',value:f.id}))
     nav.append(btn)
   }
+  setup?.refresh()
   cockpit?.refresh()
+  triage?.refresh()
+  cases?.refresh()
+  caseSuggest?.refresh()
+  calendarView?.refresh()
   views.sync(mails)
-  const visible=views.filter(mails.filter(m=>(isLive()||!scope||m.folder===scope)&&matchesQuery(m,search.value)))
+  const visible=views.filter(mails.filter(m=>(isLive()||!scope||m.folder===scope)&&(semantic?.active()?semantic.matches(m,x=>matchesQuery(x,search.value)):matchesQuery(m,search.value))))
   el('title').textContent=!hasMailbox()?'Outlook-Postfach':isLive()?'Outlook · '+(scope==='__backlog'?'Aufräumen':folders.find(f=>f.id===scope)?.name||'Alle Mails'):scope||'Alle Mails'
-  el('summary').textContent=!hasMailbox()?'':visible.length+' von '+mails.length+' Mails'
+  semantic?.sync()
+  el('summary').textContent=!hasMailbox()?'':visible.length+' von '+mails.length+' Mails'+(semantic?.hint()?' · '+semantic.hint():'')
   const board=el('board');board.replaceChildren()
   board.hidden=el('viewMenu').hidden=!hasMailbox()
   if(!hasMailbox()){controls();return}
   const config=getLegacyConfig()
   const suggest=config.suggestions===false?undefined:trustedFolderBatch(learnerFolders().map(f=>f.path))
-  const card=(m:Mail)=>makeCard(m,config,(isLive()?isInInbox(m):m.folder==='Posteingang')?suggest?.(m)?.folder:undefined)
+  const caseStates:CaseState[]=allCases(mails).filter(c=>!c.closed).map(c=>({name:c.name,tag:caseTag(c.name),...caseProgress(c)}))
+  const card=(m:Mail)=>makeCard(m,config,(isLive()?isInInbox(m):m.folder==='Posteingang')?suggest?.(m)?.folder:undefined,caseStates)
   for(const status of states) {
     const lane=tag('section','');lane.className='lane';applyLaneColor(lane,status)
     const matches=visible.filter(m=>m.status===status)
@@ -471,11 +635,67 @@ async function start() {
     openOriginal:async id=>{if(!isLive()){pick(id);return}const mail=mails.find(m=>m.id===id);if(mail)await openOriginal(mail)},
     acceptSuggestion:async id=>{pick(id);await currentSuggestion?.(true)},
     reply:async(id,all)=>{const mail=mails.find(m=>m.id===id);if(mail)await draft(mail,all?'reply-all':'reply','')},
-    setField:(id,field,value)=>change([id],{kind:field,value}),setTags:(id,_previous,value)=>change([id],{kind:'tags',value})})
+    setField:(id,field,value)=>change([id],{kind:field,value}),setTags:(id,_previous,value)=>change([id],{kind:'tags',value}),
+    toggleFocus,
+    assignCase:ids=>cases?.openAssign(ids),
+    caseSuggestion:id=>{const m=mails.find(x=>x.id===id);return m&&caseSuggest?caseSuggest.suggestionFor(m):undefined}})
   let previousScope=''
-  cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,openUnanswered:()=>correspondence.show(),
-    onStatus:(ids:string[],status:string)=>change(ids,{kind:'status',value:status}),
-    onFolder:(ids:string[],target:string)=>change(ids,{kind:'move',value:target}),
+  const overdueDays=()=>Number(getLegacyConfig().overdue_days??5)
+  const assign=async(ids:string[],name:string,on:boolean)=>{await assignCase(ids,name,on)}
+  // Lokale Planungsdaten (Routinen, Vorgänge) ändern Banner, Seitenleiste und offene Dialoge.
+  document.addEventListener('mailboard:planning',()=>render())
+  const toggleItem=toggleCaseItem
+  initTabs()
+  setup=initSetup({mailbox:()=>mailbox,folders:()=>isLive()?folders as SetupFolder[]:[],learnerFolders,inbox:()=>isLive()?mails.filter(m=>m.id&&m.folderId&&isInInbox(m)) as OffBoardMail[]:[],service:()=>isLive()?service:undefined,
+    confirm:(question,label)=>ask(document.body,question,label),
+    moveMails:async(list,target,moved)=>{
+      if(busy)return 'Das Board ist gerade beschäftigt. Bitte gleich noch einmal versuchen.'
+      let problem=''
+      await change(list.map(m=>m.id),{kind:'move',value:target,moved,failed:text=>{problem=text},
+        offBoard:list.map(m=>({...m,folder:folders.find(f=>f.id===m.folderId)?.name??'',status:'Offen',tags:[],attachments:[]}))})
+      return problem
+    },
+    exclusive:async action=>{
+      if(busy)return 'Das Board ist gerade beschäftigt. Bitte gleich noch einmal versuchen.'
+      let problem=''
+      await exclusive(()=>action().catch(e=>{problem=errorText(e);throw e}))
+      return problem
+    },
+    undoStep:undoThisStep,
+    review:(list,onClose)=>cockpit.openCleanup(list,onClose)})
+  el('setupOpen').onclick=()=>setup?.open()
+  const calendar=calendarView=initCalendar({getMails:()=>mails,routines:loadRoutines,cases:()=>allCases(mails),onPick:pick,canPlan:hasMailbox,
+    plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
+    openCase:name=>cases?.open(name)})
+  cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
+  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:async(id,name)=>{await assignCase([id],name,true)},render})
+  const runRoutine=(action:RoutineAction)=>{
+    switch(action){
+      case 'triage':triage?.start();break
+      case 'hygiene':cockpit.openPage('hygiene');break
+      case 'week':cockpit.openPage('week');break
+      case 'cleanup':cockpit.openCleanup();break
+      case 'unanswered':void correspondence.show();break
+      case 'calendar':calendar.open();break
+      case 'cases':cases?.open();break
+    }
+  }
+  const routines=initRoutines({run:runRoutine})
+  triage=initTriage({getMails:()=>mails,isLive,hasMailbox,overdueDays,views,render,onPick:pick,
+    enter:()=>{
+      const source=mailbox,previous=scope
+      if(source==='demo')scope=''
+      return ()=>{if(source==='demo'&&mailbox==='demo')scope=previous}
+    },
+    routines:loadRoutines,markRoutine:id=>markRoutine(id),runRoutine:r=>runRoutine(r.action||''),
+    cases:()=>allCases(mails),toggleItem})
+  cockpit=initCockpit({getMails:()=>mails,isLive,hasMailbox,onPick:pick,
+    startTriage:()=>triage?.start(),triageActive:()=>!!triage?.active,routines:loadRoutines,
+    openCalendar:()=>calendar.open(),setupProgress:()=>setup?.progress()??'',openSetup:()=>setup?.open(),markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),
+    // Vorgegebene Mailliste (E7): Mails außerhalb des Boards, Ordner der verschobenen Mails für die Durchsicht nachziehen.
+    onStatus:(ids,status,rows)=>change(ids,{kind:'status',value:status,offBoard:rows as Mail[]|undefined}),
+    onFolder:(ids,target,rows)=>change(ids,{kind:'move',value:target,offBoard:rows as Mail[]|undefined,
+      moved:rows&&(id=>{const row=rows.find(m=>m.id===id);if(row){row.folderId=target;row.folder=folders.find(f=>f.id===target)?.name??row.folder}})}),
     getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:undo,
     closeBacklog:async()=>{
       if(!isLive()){scope=previousScope;render();return}
@@ -504,8 +724,23 @@ async function start() {
   }
   const archiveButton=tag('button','');archiveButton.id='archiveDone';archiveButton.hidden=true;el('workActions').append(archiveButton)
   bindAiBoard(()=>isLive()?mails:[],()=>isLive()?learnerFolders().map(f=>f.path):[])
-  renderAiSettings(el('aiSettings'),()=>isLive()?learnerFolders():[])
-  syncColors=colorSettings(el('aiSettings'),service,()=>isLive(),render)
+  const settings=el('aiSettings'),jump=tag('nav',''),parts:Record<string,HTMLElement>={}
+  jump.className='settings-jump';jump.setAttribute('aria-label','Abschnitte der Einstellungen');jump.hidden=true
+  for(const [key,title,hint] of [
+    ['outlook','Outlook','Wie das Board mit deinem Postfach umgeht.'],['board','Board','Wie viele Mails das Board zeigt und wann es nachfragt.'],
+    ['ki','Lokale KI','Sprachmodell und Embeddings laufen auf deinem Rechner. Mailinhalt geht an kein externes Modell.'],
+    ['lernen','Lernen','Woraus das Board Ablagevorschläge lernt und wie gut sie treffen.'],['darstellung','Darstellung','Was auf den Karten zu sehen ist.']
+  ] as const) {
+    const part=document.createElement('section'),head=tag('h3',title),note=tag('p',hint),body=document.createElement('div')
+    part.id='settings-'+key;part.className='settings-part';head.id='settings-'+key+'-title';head.tabIndex=-1;note.className='field-hint';part.setAttribute('aria-labelledby',head.id)
+    part.append(head,note,body);settings.append(part);parts[key]=body
+    const link=tag('button',title);link.type='button';link.onclick=()=>{head.scrollIntoView({block:'start'});head.focus()};jump.append(link)
+  }
+  settings.prepend(jump)
+  const fitJump=()=>{const dialogBox=el<HTMLDialogElement>('settingsDialog');jump.hidden=false;jump.hidden=dialogBox.scrollHeight<=dialogBox.clientHeight+1}
+  el('openSettings').addEventListener('click',()=>setTimeout(fitJump))
+  window.addEventListener('resize',()=>{if(el<HTMLDialogElement>('settingsDialog').open)fitJump()})
+  renderAiSettings(parts.ki,()=>isLive()?learnerFolders():[],parts.lernen)
   const prefix=tag('input','');prefix.value=String(getLegacyConfig().status_prefix||'Status: ')
   const setPrefix=async()=>{
     if(!prefix.value.trim() || prefix.value.length>128)throw new Error('Bitte ein gültiges Status-Präfix eingeben.')
@@ -513,33 +748,53 @@ async function start() {
     updateConfig({status_prefix:prefix.value})
   }
   prefix.onchange=()=>void exclusive(setPrefix)
-  const labelPrefix=tag('label','Outlook-Statuspräfix');labelPrefix.append(prefix);el('aiSettings').append(labelPrefix)
   if(service && prefix.value!=='Status: '){try{await setPrefix()}catch(error){notify(errorText(error))}}
   const toggle=document.createElement('input');toggle.type='checkbox';toggle.id='allowMove'
   toggle.checked=mayMove()
   toggle.onchange=()=>{updateConfig({allow_move:toggle.checked});render()}
   const label=tag('label','');label.append(toggle,' Echte Mails verschieben erlauben')
-  el('aiSettings').prepend(label)
-  for(const [key,caption,fallback,min,max] of [
-    ['preview_chars','Zeichen in der Kartenvorschau',160,0,1500],['inbox_days','Posteingang · Tage',60,0,36500],['done_days','Erledigt · Tage',14,0,36500],
-    ['sent_days','Gesendet · Tage',14,0,36500],['overdue_days','Überfällig ab Werktagen',5,0,36500],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500],['max_items_per_folder','Limit pro Ordner',500,0,5000],['poll_seconds','Aktualisieren · Sekunden',30,0,86400]
+  const labelPrefix=tag('label','Outlook-Statuspräfix');labelPrefix.append(prefix)
+  parts.outlook.append(label,labelPrefix)
+  for(const [key,caption,fallback,min,max,part] of [
+    ['poll_seconds','Aktualisieren · Sekunden',30,0,86400,'outlook'],['inbox_days','Posteingang · Tage',60,0,36500,'board'],['done_days','Erledigt · Tage',14,0,36500,'board'],
+    ['sent_days','Gesendet · Tage',14,0,36500,'board'],['overdue_days','Überfällig ab Werktagen',5,0,36500,'board'],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500,'board'],['max_items_per_folder','Limit pro Ordner',500,0,5000,'board'],
+    ['preview_chars','Zeichen in der Kartenvorschau',160,0,1500,'darstellung']
   ] as const) {
     const input=document.createElement('input');input.type='number';input.min=String(min);input.max=String(max)
     input.value=String(getLegacyConfig()[key]??fallback)
     input.onchange=()=>{if(input.checkValidity() && Number.isInteger(input.valueAsNumber)){updateConfig({[key]:input.valueAsNumber});render()}}
-    const l=tag('label',caption);l.append(input);el('aiSettings').append(l)
+    const l=tag('label',caption);l.append(input);parts[part].append(l)
   }
-  for(const [key,caption,fallback] of [
-    ['suggestions','Ablagevorschläge auf Karten anzeigen',true],['compact_cards','Kompakte Karten',true],['show_ai_summary','KI-Zusammenfassung auf Karten',true],
-    ['reply_to_offen','Bei erkannter Antwort die wartende Karte automatisch bearbeiten',false]
+  for(const [key,caption,min,max,note] of [
+    ['case_threshold','Vorgangsvorschlag · Ähnlichkeit ab',0.5,0.99,'Je höher, desto weniger Vorschläge.'],
+    ['case_margin','Vorgangsvorschlag · Abstand zum zweitbesten Vorgang',0,0.5,'Je höher, desto eindeutiger muss der Vorschlag sein.']
+  ] as const) {
+    const input=document.createElement('input');input.type='number';input.min=String(min);input.max=String(max);input.step='0.01'
+    input.value=String(caseLimits(getLegacyConfig())[key==='case_threshold'?'threshold':'margin'])
+    input.title=note
+    input.onchange=()=>{
+      const value=input.valueAsNumber
+      if(Number.isFinite(value)&&value>=min&&value<=max){updateConfig({[key]:Math.round(value*100)/100});render()}
+      else input.value=String(caseLimits(getLegacyConfig())[key==='case_threshold'?'threshold':'margin'])
+    }
+    const l=tag('label',caption);l.append(input);parts.lernen.append(l)
+  }
+  for(const [key,caption,fallback,part] of [
+    ['suggestions','Ablagevorschläge auf Karten anzeigen',true,'darstellung'],['compact_cards','Kompakte Karten',true,'darstellung'],['show_ai_summary','KI-Zusammenfassung auf Karten',true,'darstellung'],
+    ['reply_to_offen','Bei erkannter Antwort die wartende Karte automatisch bearbeiten',false,'board']
   ] as const){
     const input=document.createElement('input');input.type='checkbox'
     input.checked=(getLegacyConfig()[key]??fallback)===true
     input.onchange=()=>{updateConfig({[key]:input.checked});render();void correspondence.refresh()}
-    const label=tag('label','');label.append(input,' '+caption);el('aiSettings').append(label)
+    const label=tag('label','');label.append(input,' '+caption);parts[part].append(label)
   }
+  const vipButton=tag('button','VIP-Liste bearbeiten …');vipButton.type='button';vipButton.id='editVip';vipButton.onclick=()=>views.editVip();parts.board.append(vipButton)
+  syncColors=colorSettings(parts.outlook,service,()=>isLive(),render)
+  initDetailBar()
   dialog.onclose=()=>{suggestionVersion++;if(selected)document.getElementById('mail-'+selected.id)?.focus()}
-  search.oninput=render
+  search.oninput=()=>{if(!semantic?.active())render()}
+  semantic=initSemanticSearch({mails:()=>mails,render,input:search,toggle:el<HTMLButtonElement>('semanticToggle')})
+  views.setRelevance(()=>semantic?.relevance())
   undoButton.onclick=()=>void undo()
   back.onclick=()=>{if(busy)return;connection=undefined;sourceUpdated(demoMails,'demo',demoFolders,'');notify('')}
   if(service) {

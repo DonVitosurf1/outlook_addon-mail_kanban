@@ -1,7 +1,52 @@
 import {categoryColor} from './category-colors'
-import {dueReasons, localDay, matchesSplit, type ViewMail} from './views-logic'
+import {dateHint} from './date-terms'
+import {dueReasons, FOCUS_TAG, localDay, matchesSplit, type ViewMail} from './views-logic'
 
-type Mail = ViewMail & {aiSummary?:string;hasStatus?:boolean}
+type Mail = ViewMail & {aiSummary?:string;hasStatus?:boolean;aiTasks?:readonly unknown[]}
+/** Fortschritt eines Vorgangs mit Checkliste, zu dem die Mail gehört. */
+export type CaseState = {name:string;tag:string;done:number;total:number}
+const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
+/** Pille oben auf der Karte. Die Reihenfolge entspricht der Dringlichkeit. */
+function flag(text:string,kind:string,title=''){
+  const pill=node('span',text,'card-flag flag-'+kind)
+  if(title)pill.title=title
+  return pill
+}
+/** Vorgangsvorschlag (K4): Pille zum Zuordnen und „×“ zum Ablehnen. Keine Buttons in der Karte, per Tastatur geht es über Kartenmenü und Befehlspalette. */
+function caseSuggestPill(suggestion:{name:string;accept():void;dismiss():void}){
+  const box=node('span','','case-suggest')
+  const act=(target:HTMLElement,run:()=>void)=>{
+    target.onclick=event=>{event.preventDefault();event.stopPropagation();run()}
+  }
+  const take=node('span','Vorgang '+suggestion.name+'?','card-flag flag-case')
+  take.title='Mail dem Vorgang „'+suggestion.name+'“ zuordnen'
+  const reject=node('span','×','case-suggest-x')
+  reject.title='Vorschlag ablehnen';reject.setAttribute('aria-hidden','true')
+  act(take,suggestion.accept);act(reject,suggestion.dismiss)
+  box.append(take,reject)
+  return box
+}
+/** Fußzeile mit Kategorien links und Zählern rechts, wie Avatare und Zähler der Vorlage. */
+function cardFoot(card:HTMLElement){
+  let foot=card.querySelector<HTMLElement>(':scope > .card-foot')
+  if(!foot){foot=node('span','','card-foot');card.append(foot)}
+  return foot
+}
+/** Liefert den Bereich für Kennzeichen oben bzw. Zähler unten, legt ihn bei Bedarf an. */
+export function cardRow(card:HTMLElement,kind:'flags'|'counters'){
+  const parent=kind==='flags'?card:cardFoot(card)
+  let row=parent.querySelector<HTMLElement>(':scope > .card-'+kind)
+  if(!row){
+    row=node('span','','card-'+kind)
+    if(kind==='flags')card.prepend(row);else parent.append(row)
+  }
+  return row
+}
+export function counter(text:string,label:string,kind:string){
+  const pill=node('span',text,'card-count count-'+kind)
+  pill.setAttribute('aria-label',label);pill.title=label
+  return pill
+}
 function node<K extends keyof HTMLElementTagNameMap>(tag:K,text:string,style=''){
   const element=document.createElement(tag)
   element.textContent=text
@@ -52,7 +97,7 @@ function vipList(config:Record<string,unknown>){
   try {return (localStorage.getItem('board.views.vip')||'').split('\n').filter(Boolean)}
   catch {return []}
 }
-export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<string,unknown>, hint?:string){
+export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<string,unknown>, hint?:string, cases:readonly CaseState[]=[], suggestion?:{name:string;accept():void;dismiss():void}){
   const subject=node('strong',mail.subject||'(ohne Betreff)','card-subject')
   subject.title=subject.textContent||''
   const author=node('small','','card-author')
@@ -70,13 +115,6 @@ export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<str
     const separator=node('span','–','card-separator');separator.setAttribute('aria-hidden','true')
     author.append(separator,age)
   }
-  if(matchesSplit(mail,'vip',vipList(config)))author.append(node('span','VIP','card-vip'))
-  if(mail.attachments.length){
-    const attachments=node('span',mail.attachments.length+' Anh.','card-attachments')
-    attachments.title=mail.attachments.join('\n')
-    attachments.setAttribute('aria-label',mail.attachments.length===1?'Ein Anhang':mail.attachments.length+' Anhänge')
-    author.append(attachments)
-  }
   card.append(subject,author)
   if(mail.aiSummary && config.show_ai_summary!==false)card.append(node('small',mail.aiSummary))
   const preview=mail.body.slice(0,Number(config.preview_chars??160))
@@ -84,32 +122,62 @@ export function renderCardContent(card:HTMLElement, mail:Mail, config:Record<str
   else if(preview)card.title=preview
 
   const {attention,scheduled}=cardDates(mail,Number(config.overdue_days??5),now)
-  if(attention.length)card.append(node('em',attention.join(' · '),'card-attention'))
+  if(attention.length){const em=node('em',attention.join(' · '),'card-attention');em.title=dateHint(attention);card.append(em)}
   const meta=[]
   if(mail.hasStatus===false)meta.push('Ohne Status')
-  if(mail.needsReply && ['Offen','In Bearbeitung'].includes(mail.status))meta.push('Antwort nötig')
   meta.push(...scheduled)
-  if(meta.length)card.append(node('em',meta.join(' · ')))
+  if(meta.length){const em=node('em',meta.join(' · '));em.title=dateHint(scheduled);card.append(em)}
 
-  if(mail.tags.length){
+  // Kennzeichen als Pillen über dem Betreff, wie die Prioritäten der Vorlage.
+  const flags:HTMLElement[]=[]
+  if(attention.length)flags.push(flag('Fällig','due',attention.join(' · ')))
+  if(mail.needsReply && ['Offen','In Bearbeitung'].includes(mail.status))flags.push(flag('Antwort nötig','reply'))
+  if(mail.tags.some(t=>same(t,FOCUS_TAG)))flags.push(flag('Fokus','focus','Im Tagesfokus (F)'))
+  if(matchesSplit(mail,'vip',vipList(config)))flags.push(flag('VIP','vip'))
+  if(suggestion)flags.push(caseSuggestPill(suggestion))
+  if(flags.length)cardRow(card,'flags').append(...flags)
+
+  // Vorgänge mit Checkliste zeigen ihren Fortschritt statt eines Kategorie-Chips.
+  const progress=cases.filter(c=>c.total>0 && mail.tags.some(t=>same(t,c.tag)))
+  for(const c of progress){
+    const box=node('span','','card-progress')
+    const label=node('span','','card-progress-label')
+    label.append(node('span',c.name),node('span',c.done+'/'+c.total))
+    const bar=node('span','','card-progress-bar')
+    const fill=node('span','');fill.style.width=Math.round(100*c.done/c.total)+'%';bar.append(fill)
+    box.setAttribute('role','img');box.setAttribute('aria-label','Vorgang '+c.name+': '+c.done+' von '+c.total+' Punkten erledigt')
+    box.append(label,bar);card.append(box)
+  }
+  if(hint){
+    const suggestion=node('small','Ablagevorschlag · '+hint,'card-suggestion')
+    suggestion.title='Vorgeschlagener Zielordner: '+hint
+    card.append(suggestion)
+  }
+  const chipTags=mail.tags.filter(t=>!same(t,FOCUS_TAG) && !progress.some(c=>same(c.tag,t)))
+  if(chipTags.length){
     const chips=node('span','','card-categories')
-    for(const name of mail.tags.slice(0,3)){
+    for(const name of chipTags.slice(0,3)){
       const chip=node('span',name,'card-chip')
       chip.title=name
       const color=categoryColor(name)
       if(color){chip.style.borderInlineStart='3px solid '+color}
       chips.append(chip)
     }
-    if(mail.tags.length>3) {
-      const extra=node('span','+'+(mail.tags.length-3),'card-chip')
-      extra.title=mail.tags.slice(3).join(', ');extra.setAttribute('aria-label','Weitere Kategorien: '+extra.title)
+    if(chipTags.length>3) {
+      const extra=node('span','+'+(chipTags.length-3),'card-chip')
+      extra.title=chipTags.slice(3).join(', ');extra.setAttribute('aria-label','Weitere Kategorien: '+extra.title)
       chips.append(extra)
     }
-    card.append(chips)
+    cardFoot(card).prepend(chips)
   }
-  if(hint){
-    const suggestion=node('small','Ablagevorschlag · '+hint,'card-suggestion')
-    suggestion.title='Vorgeschlagener Zielordner: '+hint
-    card.append(suggestion)
+  if(mail.attachments.length){
+    const label=mail.attachments.length===1?'Ein Anhang':mail.attachments.length+' Anhänge'
+    const pill=counter(String(mail.attachments.length),label+': '+mail.attachments.join(', '),'attachments')
+    cardRow(card,'counters').append(pill)
+  }
+  const open=mail.aiTasks?.length||0
+  if(open){
+    const label=open===1?'1 Aufgabe':open+' Aufgaben'
+    cardRow(card,'counters').append(counter(label,label+' aus der KI-Analyse, noch nicht übernommen','tasks'))
   }
 }
