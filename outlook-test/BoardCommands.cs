@@ -65,6 +65,11 @@ internal sealed class BoardCommands
                 return result;
             }
             break;
+        case "--folder-counts":
+            // Anzahl der Elemente je Ordner, nur für die Stellen, die sie brauchen (Einrichtung E1/E4, Zusammenlegen).
+            // Ohne Liste alle Ordner wie bei --folders, sonst nur die genannten Ordner-IDs (JSON-Liste).
+            if (args.Length == 1 || args.Length == 2) return FolderCounts(args.Length == 2 ? decodeTags(args[1]) : null);
+            break;
         case "--categories":
             if(args.Length==1) return MasterCategories();
             break;
@@ -134,7 +139,7 @@ internal sealed class BoardCommands
                 string key = isInbox ? "" : relative == null ? full :
                     (relative.Length == 0 ? name : relative + "/" + name);
                 result.Add(new { id, name, path = key, isInbox,
-                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID, count = ItemCount((object)sub) });
+                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID });
                 if (depth < 8) ChildFolders(sub, full, isInbox || relative != null ? key : null, depth+1, result);
             } catch (COMException ex) {
                 // A delegated folder may be visible in the tree without read access.
@@ -148,6 +153,28 @@ internal sealed class BoardCommands
     {
         try { return (int)((dynamic)folder).Items.Count; }
         catch (COMException) { return null; }
+    }
+
+    // Zahlen je Ordner-ID. Ohne Liste alle Mail-Ordner des Standardpostfachs. Unbekannte oder nicht lesbare Ordner fehlen in der Antwort.
+    private List<object> FolderCounts(string[] ids)
+    {
+        var result = new List<object>();
+        if (ids == null) {
+            var all = new List<object>();
+            ChildFolders(inbox.Parent, "", null, 1, all);
+            ids = all.Select(f => (string)((dynamic)f).id).ToArray();
+        }
+        foreach (string id in ids.Distinct(IgnoreCase)) {
+            dynamic folder;
+            try { folder = Folder(id); }
+            catch (Exception ex) {
+                if (ex is InvalidOperationException || IsItemReadError(ex) ||
+                    (ex is COMException && ((COMException)ex).ErrorCode == unchecked((int)0x8004010F))) continue;
+                throw;
+            }
+            result.Add(new { id = (string)folder.EntryID, count = ItemCount((object)folder) });
+        }
+        return result;
     }
 
     private dynamic Mail(string id, string expected)

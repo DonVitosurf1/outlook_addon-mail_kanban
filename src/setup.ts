@@ -28,7 +28,7 @@
 import {createFolder, getArchiveScope, getBoardScope, getLearningScope} from './projects'
 import {updateConfig} from './data-settings'
 import {localAiEnabled, measureLearning, renderEvaluation, trainFromFolders, type AiMail, type Measurement} from './ai'
-import type {Folder, LiveBoard} from './live'
+import {folderCounts, type Folder, type LiveBoard} from './live'
 import type {ViewMail} from './views-logic'
 import {currentView, showView, viewPanel} from './tabs'
 import {showToast} from './toast'
@@ -36,7 +36,7 @@ import {SETUP_KEY, freshState, initialScopes, isComplete, nextOpen, parseState, 
   type SetupState, type StepId, type StepStatus} from './setup-logic'
 
 export type {SetupState, StepId, StepStatus} from './setup-logic'
-/** Ordner aus `outlook_folders`. `parentId` und `rootId` liefert der Outlook-Helfer mit, `count` nur, wenn bekannt. */
+/** Ordner aus `outlook_folders`. `parentId` und `rootId` liefert der Outlook-Helfer mit. `count` kommt nur auf Anfrage (`folderCounts`). */
 export type SetupFolder=Folder&{parentId?:string;rootId?:string;count?:number}
 /** Zugriff auf das Board. Kommt aus board.ts. */
 export type SetupHost={
@@ -221,17 +221,31 @@ registerStep('E1',ctx=>{
   noneRadio.onchange=()=>{if(noneRadio.checked)archive=''}
   none.append(noneRadio,' Kein Archivordner')
   const create=button('Archivordner anlegen',()=>void createArchive())
+  // Zahlen holt E1 eigens (`outlook_folder_counts`), das Ordnerlesen des Boards zählt nicht. Bis dahin: Lernbeispiele der Messung oder „–“.
+  const amounts=new Map<string,HTMLTableCellElement>()
+  function showAmount(folder:SetupFolder,cell:HTMLTableCellElement){
+    const count=folder.count??known[folder.path]
+    cell.textContent=count==null?'–':String(count)
+    if(count!=null&&folder.count==null)cell.title='Lernbeispiele aus dem letzten Lernlauf';else cell.removeAttribute('title')
+  }
+  async function countFolders(){
+    const service=ctx.host.service()
+    if(!service)return
+    const counts=await folderCounts(service,folders.map(f=>f.id))
+    if(!ctx.active()||!counts.size)return
+    folders=folders.map(f=>counts.has(f.id)?{...f,count:counts.get(f.id)}:f)
+    for(const folder of folders){const cell=amounts.get(folder.id);if(cell)showAmount(folder,cell)}
+  }
   function draw(){
     const table=make('table'),caption=make('caption','Outlook-Ordner')
+    amounts.clear()
     const head=table.createTHead().insertRow()
     for(const name of ['Ordner','Mails','Board','Lernen','Archiv']){const th=make('th',name);th.scope='col';head.append(th)}
     const tbody=table.createTBody()
     for(const folder of folders){
       const row=tbody.insertRow(),inbox=!!folder.isInbox||!folder.path,name=inbox?'Posteingang':folder.path
       const title=make('th',name);title.scope='row';row.append(title)
-      const count=folder.count??known[folder.path]
-      const amount=row.insertCell();amount.textContent=count==null?'–':String(count)
-      if(count!=null&&folder.count==null)amount.title='Lernbeispiele aus dem letzten Lernlauf'
+      const amount=row.insertCell();showAmount(folder,amount);amounts.set(folder.id,amount)
       const box=(set:Set<string>,label:string)=>{
         const input=make('input');input.type='checkbox';input.setAttribute('aria-label',label+': '+name)
         input.checked=inbox?label==='Board':set.has(folder.path);input.disabled=inbox
@@ -273,6 +287,7 @@ registerStep('E1',ctx=>{
   })
   save.className='primary'
   draw()
+  void countFolders()
   // Ein gespeichertes Archiv ohne geladenen Ordner bleibt beim Speichern erhalten. Der Hinweis macht das sichtbar.
   if(archive&&!folders.some(f=>f.path===archive)){
     const kept=make('p','Gespeichertes Archiv „'+archive+'“ ist gerade nicht in der Ordnerliste und bleibt erhalten. Wähle einen anderen Ordner, um es zu ersetzen.')

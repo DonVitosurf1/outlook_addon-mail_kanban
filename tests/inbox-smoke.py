@@ -52,7 +52,8 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   window.calls.push([name,args,!!window.batchActive])
   if(name==='outlook_batch'){window.batchActive=args.active;return}
   if(name==='outlook_categories')return '[]'
-  if(name==='outlook_folders')return JSON.stringify(folders.map(({mails,...f})=>({...f,count:mails.length})))
+  if(name==='outlook_folders')return JSON.stringify(folders.map(({mails,...f})=>f))
+  if(name==='outlook_folder_counts')return JSON.stringify(folders.filter(f=>!args.folders||args.folders.includes(f.id)).map(f=>({id:f.id,count:f.mails.length})))
   if(name==='outlook_board')return '[]'
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_backlog'){

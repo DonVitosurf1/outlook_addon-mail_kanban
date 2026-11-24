@@ -47,8 +47,9 @@ const folders=[
   {id:'05',name:'Neu',path:'Neu',parentId:'root',rootId:'root',mails:[mail('n0','Zentrifuge defekt'),mail('n1','Wartung Zentrifuge')]},
 ]
 const pathOf=f=>f.parentId==='root'?f.name:pathOf(folders.find(p=>p.id===f.parentId))+'/'+f.name
-// Einkauf ohne Anzahl wie beim älteren Outlook-Helfer: E4 nennt die Lernmails als Untergrenze.
-const listed=()=>folders.map(({mails,...f})=>({...f,path:pathOf(f),count:f.id==='02'?null:mails.length}))
+const listed=()=>folders.map(({mails,...f})=>({...f,path:pathOf(f)}))
+// Zahlen nur auf Anfrage. Einkauf ohne Anzahl (nicht zählbar): E4 nennt die Lernmails als Untergrenze.
+const counted=ids=>folders.filter(f=>ids.includes(f.id)&&f.id!=='02').map(f=>({id:f.id,count:f.mails.length}))
 const write=name=>{if(!window.batchActive)throw Error(name+' ohne Schreibstapel')}
 window.outlook={folders,pathOf}
 window.calls=[]
@@ -59,6 +60,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_batch'){window.batchActive=args.active;return}
   if(name==='outlook_categories')return '[]'
   if(name==='outlook_folders')return JSON.stringify(listed())
+  if(name==='outlook_folder_counts')return JSON.stringify(counted(args.folders))
   if(name==='outlook_board')return JSON.stringify(folders.filter(f=>args.folders.includes(f.id)||f.isInbox).flatMap(f=>
     f.mails.map(m=>({...m,folderId:f.id,folder:f.name,status:'Offen',tags:[],attachments:[]}))))
   if(name==='outlook_folder')return '[]'

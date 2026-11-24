@@ -64,6 +64,27 @@ async fn outlook_folders() -> Result<String, String> {
     run_helper(vec!["--folders".into()]).await
 }
 
+/// Anzahl der Elemente je Ordner (`[{id, count}]`), nur für die Stellen, die sie brauchen (Einrichtung, Zusammenlegen).
+/// Ohne `folders` alle Ordner, sonst nur die genannten.
+#[tauri::command]
+async fn outlook_folder_counts(folders: Option<Vec<String>>) -> Result<String, String> {
+    run_helper(folder_counts_args(folders)?).await
+}
+
+fn folder_counts_args(folders: Option<Vec<String>>) -> Result<Vec<String>, String> {
+    let mut args = vec!["--folder-counts".into()];
+    if let Some(ids) = folders {
+        if ids.len() > 2000 {
+            return Err("Zu viele Ordner.".into());
+        }
+        for id in &ids {
+            validate_id(id)?;
+        }
+        args.push(serde_json::to_string(&ids).map_err(|e| e.to_string())?);
+    }
+    Ok(args)
+}
+
 #[tauri::command]
 async fn outlook_folder(
     folder: String,
@@ -291,6 +312,7 @@ fn main() {
             outlook_inbox,
             outlook_open,
             outlook_folders,
+            outlook_folder_counts,
             outlook_folder,
             outlook_move,
             outlook_undo,
@@ -324,4 +346,20 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("Das Mail-Board konnte nicht gestartet werden");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::folder_counts_args;
+
+    #[test]
+    fn folder_counts() {
+        assert_eq!(folder_counts_args(None).unwrap(), vec!["--folder-counts"]);
+        assert_eq!(
+            folder_counts_args(Some(vec!["00AB".into(), "01CD".into()])).unwrap(),
+            vec!["--folder-counts", r#"["00AB","01CD"]"#]
+        );
+        assert!(folder_counts_args(Some(vec!["kein".into()])).is_err());
+        assert!(folder_counts_args(Some(vec!["AB".into(); 2001])).is_err());
+    }
 }

@@ -165,7 +165,13 @@ internal static class Contracts
         Func<string[],object> call=args=>commands.Execute(args,s=>s.Split('|'));
         var folders=(List<object>)call(new[]{"--folders"});
         Check(folders.Select(f=>(string)((dynamic)f).path).SequenceEqual(new[]{"","Projekt","/Ablage","/Gesendet"}),"Ordnerpfade");
-        Check(folders.Select(f=>(int?)((dynamic)f).count).SequenceEqual(new int?[]{1,0,0,0}),"Mailanzahl je Ordner");
+        // --folders bleibt schnell und zählt nicht. Zahlen gibt es nur auf Anfrage, für alle oder die genannten Ordner.
+        Check(folders.All(f=>f.GetType().GetProperty("count")==null),"Ordnerliste ohne Zahlen");
+        var counts=(List<object>)call(new[]{"--folder-counts"});
+        Check(counts.Select(c=>(string)((dynamic)c).id+"="+(int?)((dynamic)c).count).SequenceEqual(new[]{"01=1","02=0","03=0","05=0"}),"Mailanzahl je Ordner");
+        var some=(List<object>)call(new[]{"--folder-counts","03|01|unbekannt|04|01"});
+        Check(some.Select(c=>(string)((dynamic)c).id+"="+(int?)((dynamic)c).count).SequenceEqual(new[]{"03=0","01=1"}),"Mailanzahl nur für genannte Ordner, ohne fremde und unbekannte");
+        try { call(new[]{"--folder-counts","01","02"}); throw new Exception("Zu viele Argumente angenommen"); } catch(ArgumentException) { }
         var cards=(List<object>)call(new[]{"--inbox"});
         dynamic card=cards.Single();
         Check(card.folderId=="01" && card.body=="intern" && card.status=="Warten","Karte");

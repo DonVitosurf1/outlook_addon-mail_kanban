@@ -14,6 +14,7 @@
 import {CLUSTER_MIN, embeddingClusters, embeddingsEnabled, profileVectors, suggestClusterName, suggestFolder, suggestFolderName} from './ai'
 import {getLegacyConfig, updateConfig} from './data-settings'
 import {distribute} from './distribute'
+import {folderCounts} from './live'
 import {createFolder, getBoardScope, getLearningScope, mergeFolders, renameFolder, type MergeResult} from './projects'
 import {crowdedFolders, isUnclearName, mergePlan, overlaps, proposalKey, reversed, MERGED_FOLDER, type Overlap} from './refine'
 import {registerStep, type OffBoardMail, type SetupFolder, type StepContext} from './setup'
@@ -63,14 +64,18 @@ registerStep('E4',async ctx=>{
   const loading=make('p','Ordner werden gelesen …');ctx.body.append(loading)
   const all=await service.json<SetupFolder[]>('outlook_folders')
   if(!ctx.active())return
-  loading.remove()
   const scope=new Set((getLearningScope()??getBoardScope()).map(p=>p.toLocaleLowerCase('de')))
-  const learners=all.filter(f=>!f.isInbox&&f.path&&scope.has(f.path.toLocaleLowerCase('de')))
-  if(!learners.length){ctx.body.append(make('p','Wähle zuerst in Schritt 1 mindestens einen Lernordner.'));return}
+  const listed=all.filter(f=>!f.isInbox&&f.path&&scope.has(f.path.toLocaleLowerCase('de')))
+  if(!listed.length){loading.remove();ctx.body.append(make('p','Wähle zuerst in Schritt 1 mindestens einen Lernordner.'));return}
+  // Zahlen nur für die Lernordner (`outlook_folder_counts`). Ohne Zahl zählt die Messung als Untergrenze.
+  const known=await folderCounts(service,listed.map(f=>f.id))
+  if(!ctx.active())return
+  loading.remove()
+  const learners=listed.map(f=>known.has(f.id)?{...f,count:known.get(f.id)}:f)
   const baseline=ctx.state.measurements.baseline
   const counts:Record<string,number|undefined>=Object.fromEntries(learners.map(f=>[f.path,f.count??baseline?.samples[f.path]]))
   const byPath=new Map(learners.map(f=>[f.path,f]))
-  // Ohne Anzahl aus Outlook (älterer Outlook-Helfer) zählen nur die Lernmails der Messung: eine Untergrenze.
+  // Ohne Anzahl aus Outlook (älterer Outlook-Helfer, Fehler beim Zählen) zählen nur die Lernmails der Messung: eine Untergrenze.
   const amount=(path:string,n:number|undefined)=>n==null?'':(byPath.get(path)?.count==null?'mindestens ':'')+mails(n)
   const dismissed=new Set(dismissedOf(ctx.state))
   const sections:Record<Section,HTMLElement>={crowded:make('section'),merge:make('section'),rename:make('section'),inbox:make('section')}

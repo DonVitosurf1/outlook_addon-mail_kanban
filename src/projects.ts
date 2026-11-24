@@ -1,6 +1,6 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
 import { getLegacyConfig, getLegacyProfiles, setProfile, rekeyProfile, updateConfig } from './data-settings'
-import {UndoSkippable, type LiveBoard} from './live'
+import {UndoSkippable, folderCounts, type LiveBoard} from './live'
 import {distribute} from './distribute'
 import {ask} from './data-settings'
 import {draftProfile, relabelLearning} from './ai'
@@ -172,7 +172,6 @@ export async function renameFolder(folder:{id:string;path:string},name:string):P
 
 /** Seitengröße beim Verschieben aller Mails eines Ordners. Jede Seite wird neu gelesen, bis der Ordner leer ist. */
 const MERGE_PAGE=200
-type Counted=Folder&{count?:number|null}
 export type MergeResult={moved:number;failed:string[];archived?:string;left?:number}
 const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
 /**
@@ -184,7 +183,7 @@ const errorText=(e:unknown)=>e instanceof Error?e.message:String(e)
  */
 export async function mergeFolders(source:{id:string;path:string},target:{id:string;path:string},progress?:(text:string)=>void):Promise<MergeResult>{
   const api=session()
-  const all=await api.json<Counted[]>('outlook_folders')
+  const all=await api.json<Folder[]>('outlook_folders')
   const src=all.find(f=>f.id===source.id),dst=all.find(f=>f.id===target.id)
   if(!src||src.path!==source.path||!dst||dst.path!==target.path)throw new Error('Die Ordner wurden inzwischen geändert. Bitte neu prüfen.')
   if([src.path,dst.path].includes(getArchiveScope()))throw new Error('Der Archivordner lässt sich nicht zusammenlegen.')
@@ -216,8 +215,8 @@ export async function mergeFolders(source:{id:string;path:string},target:{id:str
           progress?.('Ordner wird nach „'+MERGED_FOLDER+'“ verschoben …')
           planned.id??=(await api.json<Receipt>('project_create',{parent:planned.parent,name:planned.name})).id
         }else if(planned.kind==='folder'){
-          const before=await api.json<Counted[]>('outlook_folders')
-          const left=before.find(f=>f.id===planned.folder)?.count
+          const before=await api.json<Folder[]>('outlook_folders')
+          const left=(await folderCounts(api,[planned.folder])).get(planned.folder)
           if(left)result.left=left
           const holder=plan.steps.find(s=>s.kind==='holder')!
           const receipt=await api.json<Receipt>('project_move',{folder:planned.folder,source:planned.from,target:holder.kind==='holder'?holder.id:''})

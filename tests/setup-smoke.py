@@ -34,6 +34,8 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_batch'){window.batchActive=args.active;return}
   if(name==='outlook_categories')return '[]'
   if(name==='outlook_folders')return JSON.stringify(folders)
+  // Zahlen nur auf Anfrage: Einkauf 120 Mails, Labor nicht zählbar (fehlt in der Antwort).
+  if(name==='outlook_folder_counts')return JSON.stringify(args.folders.filter(id=>id!=='03').map(id=>({id,count:id==='02'?120:7})))
   if(name==='outlook_board')return JSON.stringify([{id:'m1',folderId:'01',folder:'Posteingang',status:'Offen',subject:'Neue Anfrage',sender:'Anna',body:'',tags:[],attachments:[]}])
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_training')return JSON.stringify(training[args.folder]||[])
@@ -75,6 +77,12 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(view.get_by_role('heading', name='Schritt 1 · Ordner wählen')).to_be_visible()
             expect(view.locator('.setup-steps button')).to_have_count(7)
             expect(view.locator('.setup-steps [aria-current=step]')).to_contain_text('Ordner wählen')
+            # E1: Zahlen je Ordner kommen eigens, das Ordnerlesen zählt nicht.
+            rows = view.locator('table tbody tr')
+            expect(rows.filter(has_text='Einkauf').locator('td').first).to_have_text('120')
+            expect(rows.filter(has_text='Labor').locator('td').first).to_have_text('–')
+            counted = page.evaluate("calls.filter(c=>c[0]==='outlook_folder_counts')")
+            assert len(counted) == 1 and '02' in counted[0][1]['folders'], counted
             # E1: Vorbelegung.
             for name in ['Einkauf', 'Labor', 'Kleinkram']:
                 expect(view.get_by_label('Lernen: ' + name, exact=True)).to_be_checked()

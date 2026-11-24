@@ -1,5 +1,16 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
 export type Folder = {id:string; name:string; path:string; isInbox?:boolean}
+/**
+ * Anzahl der Elemente je Ordner-ID über `outlook_folder_counts` (`--folders` zählt nicht mehr, damit das Ordnerlesen schnell bleibt).
+ * Fehlt eine Zahl (unbekannter Ordner, älterer Helfer, Fehler), fehlt sie in der Map: Aufrufer zeigen dann keine oder eine Untergrenze.
+ */
+export async function folderCounts(api:{json<T>(command:string,args?:Record<string,unknown>):Promise<T>},ids:readonly string[]):Promise<Map<string,number>>{
+  if(!ids.length)return new Map()
+  try{
+    const rows=await api.json<{id:string;count:number|null}[]>('outlook_folder_counts',{folders:[...new Set(ids)]})
+    return new Map((Array.isArray(rows)?rows:[]).filter(r=>typeof r?.count==='number').map(r=>[r.id,r.count as number]))
+  }catch{return new Map()}
+}
 export function countsAsFiling(folder:Folder, archivePath:string) {
   return !folder.isInbox && folder.path!==archivePath
 }
