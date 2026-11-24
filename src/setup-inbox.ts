@@ -24,7 +24,7 @@ import type {ViewMail} from './views-logic'
 type BacklogMail=OffBoardMail&ViewMail&{hasStatus?:boolean}
 type Classes=ReturnType<typeof classifyBacklog<BacklogMail>>
 /** Letzter Lesevorgang dieser Sitzung. `gone` sind abgelegte Mails, `stamp` die Lernordner der Einteilung. */
-let read:{mails:BacklogMail[];inbox:string;stamp:string;classes:Classes;full:boolean;gone:Set<string>;undone?:boolean}|undefined
+let read:{mails:BacklogMail[];inbox:string;stamp:string;classes:Classes;end:'complete'|'max'|'partial';gone:Set<string>;undone?:boolean}|undefined
 /** Zuletzt gezeichnete Ansicht, für den Hinweis nach einer Rücknahme. */
 let view:StepContext|undefined
 const UNDONE='Zurückgenommen. Mit „Neu lesen“ siehst du die Mails wieder.'
@@ -76,15 +76,16 @@ registerStep('E7',ctx=>{
     if(reading)return
     reading=true;start.disabled=true
     try{
-      const list=await readBacklog((limit,cursor)=>service!.json<BacklogPage<BacklogMail>>('outlook_backlog',{limit,...(cursor?{cursor}:{})}),
+      const answer=await readBacklog((limit,cursor)=>service!.json<BacklogPage<BacklogMail>>('outlook_backlog',{limit,...(cursor?{cursor}:{})}),
         n=>ctx.status('Posteingang wird gelesen: '+mails(n)+' ohne Status …'),()=>ctx.host.mailbox()!=='outlook')
-      if(!list)return
+      if(!answer)return
+      const list=answer.mails
       const inbox=ctx.host.folders().find(f=>f.isInbox)?.id??list[0]?.folderId??''
       const usable=list.filter(m=>m.id&&m.folderId)
       const folders=ctx.host.learnerFolders()
       ctx.status('Mails werden eingeteilt …')
       const classes=classify(usable,folders)
-      read={mails:usable,inbox,stamp:stampOf(folders),classes,full:list.length>=BACKLOG_MAX,gone:new Set()}
+      read={mails:usable,inbox,stamp:stampOf(folders),classes,end:answer.end,gone:new Set()}
       opened.clear();focusSection='safe'
       const safe=[...classes.safe.values()].reduce((n,l)=>n+l.length,0)
       ctx.refresh(usable.length?mails(usable.length)+' gelesen: '+safe+' sicher, '+classes.unsure.length+' unsicher, '+classes.none.length+' ohne Ziel.'
@@ -101,7 +102,10 @@ registerStep('E7',ctx=>{
     const unsure=current.classes.unsure.filter(alive),none=current.classes.none.filter(alive)
     const total=safe.reduce((n,[,l])=>n+l.length,0)+unsure.length+none.length
     const summary=make('p',total?mails(total)+' ohne Status im Posteingang.':'Keine Mails ohne Status mehr im Posteingang.')
-    if(current.full)summary.textContent+=' Gelesen wurden die ältesten '+BACKLOG_MAX.toLocaleString('de-DE')+'. Nach dem Abarbeiten liest „Neu lesen“ die nächsten.'
+    if(current.end==='max')summary.textContent+=' Gelesen wurden die ältesten '+BACKLOG_MAX.toLocaleString('de-DE')+'. Nach dem Abarbeiten liest „Neu lesen“ die nächsten.'
+    // Seitengrenze erreicht (sehr viele Mails mit Status oder Erledigte): ehrlich sagen, dass nicht alles gelesen ist.
+    if(current.end==='partial')summary.textContent+=' Nur teilweise gelesen: Im Posteingang liegen sehr viele Mails mit Status oder Erledigte. Gelesen wurden die ältesten '+
+      mails(current.mails.length)+' ohne Status. Nach dem Abarbeiten liest „Neu lesen“ weitere.'
     ctx.body.append(summary)
     if(current.undone){const note=make('p',UNDONE);note.className='setup-note';ctx.body.append(note)}
     const sections:Record<Section,HTMLElement>={safe:make('section'),unsure:make('section'),none:make('section')}

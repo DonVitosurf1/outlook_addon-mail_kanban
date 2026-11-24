@@ -20,12 +20,14 @@ export type BacklogPage<T>={cards:T[];next:string|null}
  * (der Helfer prüft je Seite höchstens das Vierfache der Grenze, Erledigte und Unlesbare eingeschlossen). Insgesamt liest es höchstens
  * `5*max/page` Seiten. Doppelte IDs (gleich alte Mails nach einer Verschiebung) kommen nur einmal vor. `progress` meldet die Zahl der
  * bisher gelesenen Mails ohne Status. `stop` bricht nach jeder Seite ab, dann ist das Ergebnis `undefined`.
+ * `end` sagt, warum das Lesen endete: `complete` (Ende des Posteingangs), `max` (Höchstzahl erreicht) oder `partial` (Seitengrenze
+ * erreicht oder kein Fortschritt mehr, etwa bei sehr vielen Mails mit Status: nur teilweise gelesen).
  */
 export async function readBacklog<T extends Row>(fetch:(limit:number,cursor?:string)=>Promise<BacklogPage<T>>,progress?:(count:number)=>void,
-  stop?:()=>boolean,max=BACKLOG_MAX,page=BACKLOG_PAGE):Promise<T[]|undefined>{
+  stop?:()=>boolean,max=BACKLOG_MAX,page=BACKLOG_PAGE):Promise<{mails:T[];end:'complete'|'max'|'partial'}|undefined>{
   const seen=new Set<string>(),result:T[]=[]
   let cursor:string|undefined
-  for(let pages=0;result.length<max&&pages<Math.ceil(5*max/page);pages++){
+  for(let pages=0;pages<Math.ceil(5*max/page);pages++){
     const answer=await fetch(page,cursor)
     if(stop?.())return
     if(!answer||!Array.isArray(answer.cards))throw new Error('Outlook lieferte keine Mailliste.')
@@ -35,11 +37,13 @@ export async function readBacklog<T extends Row>(fetch:(limit:number,cursor?:str
       if(row.hasStatus===false&&result.length<max)result.push(row)
     }
     progress?.(result.length)
-    // Ohne Fortsetzung oder ohne Fortschritt ist der Rückstand gelesen.
-    if(typeof answer.next!=='string'||!answer.next||answer.next===cursor)break
+    if(typeof answer.next!=='string'||!answer.next)return {mails:result,end:'complete'}
+    if(result.length>=max)return {mails:result,end:'max'}
+    // Ohne Fortschritt geht es nicht weiter.
+    if(answer.next===cursor)break
     cursor=answer.next
   }
-  return result
+  return {mails:result,end:'partial'}
 }
 
 export type Hint={folder:string}

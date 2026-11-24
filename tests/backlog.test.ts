@@ -55,21 +55,24 @@ test('Seitenweises Lesen: mit Fortsetzungspunkt bis zum Ende, nur Mails ohne Sta
   const fetch=async(limit:number,cursor?:string)=>{calls.push([limit,cursor]);return pages[cursor??'start']}
   const result=await readBacklog(fetch,n=>seen.push(n),undefined,2000,250)
   assert.deepEqual(calls,[[250,undefined],[250,'c25'],[250,'c30']])
-  assert.deepEqual(result!.map(r=>r.id),inbox.filter(r=>!r.hasStatus).map(r=>r.id))
+  assert.equal(result!.end,'complete')
+  assert.deepEqual(result!.mails.map(r=>r.id),inbox.filter(r=>!r.hasStatus).map(r=>r.id))
   assert.deepEqual(seen,[23,23,36])
   const capped=await readBacklog(async(limit,cursor)=>{const at=Number(cursor??0);return {cards:inbox.slice(at,at+limit),next:String(at+limit)}},undefined,undefined,5,4)
-  assert.deepEqual(capped!.map(r=>r.id),['m0','m1','m2','m3','m4'])
+  assert.deepEqual(capped!.mails.map(r=>r.id),['m0','m1','m2','m3','m4'])
+  assert.equal(capped!.end,'max')
   let stopped=false
   assert.equal(await readBacklog(async()=>{stopped=true;return {cards:inbox,next:'x'}},undefined,()=>stopped),undefined)
   await assert.rejects(readBacklog(async()=>null as unknown as {cards:Row[];next:null}),/keine Mailliste/)
   await assert.rejects(readBacklog(async()=>inbox as unknown as {cards:Row[];next:null}),/keine Mailliste/)
   // Ohne Fortschritt (gleicher Fortsetzungspunkt) endet das Lesen.
   let repeated=0
-  assert.deepEqual(await readBacklog(async()=>{repeated++;return {cards:[],next:'gleich'}}),[])
+  assert.deepEqual(await readBacklog(async()=>{repeated++;return {cards:[],next:'gleich'}}),{mails:[],end:'partial'})
   assert.equal(repeated,2)
-  // Nur Mails mit Status: Lesen endet nach 5*max/page Seiten.
+  // Fast nur Mails mit Status: Lesen endet nach 5*max/page Seiten und meldet „nur teilweise“.
   let read=0
-  assert.deepEqual(await readBacklog(async(limit,cursor)=>{read++;const at=Number(cursor??0);return {cards:Array.from({length:limit},(_,i)=>({id:'x'+(at+i),subject:'',hasStatus:true})),next:String(at+limit)}},undefined,undefined,10,10),[])
+  assert.deepEqual(await readBacklog(async(limit,cursor)=>{read++;const at=Number(cursor??0);return {cards:Array.from({length:limit},(_,i)=>({id:'x'+(at+i),subject:'',hasStatus:at+i!==3})),next:String(at+limit)}},undefined,undefined,10,10),
+    {mails:[{id:'x3',subject:'',hasStatus:false}],end:'partial'})
   assert.equal(read,5)
 })
 

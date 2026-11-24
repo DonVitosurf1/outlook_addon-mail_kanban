@@ -59,6 +59,8 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_backlog'){
     // Seite ab dem Fortsetzungspunkt. Der Helfer darf weniger als die Grenze liefern: hier höchstens 25 je Seite.
     const rows=[...folders[0].mails].sort((a,b)=>a.received.localeCompare(b.received))
+    // window.stuck: der Helfer kommt nicht weiter (gleicher Fortsetzungspunkt), etwa bei sehr vielen Erledigten.
+    if(window.stuck&&args.cursor)return JSON.stringify({cards:[],next:args.cursor})
     const start=args.cursor?Number(args.cursor.split('|')[0]):0,end=start+Math.min(args.limit,25)
     return JSON.stringify({cards:rows.slice(start,end).map(m=>card(m,folders[0])),next:end<rows.length?end+'|'+rows[end-1].id:null})
   }
@@ -223,6 +225,13 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(cleanup).to_be_hidden()
             expect(unsure).to_contain_text('3 Mails haben einen Vorschlag ohne hohe Sicherheit.')
             expect(unsure.get_by_role('heading', name='Unsichere Vorschläge')).to_be_focused()
+
+            # Endet das Lesen vor dem Ende des Posteingangs (kein Fortschritt, Seitengrenze), sagt E7 das.
+            page.evaluate('window.stuck=true')
+            view.get_by_role('button', name='Neu lesen').click()
+            expect(status).to_contain_text('gelesen:')
+            expect(view.locator('.setup-body > p').filter(has_text='Nur teilweise gelesen')).to_contain_text('Gelesen wurden die ältesten')
+            page.evaluate('window.stuck=false')
 
             # Abschluss: Einrichtung abgeschlossen, Start zeigt keinen Fortschritt mehr, kein Hinweis über dem Board.
             view.get_by_role('button', name='Einrichtung abschließen').click()
