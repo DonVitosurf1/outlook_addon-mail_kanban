@@ -84,7 +84,11 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
       const id=embeddingId(mail),originals=chosen.map(r=>r.task.text)
       setTaken(id,[...takenTasks(id),...originals])
       // Punkte und Merker zurücknehmen. Ein neuer Vorgang verschwindet mit, wenn danach keine anderen Punkte hinzukamen.
+      // Nur einmal: eine veraltete Rückmeldung und ein späteres Strg+Z auf denselben Schritt geben die Übernahme nicht doppelt frei.
+      let released=false
       const release=(keepCase:boolean)=>{
+        if(released)return
+        released=true
         updateCase(name,c=>{const items=c.items.filter(i=>!ids.has(i.id));return isNew&&!keepCase&&!items.length?undefined:{...c,items}})
         releaseTaken(id,originals)
       }
