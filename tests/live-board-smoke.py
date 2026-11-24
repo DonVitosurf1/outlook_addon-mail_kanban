@@ -109,6 +109,7 @@ try:
         card.click()
         page.locator("#status").select_option("Warten")
         expect(page.locator(".toast")).to_contain_text(re.compile("^(Nach „|Status auf|Kategorien|Notiz|Nachfassen|Wiedervorlage|Fokus)"))
+        page.get_by_role("dialog", name="Nachfassen vorschlagen").get_by_role("button", name="Nicht jetzt").click()
         page.evaluate("window.editInOutlook()")
         page.locator("#undo").click()
         conflict = page.get_by_role("dialog", name="Der Status wurde inzwischen", exact=False)

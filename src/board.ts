@@ -16,6 +16,8 @@ import { initCorrespondence, demoSentRows } from './correspondence'
 import { initCockpit, recordWeekly } from './cockpit'
 import { maybeIntro } from './intro'
 import { initTriage } from './triage'
+import { followSourceText, suggestFollowUp, type FollowSuggestion } from './follow-up'
+import { localDay } from './views-logic'
 import { initRoutines, markRoutine } from './routines'
 import { initCalendar } from './calendar'
 import { renderMailTasks } from './mail-tasks'
@@ -270,6 +272,64 @@ const assignCase=(ids:string[],name:string,on:boolean)=>applyChange(ids,{kind:'t
  */
 export type ChangeOutcome='recorded'|'unchanged'|'failed'
 async function change(ids:string[],action:Mutation){await applyChange(ids,action)}
+function configuredFollowDays(){
+  const raw=getLegacyConfig().follow_up_days
+  return typeof raw==='number'&&Number.isInteger(raw)&&raw>=1&&raw<=365?raw:5
+}
+function askFollowUp(rows:{mail:Mail;suggestion:FollowSuggestion}[]){
+  return new Promise<{mail:Mail;day:string}[]|undefined>(resolve=>{
+    const dialog=document.createElement('dialog');dialog.setAttribute('aria-label','Nachfassen vorschlagen')
+    const title=tag('h2','Nachfassen vorschlagen');dialog.append(title)
+    const shared=rows.every(row=>row.suggestion.day===rows[0].suggestion.day)
+    let input:HTMLInputElement|undefined
+    if(shared){
+      const row=rows[0]
+      const who=rows.length===1?'Für „'+(row.mail.subject||'(ohne Betreff)')+'“':rows.length+' Mails'
+      const days=row.suggestion.source==='frist'?'':', '+row.suggestion.days+(row.suggestion.days===1?' Tag':' Tage')
+      const text=tag('p',who+': '+followSourceText[row.suggestion.source]+days+'.')
+      const label=tag('label','Nachfassen am ')
+      input=document.createElement('input');input.type='date';input.value=row.suggestion.day;input.required=true
+      label.append(input);dialog.append(text,label)
+    }else{
+      const list=document.createElement('ul')
+      for(const row of rows){
+        const item=tag('li',(row.mail.subject||'(ohne Betreff)')+' · '+row.suggestion.day+' · '+followSourceText[row.suggestion.source])
+        list.append(item)
+      }
+      dialog.append(list)
+    }
+    const actions=tag('div','');actions.className='dialog-actions'
+    const cancel=tag('button','Nicht jetzt');cancel.type='button';cancel.onclick=()=>dialog.close()
+    const ok=tag('button','Nachfassen setzen');ok.type='button';ok.className='primary'
+    ok.onclick=()=>{if(input&&!input.value)return;dialog.close('ok')}
+    actions.append(cancel,ok);dialog.append(actions)
+    dialog.onclose=()=>{
+      const day=input?.value,accepted=dialog.returnValue==='ok'
+      dialog.remove()
+      resolve(accepted?rows.map(row=>({mail:row.mail,day:day||row.suggestion.day})):undefined)
+    }
+    document.body.append(dialog);dialog.showModal();(input||cancel).focus()
+  })
+}
+async function offerFollowUp(ids:string[]){
+  const today=localDay()
+  const rows=mails.filter(m=>ids.includes(m.id)&&m.status==='Warten'&&!m.followUp)
+    .map(mail=>({mail,suggestion:suggestFollowUp(mail,mails,{today,defaultDays:configuredFollowDays()})}))
+  if(!rows.length)return
+  const chosen=await askFollowUp(rows)
+  if(!chosen)return
+  const groups=new Map<string,string[]>()
+  for(const row of chosen){
+    const list=groups.get(row.day)||[]
+    list.push(row.mail.id)
+    groups.set(row.day,list)
+  }
+  for(const [day,group] of groups)await change(group,{kind:'followUp',value:day})
+}
+async function setStatus(ids:string[],value:string,extra:Partial<Mutation>={}){
+  const outcome=await applyChange(ids,{...extra,kind:'status',value})
+  if(value==='Warten'&&outcome==='recorded')await offerFollowUp(ids)
+}
 async function applyChange(ids:string[],action:Mutation):Promise<ChangeOutcome> {
   if(action.offBoard&&!isLive())return 'failed'
   let outcome:ChangeOutcome='failed'
@@ -638,7 +698,7 @@ function render() {
     lane.append(heading,...views.cards(matches,card,status))
     if(!matches.length){const empty=tag('p','Keine Mails');empty.className='empty';lane.append(empty)}
     views.bindLane(lane,heading,status)
-    dropZone(lane,ids=>void change(ids,{kind:'status',value:status}))
+    dropZone(lane,ids=>void setStatus(ids,status))
     board.append(lane)
   }
   controls()
@@ -667,9 +727,12 @@ async function reloadFolders() {
 }
 async function start() {
   demoMails=structuredClone(demo);loadDemo()
-  views=new BoardViews({render,open:pick,scopeIdentity:()=>mailbox+':'+scope,inboxId:()=>folders.find(f=>f.isInbox)?.id||'Posteingang',changeStatus:(ids,value)=>change(ids,{kind:'status',value}),
+  views=new BoardViews({render,open:pick,scopeIdentity:()=>mailbox+':'+scope,inboxId:()=>folders.find(f=>f.isInbox)?.id||'Posteingang',changeStatus:(ids,value)=>setStatus(ids,value),
     moveToFolder:(ids,index)=>{const f=folders[index];return f?change(ids,{kind:'move',value:f.id}):Promise.resolve()},
-    dropInFolder:(ids,folder,status)=>change(ids,{kind:'move',value:folder,status}),
+    dropInFolder:async(ids,folder,status)=>{
+      const outcome=await applyChange(ids,{kind:'move',value:folder,status})
+      if(status==='Warten'&&outcome==='recorded')await offerFollowUp(ids)
+    },
     clearScope:()=>{if(!isLive())scope=''},hasScope:()=>!isLive() && !!scope,
     openOriginal:async id=>{if(!isLive()){pick(id);return}const mail=mails.find(m=>m.id===id);if(mail)await openOriginal(mail)},
     acceptSuggestion:async id=>{pick(id);await currentSuggestion?.(true)},
@@ -733,7 +796,7 @@ async function start() {
     startTriage:()=>triage?.start(),triageActive:()=>!!triage?.active,routines:loadRoutines,
     openCalendar:()=>calendar.open(),setupProgress:()=>setup?.progress()??'',openSetup:()=>setup?.open(),markRoutine:id=>markRoutine(id),showFocus:key=>views.showFocus(key),showOverdue:()=>views.showSplit('overdue'),
     // Vorgegebene Mailliste (E7): Mails außerhalb des Boards, Ordner der verschobenen Mails für die Durchsicht nachziehen.
-    onStatus:(ids,status,rows)=>change(ids,{kind:'status',value:status,offBoard:rows as Mail[]|undefined}),
+    onStatus:(ids,status,rows)=>setStatus(ids,status,{offBoard:rows as Mail[]|undefined}),
     onFolder:(ids,target,rows)=>change(ids,{kind:'move',value:target,offBoard:rows as Mail[]|undefined,
       moved:rows&&(id=>{const row=rows.find(m=>m.id===id);if(row){row.folderId=target;row.folder=folders.find(f=>f.id===target)?.name??row.folder}})}),
     getFolders:()=>folders,getSuggestionFolders:learnerFolders,onUndo:async()=>{await undo()},
@@ -750,7 +813,7 @@ async function start() {
       return loaded
     }})
   correspondence=initCorrespondence({isLive,hasMailbox,rows:()=>mails,folders:()=>boardFolders(folders,getBoardScope()).map(f=>f.id),
-    service,render,resolveReplies:(ids,value)=>change(ids,{kind:'status',value}),busy:()=>busy,
+    service,render,resolveReplies:(ids,value)=>change(ids,{kind:'status',value}),busy:()=>busy,offerFollowUp,
     writeBatch:async action=>{if(busy)throw new Error('Eine Outlook-Aktion läuft.');await exclusive(()=>service!.writeBatch(action))},refreshAfterWrite:async()=>{if(isLive())await refresh();else render()},demoOpen:pick,
     trackDemo:rows=>{changeDemo(()=>{for(const row of rows) {
       const existing=demoMails.find(m=>m.id===row.id)
@@ -760,7 +823,7 @@ async function start() {
   fillOptions(el('status'),states.map(s=>({id:s,label:s})))
   for(const key of ['status','folder'] as const) {
     const element=el<HTMLSelectElement>(key)
-    element.onchange=()=>{if(selected)void change([selected.id],{kind:key==='folder'?'move':'status',value:element.value})}
+    element.onchange=()=>{if(!selected)return;void (key==='folder'?change([selected.id],{kind:'move',value:element.value}):setStatus([selected.id],element.value))}
   }
   const archiveButton=tag('button','');archiveButton.id='archiveDone';archiveButton.hidden=true;el('workActions').append(archiveButton)
   bindAiBoard(()=>isLive()?mails:[],()=>isLive()?learnerFolders().map(f=>f.path):[])
@@ -797,7 +860,7 @@ async function start() {
   parts.outlook.append(label,labelPrefix)
   for(const [key,caption,fallback,min,max,part] of [
     ['poll_seconds','Aktualisieren · Sekunden',30,0,86400,'outlook'],['inbox_days','Posteingang · Tage',60,0,36500,'board'],['done_days','Erledigt · Tage',14,0,36500,'board'],
-    ['sent_days','Gesendet · Tage',14,0,36500,'board'],['overdue_days','Überfällig ab Werktagen',5,0,36500,'board'],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500,'board'],['max_items_per_folder','Limit pro Ordner',500,0,5000,'board'],
+    ['sent_days','Gesendet · Tage',14,0,36500,'board'],['overdue_days','Überfällig ab Werktagen',5,0,36500,'board'],['follow_up_days','Nachfassen-Vorschlag · Tage',5,1,365,'board'],['archive_after_days','Archivierung anbieten ab Tagen',7,0,36500,'board'],['max_items_per_folder','Limit pro Ordner',500,0,5000,'board'],
     ['preview_chars','Zeichen in der Kartenvorschau',160,0,1500,'darstellung']
   ] as const) {
     const input=document.createElement('input');input.type='number';input.min=String(min);input.max=String(max)

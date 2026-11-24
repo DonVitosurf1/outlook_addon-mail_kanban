@@ -6,6 +6,7 @@ type Host={
   refreshAfterWrite():Promise<void>|void; trackDemo?(mails:Envelope[]):Promise<void>|void
   demoOpen?(id:string):void
   resolveReplies?(ids:string[],status:string):Promise<void>; busy?():boolean; writeBatch?(action:()=>Promise<void>):Promise<void>
+  offerFollowUp?(ids:string[]):Promise<void>|void
 }
 
 function node<K extends keyof HTMLElementTagNameMap>(tag:K,label=''){
@@ -191,7 +192,7 @@ export function initCorrespondence(host:Host){
       if(epoch!==sourceEpoch)return
       current=current.filter(m=>!ok.has(m.id))
       ok.forEach(id=>chosen.delete(id));cache=undefined
-      if(ok.size)await host.refreshAfterWrite()
+      if(ok.size){await host.refreshAfterWrite();await host.offerFollowUp?.([...ok])}
     }catch(e){errors.push(String(e))}
     finally{
       if(epoch!==sourceEpoch)return
