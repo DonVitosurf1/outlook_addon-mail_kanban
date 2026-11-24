@@ -1,4 +1,5 @@
 import {rememberUndo,forgetUndo} from './undo-limit'
+import {readStoredRules} from './stored-rules'
 import { getLegacyConfig, getLegacyProfiles, setProfile, rekeyProfile, updateConfig } from './data-settings'
 import {UndoSkippable, folderCounts, type LiveBoard} from './live'
 import {distribute} from './distribute'
@@ -134,8 +135,9 @@ function rekeyConfig(from:string,to:string){
   const remapRules=(rules:unknown)=>Array.isArray(rules)?rules.map(r=>r&&typeof r.folder==='string'?{...r,folder:remap(r.folder)}:r):[]
   updateConfig({project_folders:getBoardScope().map(remap),suggestion_folders:scopes&&scopes.map(remap),
     archive_folder:remap(getArchiveScope()),folder_descriptions:descriptions,filing_rules:remapRules(cfg.filing_rules)})
-  const ruleKey='outlook-kanban-ai-rules-v1',saved=localStorage.getItem(ruleKey)
-  if(saved){const data=JSON.parse(saved);localStorage.setItem(ruleKey,JSON.stringify({...data,items:remapRules(data.items)}))}
+  const ruleKey='outlook-kanban-ai-rules-v1'
+  const data=readStoredRules(localStorage.getItem(ruleKey))
+  if(data)localStorage.setItem(ruleKey,JSON.stringify({...data,items:remapRules(data.items)}))
   rekeyProfile(from,to)
 }
 /** Merkt eine Ordneränderung als Rückgängig-Schritt und schlüsselt Einstellungen und Steckbrief auf den neuen Pfad um. */
@@ -241,9 +243,10 @@ function retargetTargets(from:string,to:string):NonNullable<MergeConfig['targets
   const config={board:{from:board.includes(from),to:board.includes(to)},
     learn:learning&&{from:learning.includes(from),to:learning.includes(to)},rules:rules.changed,aiRules:[] as number[],learned:[] as string[]}
   updateConfig({project_folders:retarget(board,from,to),suggestion_folders:learning&&retarget(learning,from,to),filing_rules:rules.rules})
-  const ruleKey='outlook-kanban-ai-rules-v1',saved=localStorage.getItem(ruleKey)
-  if(saved){
-    const data=JSON.parse(saved),own=retargetRules(Array.isArray(data.items)?data.items:[],from,to)
+  const ruleKey='outlook-kanban-ai-rules-v1'
+  const data=readStoredRules(localStorage.getItem(ruleKey))
+  if(data){
+    const own=retargetRules(data.items,from,to)
     config.aiRules=own.changed
     if(own.changed.length)localStorage.setItem(ruleKey,JSON.stringify({...data,items:own.rules}))
   }
@@ -258,8 +261,9 @@ function restoreConfig(step:MergeStep,{archived,targets:config}:MergeConfig,rest
   updateConfig({project_folders:restoreTargets(getBoardScope(),from,to,config.board),
     suggestion_folders:learning&&config.learn?restoreTargets(learning,from,to,config.learn):learning,
     filing_rules:restoreRules(Array.isArray(cfg.filing_rules)?cfg.filing_rules:[],config.rules,from,to)})
-  const ruleKey='outlook-kanban-ai-rules-v1',saved=localStorage.getItem(ruleKey)
-  if(saved&&config.aiRules.length){const data=JSON.parse(saved);localStorage.setItem(ruleKey,JSON.stringify({...data,items:restoreRules(Array.isArray(data.items)?data.items:[],config.aiRules,from,to)}))}
+  const ruleKey='outlook-kanban-ai-rules-v1'
+  const data=readStoredRules(localStorage.getItem(ruleKey))
+  if(data&&config.aiRules.length)localStorage.setItem(ruleKey,JSON.stringify({...data,items:restoreRules(data.items,config.aiRules,from,to)}))
   relabelLearning(to,from,new Set(config.learned))
 }
 /** Steckbrief und Ordnerbeschreibung eines Ordners (ohne Unterordner) auf einen neuen Pfad. */

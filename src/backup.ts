@@ -8,6 +8,12 @@ const LIMIT = 16 * 1024 * 1024
 const LEGACY_FILES = ['config.yaml','vorschlag-statistik.json','ki-cache.json','fenster.ini','art-vorschlaege.json']
 
 export type Snapshot = Record<string,string>
+/** Schlüssel, die dieses Board selbst schreibt. Eine Sicherung darf nichts anderes einpflanzen. */
+export function knownSettingKey(key:string):boolean {
+  return key.startsWith('kanban-') || key.startsWith('mailboard-') || key.startsWith('outlook-kanban-')
+    || key.startsWith('board.layout.') || key.startsWith('board.views.')
+}
+
 export function isRecord(value:unknown): value is Record<string,unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
@@ -46,7 +52,9 @@ export function parseBackup(data:Uint8Array): {values:Snapshot; legacy:boolean; 
       if(key in manifest.values && !Array.isArray(JSON.parse(String(manifest.values[key]))))
         throw new Error('Ungültige Einstellungsliste in der Sicherung.')
     }
-    return {values:manifest.values as Snapshot, legacy:false, count:Object.keys(manifest.values).length}
+    const values=Object.fromEntries(Object.entries(manifest.values).filter(([key])=>knownSettingKey(key))) as Snapshot
+    if(!Object.keys(values).length) throw new Error('Die Sicherung enthält keine Mail-Board-Einstellungen.')
+    return {values, legacy:false, count:Object.keys(values).length}
   }
   if (!files['config.yaml']) throw new Error('In dieser Sicherung fehlt die config.yaml.')
   const legacyFiles:Snapshot=Object.fromEntries(Object.entries(files).map(([name,bytes])=>[name,strFromU8(bytes)]))

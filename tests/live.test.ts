@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {COUNT_CHUNK, LiveBoard, UndoConflict, folderCounts} from '../src/live'
+import {COUNT_CHUNK, LiveBoard, UndoConflict, folderCounts, omittedFolderNote} from '../src/live'
 
 function fixture(onFiled?:(delta:number, occurredAt:Date)=>void){
   const rows=new Map([['11',{folder:'01',status:'Offen'}],['22',{folder:'01',status:'Warten'}]])
@@ -204,4 +204,10 @@ test('Ordnerzahlen: alle ohne Liste, sonst in Stücken, Fehler einmal gemeldet',
   assert.equal(partial.size,COUNT_CHUNK)
   await folderCounts(api,ids,text=>reports.push(text))
   assert.deepEqual(reports,['Ordnerzahlen konnten nicht gelesen werden. Outlook beschäftigt'])
+})
+
+test('abgeschnittene Ordner werden in einem Satz gezählt',()=>{
+  assert.equal(omittedFolderNote([{omitted:0},{omitted:1}]),'1 Ordner liegt tiefer als acht Ebenen und wird nicht angezeigt.')
+  assert.equal(omittedFolderNote([{omitted:2},{omitted:3}]),'5 Ordner liegen tiefer als acht Ebenen und werden nicht angezeigt.')
+  assert.equal(omittedFolderNote([{name:'Posteingang'}]),'')
 })

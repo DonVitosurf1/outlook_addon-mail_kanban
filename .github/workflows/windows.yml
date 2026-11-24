@@ -39,7 +39,7 @@ jobs:
         run: npm test
 
       - name: Lokales Modellprotokoll (Rust)
-        run: cargo test --manifest-path src-tauri/Cargo.toml -p mailboard-ollama
+        run: cargo test --manifest-path src-tauri/Cargo.toml -p mailboard-ollama -p mailboard-args
 
       - name: Outlook-Helfer mit simuliertem Outlook (C#)
         run: dotnet run --project outlook-test/tests/OutlookContracts.csproj

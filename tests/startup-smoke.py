@@ -16,7 +16,7 @@ window.__TAURI__={core:{invoke:async(command)=>{
   if(command==='outlook_folders'){
     if(window.mode==='closed')throw Error('Outlook ist geschlossen.')
     if(window.mode==='slow')await new Promise(resolve=>window.releaseFolders=resolve)
-    return JSON.stringify([{id:'01',name:'Posteingang',path:'',isInbox:true}])
+    return JSON.stringify([{id:'01',name:'Posteingang',path:'',isInbox:true,omitted:1}])
   }
   if(command==='outlook_board')return JSON.stringify([{id:'aa',folderId:'01',folder:'Posteingang',subject:'Nur im echten Profil',
     sender:'Anna',body:'Text',status:'Offen',tags:[],attachments:[]}])
@@ -58,6 +58,8 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler,
             page.locator('#loadInbox').click()
             expect(page.locator('.card')).to_have_count(1)
             expect(page.locator('.card')).to_contain_text('Nur im echten Profil')
+            expect(page.locator('#message')).to_contain_text('1 Ordner liegt tiefer als acht Ebenen und wird nicht angezeigt.')
+            if os.environ.get('MAILBOARD_SHOT'): page.screenshot(path=os.environ['MAILBOARD_SHOT'])
             expect(page.locator('.foot')).to_have_text('Klassisches Outlook')
             page.reload()
             expect(page.locator('#message')).to_contain_text('Outlook ist geschlossen')

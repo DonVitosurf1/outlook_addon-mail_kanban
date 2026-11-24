@@ -138,14 +138,30 @@ internal sealed class BoardCommands
                 bool isInbox = Same(id, inboxId);
                 string key = isInbox ? "" : relative == null ? full :
                     (relative.Length == 0 ? name : relative + "/" + name);
+                int omitted = depth < 8 ? 0 : HiddenMailFolders(sub);
                 result.Add(new { id, name, path = key, isInbox,
-                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID });
+                    parentId = (string)parent.EntryID, rootId = (string)inbox.Parent.EntryID, omitted });
                 if (depth < 8) ChildFolders(sub, full, isInbox || relative != null ? key : null, depth+1, result);
             } catch (COMException ex) {
                 // A delegated folder may be visible in the tree without read access.
                 if (ex.ErrorCode != unchecked((int)0x80070005)) throw;
             }
         }
+    }
+
+    // Mail folders below the walk limit. The listed folder itself is not included.
+    private int HiddenMailFolders(dynamic folder)
+    {
+        int hidden = 0;
+        foreach (dynamic sub in folder.Folders) {
+            try {
+                if ((int)sub.DefaultItemType != 0 || !Same((string)sub.StoreID, store)) continue;
+                hidden += 1 + HiddenMailFolders(sub);
+            } catch (COMException ex) {
+                if (ex.ErrorCode != unchecked((int)0x80070005)) throw;
+            }
+        }
+        return hidden;
     }
 
     // Number of items in the folder for the setup (E1, E4). Null if Outlook cannot count it.
@@ -191,9 +207,7 @@ internal sealed class BoardCommands
         dynamic mail=Mail(id,folderId);
         dynamic draft;
         switch(mode) {
-        case "reply":
-            draft=IsSentFolder(folderId) || IsOwn((string)SenderAddress(mail)) ? mail.ReplyAll() : mail.Reply();
-            break;
+        case "reply": draft=mail.Reply(); break;
         case "reply-all":
         case "follow-up": draft=mail.ReplyAll(); break;
         case "forward": draft=mail.Forward(); break;

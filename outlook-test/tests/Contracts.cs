@@ -176,6 +176,14 @@ internal static class Contracts
         Check(folders.Select(f=>(string)((dynamic)f).path).SequenceEqual(new[]{"","Projekt","/Ablage","/Gesendet"}),"Ordnerpfade");
         // --folders bleibt schnell und zählt nicht. Zahlen gibt es nur auf Anfrage, für alle oder die genannten Ordner.
         Check(folders.All(f=>f.GetType().GetProperty("count")==null),"Ordnerliste ohne Zahlen");
+        var deepParent=ns.Inbox;
+        for(int i=1;i<=8;i++) deepParent=new FakeFolder("E"+i,"D"+i,deepParent);
+        var deep=(List<object>)call(new[]{"--folders"});
+        Check(deep.Any(f=>(string)((dynamic)f).name=="E7") && deep.All(f=>(string)((dynamic)f).name!="E8"),"Achte Ebene bleibt, die neunte fehlt");
+        dynamic edge=deep.Single(f=>(string)((dynamic)f).name=="E7");
+        Check((int)edge.omitted==1,"Abgeschnittene Unterordner werden gezählt");
+        Check((int)((dynamic)deep.Single(f=>(string)((dynamic)f).path=="")).omitted==0,"Sichtbare Ordner ohne abgeschnittene Kinder");
+        ns.Inbox.Folders.RemoveAt(ns.Inbox.Folders.Count-1);
         var counts=(List<object>)call(new[]{"--folder-counts"});
         Check(counts.Select(c=>(string)((dynamic)c).id+"="+(int?)((dynamic)c).count).SequenceEqual(new[]{"01=1","02=0","03=0","05=0"}),"Mailanzahl je Ordner");
         var some=(List<object>)call(new[]{"--folder-counts","03|01|unbekannt|04|01"});
@@ -234,6 +242,14 @@ internal static class Contracts
             ns.Mail.Draft.HTMLBody=="<html><body class=x><p>Muster &lt; &amp;</p><p>Zitat</p></body></html>","HTML-Entwurf");
         call(new[]{"--draft","AB01AA","01","follow-up",""});
         Check(ns.Mail.DraftMode=="all","Nachfassen");
+        ns.Mail.SenderEmailAddress=ns.CurrentUser.Address;
+        ns.Mail.Parent=ns.Sent;
+        call(new[]{"--draft","AB01AA","05","reply","Nur an mich"});
+        Check(ns.Mail.DraftMode=="reply","Antworten bleibt eine einzelne Antwort");
+        call(new[]{"--draft","AB01AA","05","reply-all",""});
+        Check(ns.Mail.DraftMode=="all","Allen antworten bleibt Allen antworten");
+        ns.Mail.Parent=ns.Inbox;
+        ns.Mail.SenderEmailAddress="labor@example.test";
         dynamic created=call(new[]{"--folder-create","00","Projekt X"});
         Check(created.path=="/Projekt X" && created.parentId=="00","Ordner anlegen");
         string cid=created.id;
