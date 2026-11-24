@@ -31,7 +31,7 @@ export type Page = 'start' | 'week' | 'today' | 'hygiene' | 'help' | 'learning' 
 
 const states = ['Offen', 'In Bearbeitung', 'Warten', 'Erledigt']
 const help = [
-  ['Wo finde ich meine echten Mails?', 'Unter Windows lädt das Board beim Start automatisch dein klassisches Outlook-Profil. Bei einem Verbindungsfehler kannst du Outlook öffnen und es erneut versuchen. Über Werkzeuge → Beispielpostfach öffnen kannst du mit Beispieldaten arbeiten.'],
+  ['Wo finde ich meine echten Mails?', 'Unter Windows lädt das Board beim Start automatisch dein klassisches Outlook-Profil. Bei einem Verbindungsfehler kannst du Outlook öffnen und es erneut versuchen. Fehlt Mail-Board-Outlook.exe, legt du Outlook-Test.exe aus dem Ordner vom 20. November daneben und wählst „Outlook-Verbindung testen“. Das Fenster zeigt den Posteingang. Über Werkzeuge → Beispielpostfach öffnen kannst du mit Beispieldaten arbeiten.'],
   ['Welche Tastenkürzel gibt es?', 'Die Taste ? zeigt alle Tastenkürzel, gruppiert nach Karte, Board, Ansichten, Triage und Dialogen. Du erreichst die Übersicht auch über den Knopf „Tastenkürzel anzeigen“ in dieser Hilfe.'],
   ['Wie finde ich eine Mail?', 'Strg+F setzt den Fokus in die Suche. Mit dem Ordnerfilter schränkst du die Anzeige ein. Öffne die gewünschte Karte für die Maildetails. Mit „≈ Bedeutung“ im Suchfeld suchst du nach dem Sinn statt nach Wörtern (nur mit Outlook und lokalen Embeddings). Escape schaltet zurück. In den Maildetails zeigt „Ähnliche Mails“ die fünf passendsten anderen Mails.'],
   ['Was zeigt „Heute dran“?', 'Hier stehen fällige Wiedervorlagen, wartende Mails mit Antwort, heutige oder überfällige Nachfassfristen und fällige KI-Fristen. Eine Mail kann aus mehreren Gründen fällig sein.'],

@@ -1,6 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use mailboard_args::{draft_args, folder_counts_args, validate_id};
+use mailboard_args::{draft_args, folder_counts_args, full_helper, legacy_test, validate_id};
 
 static STATUS_PREFIX: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
@@ -20,9 +20,7 @@ async fn run_helper(args: Vec<String>) -> Result<String, String> {
         use std::os::windows::process::CommandExt;
         tauri::async_runtime::spawn_blocking(move || {
             let _write_guard = desktop::WriteGuard::for_command(args.first())?;
-            let helper = std::env::current_exe()
-                .map_err(|e| e.to_string())?
-                .with_file_name("Mail-Board-Outlook.exe");
+            let helper = full_helper(&std::env::current_exe().map_err(|e| e.to_string())?)?;
             let mut command = std::process::Command::new(helper);
             if let Some(prefix) = STATUS_PREFIX.lock().map_err(|e| e.to_string())?.as_ref() {
                 command.env("KANBAN_STATUS_PREFIX", prefix);
@@ -191,6 +189,26 @@ async fn outlook_connect() -> Result<String, String> {
     run_helper(vec!["--connect".into()]).await
 }
 
+/// Öffnet die Datei Outlook-Test.exe vom 20. November. Sie zeigt den Posteingang in einem eigenen Fenster
+/// und bleibt von Mail-Board-Outlook.exe unabhängig.
+#[tauri::command]
+async fn outlook_test_window() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        tauri::async_runtime::spawn_blocking(|| {
+            let helper = legacy_test(&std::env::current_exe().map_err(|e| e.to_string())?)?;
+            std::process::Command::new(helper)
+                .spawn()
+                .map(|_| ())
+                .map_err(|error| format!("Outlook-Test.exe konnte nicht starten: {error}"))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    }
+    #[cfg(not(windows))]
+    Err("Das Outlook-Testfenster benötigt Windows.".into())
+}
+
 #[tauri::command]
 async fn outlook_draft(
     id: String,
@@ -312,6 +330,7 @@ fn main() {
             outlook_tags,
             outlook_draft,
             outlook_connect,
+            outlook_test_window,
             projects::project_create,
             projects::project_rename,
             projects::project_move,
