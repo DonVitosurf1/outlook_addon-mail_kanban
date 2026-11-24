@@ -21,6 +21,15 @@ test('Übernommene Aufgaben werden je Signatur herausgefiltert',()=>{
   assert.deepEqual(openTasks(tasks,'m1'),tasks)
   assert.equal(JSON.parse(data.get(TAKEN)!)['m1'],undefined)
 })
+test('Gleich lautende Aufgaben zählen einzeln',()=>{
+  data.clear()
+  const twice=[{text:'Anrufen',frist:null},{text:'Anrufen',frist:'2026-12-01'},{text:'B',frist:null}]
+  setTaken('m3',['Anrufen'])
+  assert.deepEqual(openTasks(twice,'m3'),[twice[1],twice[2]])
+  setTaken('m3',[...takenTasks('m3'),'Anrufen'])
+  assert.deepEqual(takenTasks('m3'),['Anrufen','Anrufen'])
+  assert.deepEqual(openTasks(twice,'m3'),[twice[2]])
+})
 test('Defekter Speicher gilt als leer',()=>{
   data.set(TAKEN,'{kaputt')
   assert.deepEqual(takenTasks('m1'),[])
