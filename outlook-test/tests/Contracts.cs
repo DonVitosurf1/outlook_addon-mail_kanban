@@ -46,14 +46,23 @@ internal static class Contracts
         public int Count { get { return values.Count; } }
         public static int Visits;
         public static readonly List<string> Restrictions=new List<string>();
+        // Verhalten der Einschränkung: Outlook (Standard), falsch verstandenes Datum, Fehler oder andere Reihenfolge gleich alter Mails.
+        public enum RestrictMode { Outlook, Misparse, Fails, ReorderTies }
+        public static RestrictMode Mode=RestrictMode.Outlook;
         // Wie Outlook: Datumsvergleich minutengenau, Datum im Format der Ländereinstellung.
         public FakeItems Restrict(string query) {
             const string prefix="[ReceivedTime] >= '";
             if(!query.StartsWith(prefix)) return this;
             Restrictions.Add(query);
+            if(Mode==RestrictMode.Fails) throw new System.Runtime.InteropServices.COMException("Bedingung nicht verstanden",unchecked((int)0x80020009));
             DateTime from=DateTime.Parse(query.Substring(prefix.Length).TrimEnd('\''),System.Globalization.CultureInfo.CurrentCulture);
             from=new DateTime(from.Year,from.Month,from.Day,from.Hour,from.Minute,0);
-            return new FakeItems { values=values.Where(m=>m.ReceivedTime>=from).ToList() };
+            // Falsch verstanden (etwa Tag und Monat vertauscht): nur deutlich spätere Mails.
+            if(Mode==RestrictMode.Misparse) from=from.AddDays(1);
+            var hits=values.Where(m=>m.ReceivedTime>=from).ToList();
+            // Andere Reihenfolge gleich alter Mails als im ganzen Ordner.
+            if(Mode==RestrictMode.ReorderTies) hits=hits.GroupBy(m=>m.ReceivedTime).SelectMany(g=>g.Reverse()).ToList();
+            return new FakeItems { values=hits };
         }
         public void Sort(string field,bool descending)
         {
@@ -286,6 +295,64 @@ internal static class Contracts
         Console.WriteLine("OK: Ordner, Karten, Verschlüsselt, Move/Undo über Refresh, Fehler, Status, Tags, Fristen, Notiz");
     }
 
+    // Gleich alte Mails im Rückstand: feste Reihenfolge nach EntryID, nie mehr als die Grenze, keine Lücke, auch wenn die Einschränkung
+    // anders sortiert, das Datum falsch versteht oder scheitert.
+    private static void BacklogTies()
+    {
+        var t=new DateTime(2026,5,4,10,0,0);
+        Func<FakeNamespace,BoardCommands> make=n=>new BoardCommands(n,n.Inbox,";");
+        Func<BoardCommands,string[],dynamic> exec=(c,a)=>c.Execute(a,s=>s.Split('|'));
+        Func<dynamic,List<string>> idsOf=p=>((List<object>)p.cards).Select(x=>(string)((dynamic)x).id).ToList();
+        Func<BoardCommands,int,string,List<string>> all=(c,limit,cursor)=>{
+            var got=new List<string>();
+            for(int guard=0;guard<200;guard++) {
+                dynamic page=exec(c,cursor==null ? new[]{"--backlog-page",limit.ToString()} : new[]{"--backlog-page",limit.ToString(),cursor});
+                List<string> ids=idsOf(page);
+                Check(ids.Count<=limit,"Nie mehr als die Grenze");
+                got.AddRange(ids);
+                cursor=page.next;
+                if(cursor==null) return got;
+            }
+            throw new Exception("Kein Ende");
+        };
+        // (A) Fortsetzungsmail verschoben, danach nur noch gleich alte Mails.
+        var ns=new FakeNamespace(); ns.Inbox.Items.values.Clear();
+        for(int i=0;i<4;i++) ns.Inbox.Items.values.Add(new FakeMail{EntryID="T"+i,Parent=ns.Inbox,Categories="",ReceivedTime=t});
+        var c=make(ns);
+        dynamic head=exec(c,new[]{"--backlog-page","2"});
+        Check(((List<string>)idsOf(head)).SequenceEqual(new[]{"T0","T1"}),"A: erste Seite");
+        ns.Inbox.Items.values.RemoveAt(1);
+        dynamic rest=exec(c,new[]{"--backlog-page","10",(string)head.next});
+        Check(((List<string>)idsOf(rest)).SequenceEqual(new[]{"T2","T3"}) && rest.next==null,"A: gleich alte Mails am Ende nicht verloren: "+string.Join(",",((List<string>)idsOf(rest))));
+        // (B) Fortsetzungsmail verschoben, mehr gleich alte Mails als die Grenze.
+        ns=new FakeNamespace(); ns.Inbox.Items.values.Clear();
+        for(int i=0;i<8;i++) ns.Inbox.Items.values.Add(new FakeMail{EntryID="U"+i,Parent=ns.Inbox,Categories="",ReceivedTime=t});
+        ns.Inbox.Items.values.Add(new FakeMail{EntryID="V",Parent=ns.Inbox,Categories="",ReceivedTime=t.AddMinutes(5)});
+        c=make(ns);
+        head=exec(c,new[]{"--backlog-page","1"});
+        ns.Inbox.Items.values.RemoveAt(0);
+        var got=all(c,3,(string)head.next);
+        Check(got.SequenceEqual(new[]{"U1","U2","U3","U4","U5","U6","U7","V"}),"B: "+string.Join(",",got));
+        // Viele gleich alte Mails über mehrere Seiten, Outlook liefert sie im ganzen Ordner und in der Einschränkung verschieden sortiert.
+        foreach(var mode in new[]{FakeItems.RestrictMode.ReorderTies,FakeItems.RestrictMode.Misparse,FakeItems.RestrictMode.Fails}) {
+            FakeItems.Mode=mode;
+            try {
+                ns=new FakeNamespace(); ns.Inbox.Items.values.Clear();
+                var expected=new List<string>();
+                for(int minute=0;minute<3;minute++) {
+                    var batch=Enumerable.Range(0,7).Select(i=>"W"+minute+"-"+(char)('g'-i)).ToList();
+                    foreach(var id in batch) ns.Inbox.Items.values.Add(new FakeMail{EntryID=id,Parent=ns.Inbox,Categories=id.EndsWith("c")?"Status: Erledigt":"",ReceivedTime=t.AddMinutes(minute)});
+                    expected.AddRange(batch.Where(id=>!id.EndsWith("c")).OrderBy(id=>id,StringComparer.Ordinal));
+                }
+                foreach(int limit in new[]{1,2,3,5}) {
+                    got=all(make(ns),limit,null);
+                    Check(got.SequenceEqual(expected),mode+" Grenze "+limit+": "+string.Join(",",got));
+                }
+            } finally { FakeItems.Mode=FakeItems.RestrictMode.Outlook; }
+        }
+        Console.WriteLine("OK: Rückstand mit gleich alten Mails, Einschränkung als Abkürzung");
+    }
+
     // Seitenweiser Rückstand (E7): Grenze und Versatz, älteste zuerst, ohne Erledigte. Ohne Parameter wie bisher.
     private static void Backlog()
     {
@@ -348,13 +415,14 @@ internal static class Contracts
                 ns.Inbox.Items.values.Add(new FakeMail {EntryID="T"+i,Parent=ns.Inbox,Categories="",ReceivedTime=i<6 ? same : same.AddSeconds(i)});
             var tied=pages(4);
             Check(tied.SelectMany(p=>p).SequenceEqual(Enumerable.Range(0,9).Select(i=>"T"+i)),"Gleich alte Mails ohne Lücke und doppelt");
-            // Die Mail des Fortsetzungspunkts ist inzwischen verschoben: gleich alte kommen lieber noch einmal als gar nicht.
+            // Die Mail des Fortsetzungspunkts ist inzwischen verschoben: es geht nach EntryID weiter, ohne Lücke und ohne Doppelte.
             dynamic head=commands.Execute(new[]{"--backlog-page","2"},s=>s.Split('|'));
             ns.Inbox.Items.values.RemoveAt(1);
             dynamic rest=commands.Execute(new[]{"--backlog-page","10",(string)head.next},s=>s.Split('|'));
             var again=((List<object>)rest.cards).Select(c=>(string)((dynamic)c).id).ToList();
-            Check(again.SequenceEqual(new[]{"T0","T2","T3","T4","T5","T6","T7","T8"}),"Verschobene Fortsetzungsmail: "+string.Join(",",again));
+            Check(again.SequenceEqual(new[]{"T2","T3","T4","T5","T6","T7","T8"}) && rest.next==null,"Verschobene Fortsetzungsmail: "+string.Join(",",again));
         } finally { System.Globalization.CultureInfo.CurrentCulture=culture; }
+        BacklogTies();
         foreach(var bad in new[]{new[]{"--backlog-page","0"},new[]{"--backlog-page"},new[]{"--backlog-page","x"},new[]{"--backlog","20","0"},
             new[]{"--backlog-page","20","kein"},new[]{"--backlog-page","20","-5|M1"},new[]{"--backlog-page","20","5|"}}) {
             try { ids(bad); throw new Exception("Ungültige Seite angenommen: "+string.Join(" ",bad)); }

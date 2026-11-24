@@ -679,11 +679,14 @@ internal sealed class BoardCommands
     private static string BacklogCursor(DateTime when,string id) { return when.Ticks.ToString(CultureInfo.InvariantCulture)+"|"+id; }
 
     // Eine Seite des Rückstands, älteste zuerst: höchstens `limit` Karten ohne Erledigte, nach dem Fortsetzungspunkt `cursor`.
+    // Die Reihenfolge ist fest: Empfangszeit, bei gleicher Zeit EntryID (ordinal). Outlook sortiert gleich alte Mails nicht verlässlich,
+    // deshalb sortiert die Seite jede Gruppe gleich alter Mails selbst. Erledigt ist alles vor dem Fortsetzungspunkt (t, id): früher als t
+    // oder gleich alt mit EntryID ≤ id. Eine verschobene Fortsetzungsmail stört damit nicht.
     // Statt die vorigen Seiten erneut zu lesen, springt die Seite über eine Einschränkung auf die Empfangszeit (minutengenau, eine Minute
-    // Puffer) und überspringt davor nur über die Empfangszeit. Je Seite prüft sie höchstens `limit*4` Mails; Erledigte und Unlesbare zählen
-    // dabei mit. `next` zeigt auf die zuletzt geprüfte Mail und ist nur am Ende des Posteingangs null, eine kurze oder leere Seite heißt
-    // also nicht, dass nichts mehr kommt. Gleich alte Mails folgen der Sortierung. Taucht die Mail des Fortsetzungspunkts nicht mehr auf
-    // (verschoben), kommen alle gleich alten noch einmal: lieber doppelt als eine Lücke.
+    // Puffer). Die Einschränkung ist nur eine Abkürzung: Scheitert sie oder beginnt ihr Ergebnis erst nach dem Fortsetzungspunkt (Datum
+    // anders verstanden), liest die Seite ohne sie. Je Seite prüft sie höchstens `limit*4` Mails nach dem Fortsetzungspunkt; Erledigte und
+    // Unlesbare zählen mit. `next` zeigt auf die zuletzt geprüfte Mail und ist nur am Ende des Posteingangs null, eine kurze oder leere
+    // Seite heißt also nicht, dass nichts mehr kommt.
     private object BacklogPage(int limit,string cursor)
     {
         DateTime? after=null;
@@ -697,46 +700,59 @@ internal sealed class BoardCommands
             after=new DateTime(ticks);
             afterId=cursor.Substring(bar+1);
         }
-        dynamic items=inbox.Items;
         if(after.HasValue) {
-            try { items=items.Restrict("[ReceivedTime] >= '"+after.Value.AddMinutes(-1).ToString("g",CultureInfo.CurrentCulture)+"'"); }
-            catch(COMException ex) {
-                if(!IsItemReadError(ex) && ex.ErrorCode!=unchecked((int)0x80070057) && ex.ErrorCode!=unchecked((int)0x80004001)) throw;
+            dynamic restricted=null;
+            try { restricted=((dynamic)inbox.Items).Restrict("[ReceivedTime] >= '"+after.Value.AddMinutes(-1).ToString("g",CultureInfo.CurrentCulture)+"'"); }
+            catch(COMException) { }
+            catch(Microsoft.CSharp.RuntimeBinder.RuntimeBinderException) { }
+            if(restricted!=null) {
+                object page=BacklogWalk(restricted,limit,after,afterId,true);
+                if(page!=null) return page;
             }
         }
+        return BacklogWalk(inbox.Items,limit,after,afterId,false);
+    }
+
+    // Liefert null, wenn `restricted` die Mails am Fortsetzungspunkt nicht enthält (dann ohne Einschränkung neu).
+    private object BacklogWalk(dynamic items,int limit,DateTime? after,string afterId,bool restricted)
+    {
         items.Sort("[ReceivedTime]",false);
         var cards=new List<object>();
-        var ties=new List<object>();
-        bool passed=!after.HasValue;
+        var group=new List<KeyValuePair<string,object>>();
+        DateTime groupTime=DateTime.MinValue;
         int scanned=0, budget=limit*4;
         string next=null;
+        bool first=true, stopped=false;
+        // Eine Gruppe gleich alter Mails nach EntryID abarbeiten. Liefert true, sobald die Seite voll ist.
+        Func<bool> flush=()=>{
+            foreach(var entry in group.OrderBy(e=>e.Key,StringComparer.Ordinal)) {
+                if(after.HasValue && (groupTime<after.Value || (groupTime==after.Value && string.CompareOrdinal(entry.Key,afterId)<=0))) continue;
+                scanned++;
+                next=BacklogCursor(groupTime,entry.Key);
+                object card=BacklogCard((dynamic)entry.Value);
+                if(card!=null) cards.Add(card);
+                if(cards.Count>=limit || scanned>=budget) return true;
+            }
+            group.Clear();
+            return false;
+        };
         for(dynamic mail=items.GetFirst(); mail!=null; mail=items.GetNext()) {
             DateTime when;
             string id;
             try { when=(DateTime)mail.ReceivedTime; id=(string)mail.EntryID; }
             catch(Exception ex) { if(!IsItemReadError(ex)) throw; continue; }
-            if(!passed) {
-                if(when<after.Value) continue;
-                if(when==after.Value) {
-                    if(Same(id,afterId)) passed=true;
-                    else ties.Add(mail);
-                    continue;
-                }
-                // Die Mail des Fortsetzungspunkts fehlt: gleich alte Mails noch einmal prüfen.
-                passed=true;
-                foreach(dynamic tie in ties) {
-                    if(cards.Count>=limit) break;
-                    object early=BacklogCard(tie);
-                    if(early!=null) cards.Add(early);
-                }
+            if(first) {
+                first=false;
+                if(restricted && when>after.Value) return null;
             }
-            scanned++;
-            next=BacklogCursor(when,id);
-            object card=BacklogCard(mail);
-            if(card!=null) cards.Add(card);
-            if(cards.Count>=limit || scanned>=budget) return new { cards, next };
+            if(after.HasValue && when<after.Value) continue;
+            if(group.Count>0 && when!=groupTime && flush()) { stopped=true; break; }
+            if(group.Count==0) groupTime=when;
+            group.Add(new KeyValuePair<string,object>(id,(object)mail));
         }
-        return new { cards, next=(string)null };
+        if(restricted && first) return null;
+        if(!stopped && group.Count>0) stopped=flush();
+        return new { cards, next=stopped ? next : (string)null };
     }
 
     private object BacklogCard(dynamic mail)
