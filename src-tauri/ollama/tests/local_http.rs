@@ -101,7 +101,7 @@ async fn tasks_are_validated() {
         json!({"text":"  Angebot freigeben ","frist":"2026-11-27"}),
         json!({"text":"Datum prüfen","frist":"irgendwann"}),
         json!({"text":"   ","frist":null}),
-        json!({"text":"x".repeat(121),"frist":null}),
+        json!({"text":"ä".repeat(130),"frist":null}),
     ];
     for i in 0..5 {
         tasks.push(json!({"text":format!("Aufgabe {i}"),"frist":null}));
@@ -125,6 +125,10 @@ async fn tasks_are_validated() {
     assert_eq!(result.aufgaben[1].text, "Datum prüfen");
     assert!(result.aufgaben[1].frist.is_none());
     assert!(result.aufgaben.iter().all(|t| !t.text.trim().is_empty()));
+    let long = &result.aufgaben[2].text;
+    assert_eq!(long.chars().count(), 120);
+    assert!(long.starts_with(&"ä".repeat(119)) && long.ends_with('…'));
+    assert_eq!(result.aufgaben[3].text, "Aufgabe 0");
     let calls = server.join().unwrap();
     assert!(calls[1].contains("aufgaben"));
     assert!(calls[1].contains("keine Anweisung"));

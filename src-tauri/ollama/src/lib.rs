@@ -332,8 +332,8 @@ impl Ollama {
             .aufgaben
             .into_iter()
             .filter_map(|t| {
-                let text = t.text.trim().to_string();
-                if text.is_empty() || text.chars().count() > 120 {
+                let text = shorten(t.text.trim(), 120);
+                if text.is_empty() {
                     return None;
                 }
                 let frist = t.frist.filter(|d| plausible_deadline(d, &mail.received));
@@ -543,6 +543,17 @@ pub fn eligible(key: &str) -> bool {
 
 fn clip(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
+}
+
+/// Kürzt auf höchstens `max` Zeichen (nicht Bytes) und markiert die Kürzung mit „…“.
+fn shorten(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let mut short: String = s.chars().take(max.saturating_sub(1)).collect();
+    short.truncate(short.trim_end().len());
+    short.push('…');
+    short
 }
 
 fn cosine(a: &[f64], b: &[f64]) -> Option<f64> {
