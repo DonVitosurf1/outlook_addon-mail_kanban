@@ -946,7 +946,7 @@ async fn model_info_reads_ollama_show_and_ps() {
         (
             "200 OK",
             json!({"models":[{"name":"anderes:7b","size":10,"size_vram":10},
-                {"name":"lokal:latest","model":"lokal:latest","size":8000,"size_vram":6000}]}),
+                {"name":"lokal:latest","model":"lokal:latest","size":8000,"size_vram":6000,"context_length":4096}]}),
         ),
     ]);
     let info = Ollama::new(&url).unwrap().model_info("lokal").await.unwrap();
@@ -954,6 +954,7 @@ async fn model_info_reads_ollama_show_and_ps() {
     assert_eq!(info.quantization.as_deref(), Some("Q4_K_M"));
     assert_eq!(info.context, Some(8192));
     assert_eq!(info.loaded, Some(true));
+    assert_eq!(info.loaded_context, Some(4096));
     assert_eq!(info.gpu, Some(0.75));
     let calls = server.join().unwrap();
     assert!(calls[0].contains("POST /api/show"));
@@ -1026,7 +1027,7 @@ async fn model_info_for_lm_studio_and_llama_cpp() {
     assert_eq!(info.gpu, None);
     server.join().unwrap();
     let props = json!({"model_path":"C:/Models/Qwen2.5-7B-Instruct-Q5_K_M.gguf","default_generation_settings":{"n_ctx":4096}});
-    let models = json!({"data":[{"id":"lokal","meta":{"n_params":7615616512u64}}]});
+    let models = json!({"data":[{"id":"lokal","meta":{"n_params":7615616512u64,"n_ctx_train":32768}}]});
     let (url, server) = mock(vec![
         ("404 Not Found", Value::Null),
         ("200 OK", props.clone()),
@@ -1036,8 +1037,32 @@ async fn model_info_for_lm_studio_and_llama_cpp() {
     ]);
     let info = Ollama::new(&url).unwrap().model_info("lokal").await.unwrap();
     assert_eq!(info.quantization.as_deref(), Some("Q5_K_M"));
-    assert_eq!(info.context, Some(4096));
+    assert_eq!(info.loaded_context, Some(4096));
+    assert_eq!(info.context, Some(32768));
     assert_eq!(info.parameters, Some(7615616512.0));
     assert_eq!(info.loaded, Some(true));
+    server.join().unwrap();
+}
+
+#[tokio::test]
+async fn uninstalled_ollama_model_is_named_as_such() {
+    let (url, server) = mock(vec![(
+        "404 Not Found",
+        json!({"error":"model 'fehlt:7b' not found"}),
+    )]);
+    let err = Ollama::new(&url).unwrap().model_info("fehlt:7b").await.unwrap_err();
+    assert_eq!(err, "Modell „fehlt:7b“ ist in Ollama nicht installiert.");
+    // Keine weiteren Anfragen an /props oder LM Studio.
+    assert_eq!(server.join().unwrap().len(), 1);
+    let (url, server) = mock(vec![(
+        "404 Not Found",
+        json!({"error":"model 'fehlt:7b' not found"}),
+    )]);
+    assert!(Ollama::new(&url)
+        .unwrap()
+        .reply("fehlt:7b", &mail(), "")
+        .await
+        .unwrap_err()
+        .contains("nicht installiert"));
     server.join().unwrap();
 }

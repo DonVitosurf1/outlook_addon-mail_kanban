@@ -1,7 +1,10 @@
 /** A1 Modellinfo: Angaben des lokalen Modellservers zu einem Modell als eine kurze Zeile für die Einstellungen. */
 
-/** Antwort von `ai_model_info`. Fehlende Angaben fehlen auch hier. `gpu`: Anteil im Grafikspeicher (0 bis 1). */
-export type ModelInfo={parameters?:number;quantization?:string;context?:number;loaded?:boolean;gpu?:number}
+/**
+ * Antwort von `ai_model_info`. Fehlende Angaben fehlen auch hier. `context`: größte Kontextlänge laut Modell,
+ * `loaded_context`: Kontextlänge, mit der es gerade geladen ist. `gpu`: Anteil im Grafikspeicher (0 bis 1).
+ */
+export type ModelInfo={parameters?:number;quantization?:string;context?:number;loaded_context?:number;loaded?:boolean;gpu?:number}
 
 const number=(value:unknown)=>typeof value==='number'&&Number.isFinite(value)&&value>0?value:undefined
 const decimal=(value:number)=>value.toLocaleString('de-DE',{maximumFractionDigits:1})
@@ -24,11 +27,16 @@ function state(info:Record<string,unknown>){
   return 'GPU '+Math.round(share*100)+' %'
 }
 
-/** Eine Zeile wie „8 B · Q4_K_M · 8.192 Token · GPU“. Unbekannte oder ungültige Felder werden weggelassen. */
+const tokens=(n:number)=>Math.round(n).toLocaleString('de-DE')+' Token'
+/**
+ * Eine Zeile wie „8 B · Q4_K_M · 8.192 Token · GPU“. Ist das Modell geladen, zählt die tatsächliche Kontextlänge
+ * („Kontext 4.096 Token (geladen)“) statt der größten möglichen. Unbekannte oder ungültige Felder werden weggelassen.
+ */
 export function formatModelInfo(raw:unknown){
   const info=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw as Record<string,unknown>:{}
-  const parameters=number(info.parameters), context=number(info.context)
+  const parameters=number(info.parameters), context=number(info.context), running=info.loaded===false?undefined:number(info.loaded_context)
   const quantization=typeof info.quantization==='string'?info.quantization.trim().slice(0,40):''
-  const parts=[parameters?formatParameters(parameters):'',quantization,context?Math.round(context).toLocaleString('de-DE')+' Token':'',state(info)].filter(Boolean)
+  const span=running?'Kontext '+tokens(running)+' (geladen)':context?tokens(context):''
+  const parts=[parameters?formatParameters(parameters):'',quantization,span,state(info)].filter(Boolean)
   return parts.length?parts.join(' · '):'Keine Angaben vom Modellserver'
 }

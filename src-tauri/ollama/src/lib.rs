@@ -160,9 +160,24 @@ impl Ollama {
             }
         })?;
         if !response.status().is_success() {
+            let status = response.status().as_u16();
+            // Ollama antwortet auf /api/show für ein fehlendes Modell mit 404 und {"error":"model '…' not found"}.
+            // llama.cpp liefert für unbekannte Pfade ein Fehlerobjekt, LM Studio HTTP 200.
+            if status == 404 && path == "/api/show" {
+                let mut bytes = Vec::new();
+                while let Ok(Some(chunk)) = response.chunk().await {
+                    if bytes.len() + chunk.len() > 64_000 {
+                        break;
+                    }
+                    bytes.extend_from_slice(&chunk);
+                }
+                let body: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+                if body["error"].as_str().is_some_and(|e| e.contains("not found")) {
+                    return Err(MODEL_MISSING.into());
+                }
+            }
             return Err(format!(
-                "Ollama meldet HTTP {}. Modell und Dienst prüfen.",
-                response.status().as_u16()
+                "Ollama meldet HTTP {status}. Modell und Dienst prüfen."
             ));
         }
         let mut bytes = Vec::new();
@@ -274,6 +289,9 @@ impl Ollama {
             .await
         {
             Ok(metadata) => metadata,
+            Err(err) if err == MODEL_MISSING => {
+                return Err(format!("Modell „{}“ ist in Ollama nicht installiert.", clip(model, 120)))
+            }
             Err(err) if endpoint_missing(&err) => {
                 let (backend, models) = self.local_models().await?;
                 if !models.iter().any(|m| m == model) {
@@ -338,6 +356,7 @@ impl Ollama {
                 });
                 info.loaded = Some(running.is_some());
                 if let Some(m) = running {
+                    info.loaded_context = m["context_length"].as_u64().filter(|n| *n > 0);
                     let size = m["size"].as_f64().unwrap_or(0.0);
                     let vram = m["size_vram"].as_f64().unwrap_or(0.0);
                     if size > 0.0 {
@@ -362,6 +381,7 @@ impl Ollama {
         ModelInfo {
             quantization: text(&entry["quantization"]),
             context: entry["max_context_length"].as_u64(),
+            loaded_context: entry["loaded_context_length"].as_u64().filter(|n| *n > 0),
             loaded: entry["state"].as_str().map(|s| s == "loaded"),
             ..ModelInfo::default()
         }
@@ -373,15 +393,16 @@ impl Ollama {
             ..ModelInfo::default()
         };
         if let Ok(props) = self.http_json("/props", None).await {
-            info.context = props["default_generation_settings"]["n_ctx"].as_u64();
+            info.loaded_context = props["default_generation_settings"]["n_ctx"].as_u64();
             info.quantization = gguf_quantization(props["model_path"].as_str().unwrap_or(""));
         }
         if let Ok(listing) = self.http_json("/v1/models", None).await {
-            info.parameters = listing["data"]
+            let meta = listing["data"]
                 .as_array()
                 .and_then(|list| list.iter().find(|m| m["id"].as_str() == Some(model)))
-                .and_then(|m| m["meta"]["n_params"].as_f64())
-                .filter(|n| *n > 0.0);
+                .map(|m| &m["meta"]);
+            info.parameters = meta.and_then(|m| m["n_params"].as_f64()).filter(|n| *n > 0.0);
+            info.context = meta.and_then(|m| m["n_ctx_train"].as_u64()).filter(|n| *n > 0);
         }
         info
     }
@@ -655,6 +676,9 @@ impl Ollama {
     }
 }
 
+/// Interne Kennung: Ollama kennt das Modell nicht (siehe `http_json`).
+const MODEL_MISSING: &str = "Ollama: Modell nicht installiert.";
+
 /// Tokenbudget der Stichwahl: genug für Schlüssel und kurzen Grund.
 const CHOICE_TOKENS: u64 = 256;
 
@@ -811,7 +835,8 @@ pub struct Analysis {
     pub aufgaben: Vec<Task>,
 }
 
-/// Angaben zu einem lokalen Modell (A1). `gpu`: Anteil des geladenen Modells im Grafikspeicher (0 bis 1).
+/// Angaben zu einem lokalen Modell (A1). `context`: größte Kontextlänge laut Modell. `gpu`: Anteil des geladenen
+/// Modells im Grafikspeicher (0 bis 1).
 #[derive(Serialize, Default, Debug, PartialEq)]
 pub struct ModelInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -820,6 +845,9 @@ pub struct ModelInfo {
     pub quantization: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<u64>,
+    /// Kontextlänge, mit der das Modell gerade geladen ist (Ollama `/api/ps`, llama.cpp `n_ctx`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loaded_context: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loaded: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

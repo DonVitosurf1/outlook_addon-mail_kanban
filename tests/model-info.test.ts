@@ -8,6 +8,9 @@ test('Modellinfo: Größe, Quantisierung, Kontext und GPU in einer Zeile',()=>{
   assert.equal(formatModelInfo({quantization:'F16',loaded:true,gpu:0}),'F16 · CPU')
   assert.equal(formatModelInfo({context:32768,loaded:false}),'32.768 Token · noch nicht geladen')
   assert.equal(formatModelInfo({loaded:true}),'geladen')
+  // Geladen zählt die tatsächliche Kontextlänge, nicht die größte mögliche.
+  assert.equal(formatModelInfo({context:131072,loaded_context:4096,loaded:true,gpu:1}),'Kontext 4.096 Token (geladen) · GPU')
+  assert.equal(formatModelInfo({context:131072,loaded_context:4096,loaded:false}),'131.072 Token · noch nicht geladen')
 })
 test('Modellinfo: fehlende und ungültige Angaben werden weggelassen',()=>{
   assert.equal(formatModelInfo({}),'Keine Angaben vom Modellserver')

@@ -13,7 +13,7 @@ server = ThreadingHTTPServer(("127.0.0.1", 0), partial(SimpleHTTPRequestHandler,
 Thread(target=server.serve_forever, daemon=True).start()
 bootstrap = """
 localStorage.setItem('kanban-board-options-v1', JSON.stringify({poll_seconds:0}))
-localStorage.setItem('outlook-kanban-ai-settings-v1', JSON.stringify({enabled:true,url:'http://127.0.0.1:11434',model:'',embedModel:'qwen3-embedding:0.6b'}))
+localStorage.setItem('outlook-kanban-ai-settings-v1', JSON.stringify({enabled:true,embeddings:true,url:'http://127.0.0.1:11434',model:'',embedModel:'qwen3-embedding:0.6b'}))
 window.calls=[]
 window.__TAURI__={core:{invoke:async(name,args={})=>{
   window.calls.push(name)
@@ -22,7 +22,7 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_categories')return '[]'
   if(name==='ai_models')return ['embed-x','qwen3-embedding:0.6b','llama3:8b']
-  if(name==='ai_model_info'){window.infoArgs=(window.infoArgs||[]).concat([args]);return args.model==='llama3:8b'?{parameters:8030261248,quantization:'Q4_K_M',context:8192,loaded:true,size:1,gpu:1}:{parameters:6e8,quantization:'Q8_0',context:32768,loaded:false}}
+  if(name==='ai_model_info'){window.infoArgs=(window.infoArgs||[]).concat([args]);return args.model==='llama3:8b'?{parameters:8030261248,quantization:'Q4_K_M',context:131072,loaded_context:4096,loaded:true,gpu:1}:{parameters:6e8,quantization:'Q8_0',context:32768,loaded:false}}
   if(name==='ai_analyze'){await new Promise(r=>setTimeout(r,60));return {zusammenfassung:'x',antwort_noetig:true,arten:[],ordner:null,frist:null}}
   return '[]'
 }}}
@@ -55,14 +55,30 @@ try:
         expect(embed_info).to_have_text("600 M · Q8_0 · 32.768 Token · noch nicht geladen")
         chat = dialog.get_by_label("Modell für Hintergrund", exact=True)
         chat_info = page.locator("#" + chat.get_attribute("aria-describedby"))
-        expect(chat_info).to_have_text("")
+        # Leeres Feld: Angaben zum automatisch gewählten Modell, mit der geladenen Kontextlänge.
+        auto_text = "automatisch: llama3:8b · 8 B · Q4_K_M · Kontext 4.096 Token (geladen) · GPU"
+        expect(chat_info).to_have_text(auto_text)
         chat.fill("llama3:8b")
         chat.dispatch_event("change")
-        expect(chat_info).to_have_text("8 B · Q4_K_M · 8.192 Token · GPU")
-        assert page.evaluate("window.infoArgs.map(a=>Object.keys(a).sort().join(','))") == ["model,url"] * 2
+        expect(chat_info).to_have_text("8 B · Q4_K_M · Kontext 4.096 Token (geladen) · GPU")
+        assert set(page.evaluate("window.infoArgs.map(a=>Object.keys(a).sort().join(','))")) == {"model,url"}
         chat.fill("")
         chat.dispatch_event("change")
-        expect(chat_info).to_have_text("")
+        expect(chat_info).to_have_text(auto_text)
+        # Die Zeile des Embedding-Modells hängt am Schalter für Embeddings.
+        switch = dialog.get_by_label("Ordner mit Embeddings vergleichen")
+        switch.uncheck()
+        expect(embed_info).to_have_text("")
+        switch.check()
+        expect(embed_info).to_have_text("600 M · Q8_0 · 32.768 Token · noch nicht geladen")
+        # Schließen und erneut öffnen lädt die Angaben einmal neu (ein Beobachter, nicht einer je Neuaufbau).
+        before = page.evaluate("window.infoArgs.length")
+        page.keyboard.press("Escape")
+        page.locator("#moreTools summary").click()
+        page.locator("#openSettings").click()
+        expect(embed_info).to_have_text("600 M · Q8_0 · 32.768 Token · noch nicht geladen")
+        page.wait_for_timeout(200)
+        assert page.evaluate("window.infoArgs.length") - before == 2, page.evaluate("window.infoArgs")
         dialog.get_by_role("navigation").get_by_role("button", name="Darstellung").click()
         expect(dialog.get_by_role("heading", name="Darstellung")).to_be_focused()
         dialog.get_by_role("button", name="Verbindung testen").click()

@@ -529,10 +529,12 @@ export function configuredModel(fn:AiFunction,cfg:{model:string;draftModel?:stri
   const background=cfg.model.trim()
   return MODEL_ROLES[fn]==='draft'?(cfg.draftModel||'').trim()||background:background
 }
+/** Erstes installiertes Sprachmodell, wie bei „Automatisch auswählen“. */
+const firstChatModel=(names:string[])=>names.find(s=>!s.toLowerCase().includes('embed'))
 async function activeModel(cfg:Config,fn:AiFunction) {
   if(!cfg.enabled)throw new Error('Lokale KI ist ausgeschaltet.')
   const invoke=native()
-  const model=configuredModel(fn,cfg) || (await invoke<string[]>('ai_models',{url:cfg.url})).find(s=>!s.toLowerCase().includes('embed'))
+  const model=configuredModel(fn,cfg) || firstChatModel(await invoke<string[]>('ai_models',{url:cfg.url}))
   if(!model)throw new Error('Bitte in den Einstellungen ein lokal installiertes Sprachmodell wählen.')
   return model
 }
@@ -1078,12 +1080,15 @@ export async function suggestFolderName(folder:Folder){
   const profile=folderInfo([folder.path])[0]?.profile??''
   return invoke<string>('ai_folder_name',{url:cfg.url,model,key:folder.path,profile,subjects})
 }
+/** Beobachter für das Öffnen der Einstellungen. Beim Neuaufbau des KI-Bereichs wird der alte getrennt. */
+let infoObserver:MutationObserver|undefined
 export function renderAiSettings(container:HTMLElement,getTrainingFolders?:()=>Folder[],learningContainer=container) {
   learningFolders=getTrainingFolders
   const panel=document.createElement('div'),learnPanel=learningContainer===container?panel:document.createElement('div')
   container.append(panel);if(learnPanel!==panel)learningContainer.append(learnPanel)
   refreshAiPanel=()=>{
     panel.replaceChildren();learnPanel.replaceChildren()
+    infoObserver?.disconnect();infoObserver=undefined
     if(liveSource)renderLiveAiSettings(panel,getTrainingFolders,learnPanel)
     else renderOfflineAiSettings(panel)
   }
@@ -1099,21 +1104,24 @@ const sampleMail:AiMail={subject:'Rückfrage zur Lieferung',sender:'Beispiel Lie
  * Zeile unter einem Modellfeld mit Größe, Quantisierung, Kontextlänge und Ladezustand (`ai_model_info`). Sendet nur den
  * Modellnamen an den lokalen Server. Lädt bei Modellwechsel neu, ältere Antworten werden verworfen.
  */
-function modelInfoLine(input:HTMLInputElement,address:()=>string,enabled:()=>boolean,fallback=''){
+function modelInfoLine(input:HTMLInputElement,address:()=>string,enabled:()=>boolean,auto?:()=>Promise<string|undefined>){
   const line=document.createElement('p');line.className='field-hint model-info'
   line.id='model-info-'+(++modelInfoIds);input.setAttribute('aria-describedby',line.id)
   input.closest('label')?.after(line)
   let version=0
   const load=()=>{
-    const mine=++version, name=input.value.trim()
-    if(!name){line.textContent=fallback;return}
-    if(!enabled()){line.textContent='';return}
+    const mine=++version, typed=input.value.trim()
+    if(!enabled()||(!typed&&!auto)){line.textContent='';return}
     line.textContent='Modellangaben werden geladen …'
     const failed=(error:unknown)=>{if(mine===version)line.textContent='Keine Modellangaben: '+(error instanceof Error?error.message:String(error))}
-    try{
-      native()<unknown>('ai_model_info',{url:address().trim(),model:name})
-        .then(info=>{if(mine===version)line.textContent=formatModelInfo(info)},failed)
-    }catch(error){failed(error)}
+    void (async()=>{
+      // Leeres Feld mit automatischer Auswahl: Angaben zum Modell, das das Board tatsächlich nimmt.
+      const name=typed||await auto!()
+      if(mine!==version)return
+      if(!name){line.textContent='';return}
+      const info=await native()<unknown>('ai_model_info',{url:address().trim(),model:name})
+      if(mine===version)line.textContent=(typed?'':'automatisch: '+name+' · ')+formatModelInfo(info)
+    })().catch(failed)
   }
   input.addEventListener('change',load)
   return load
@@ -1165,15 +1173,19 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const feedback=document.createElement('p');feedback.setAttribute('role','status')
   section.append(list,check,test,save,feedback);container.append(section)
   // A1: Angaben zu jedem gewählten Modell, beim Öffnen der Einstellungen und nach einem Modellwechsel.
-  const infos=[modelInfoLine(model,()=>url.value,()=>on.checked),modelInfoLine(draftModel,()=>url.value,()=>on.checked),modelInfoLine(embedModel,()=>embedUrl.value,()=>on.checked)]
+  const chosen=async()=>firstChatModel(await native()<string[]>('ai_models',{url:url.value.trim()}))
+  const infos=[modelInfoLine(model,()=>url.value,()=>on.checked,chosen),modelInfoLine(draftModel,()=>url.value,()=>on.checked),
+    modelInfoLine(embedModel,()=>embedUrl.value,()=>on.checked&&embeddings.checked)]
   const loadInfos=()=>{if(current(epoch))for(const load of infos)load()}
   const dialog=container.closest('dialog')
+  infoObserver?.disconnect();infoObserver=undefined
   if(dialog){
-    new MutationObserver(()=>{if(dialog.open&&section.isConnected)loadInfos()}).observe(dialog,{attributes:true,attributeFilter:['open']})
+    infoObserver=new MutationObserver(()=>{if(dialog.open&&section.isConnected)loadInfos()})
+    infoObserver.observe(dialog,{attributes:true,attributeFilter:['open']})
     if(dialog.open)loadInfos()
   }else loadInfos()
   for(const input of [url,embedUrl])input.addEventListener('change',loadInfos)
-  on.addEventListener('change',loadInfos)
+  for(const toggle of [on,embeddings])toggle.addEventListener('change',loadInfos)
   learningContainer.append(learnSection)
   renderLearning(learningContainer,getTrainingFolders)
   test.onclick=async()=>{
