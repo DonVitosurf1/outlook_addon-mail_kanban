@@ -37,7 +37,7 @@ try:
             if request.url.endswith('/space/structures'):
                 route.fulfill(json={'structures':[
                     {'id':'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee','title':'Projekt','pluralName':'Projekte'},
-                    {'id':'77777777-7777-4777-8777-777777777777','title':'Notiz','pluralName':'Notizen'},
+                    {'id':'77777777-7777-4777-8777-777777777777','title':'Notiz','pluralName':'Notizen','propertyDefinitions':[{'id':'12121212-1212-4121-8121-121212121212','name':'Kennung','type':'text','writable':True}]},
                     {'id':'88888888-8888-4888-8888-888888888888','title':'Person','pluralName':'Personen'},
                     {'id':'99999999-9999-4999-8999-999999999999','title':'Atomare Notiz','pluralName':'Atomare Notizen'},
                     {'id':'RootTask','propertyDefinitions':[
@@ -81,6 +81,7 @@ try:
         expect(page.locator('#message')).to_contain_text('Mail als Notiz in Capacities angelegt')
         note = next(call for call in calls if call['path']=='/object/markdown' and 'GEHEIM' in call['body'])
         assert '77777777-7777-4777-8777-777777777777' in note['body']
+        assert any(call['method']=='PATCH' and '12121212-1212-4121-8121-121212121212' in call['body'] and '"aa"' in call['body'] for call in calls)
         appended = [call['body'] for call in calls if call['path']=='/blocks/append']
         assert appended and all('GEHEIM' not in body for body in appended)
         assert any('LinkToken' in body and '33333333-3333-4333-8333-333333333333' in body for body in appended)

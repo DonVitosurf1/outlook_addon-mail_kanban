@@ -36,16 +36,35 @@ const noteNames=['notiz','notizen','note','notes']
 const personNames=['person','personen','people','persons']
 const atomNames=['atomare notiz','atomare notizen','atomic note','atomic notes']
 
-function structureId(structures:unknown,names:readonly string[]){
+function structureEntry(structures:unknown,names:readonly string[]){
   const list=Array.isArray(structures)?structures:[]
   const wanted=new Set(names)
-  const hit=list.find(s=>{
+  return list.find(s=>{
     if(!s||typeof s!=='object')return false
     const entry=s as {id?:string;title?:string;pluralName?:string}
     const labels=[entry.title,entry.pluralName].map(name=>String(name||'').trim().toLowerCase())
     return typeof entry.id==='string'&&labels.some(name=>wanted.has(name))
-  }) as {id:string}|undefined
-  return hit?.id
+  }) as {id:string;propertyDefinitions?:unknown[]}|undefined
+}
+function structureId(structures:unknown,names:readonly string[]){
+  return structureEntry(structures,names)?.id
+}
+
+const identityNames=['kennung','mailkennung','mail-kennung','mail id','mail-id','entryid','entry-id']
+
+/** Beschreibbares Textfeld, in dem die Mailkennung stehen darf. Sonst keins. */
+export function capacitiesIdentityProperty(structure:unknown){
+  if(!structure||typeof structure!=='object')return
+  const defs=(structure as {propertyDefinitions?:unknown[]}).propertyDefinitions
+  if(!Array.isArray(defs))return
+  for(const name of identityNames){
+    const hit=defs.find(d=>{
+      if(!d||typeof d!=='object')return false
+      const prop=d as {id?:string;name?:string;type?:string;writable?:boolean}
+      return prop.type==='text'&&prop.writable!==false&&typeof prop.id==='string'&&String(prop.name||'').trim().toLowerCase()===name
+    }) as {id:string}|undefined
+    if(hit)return hit.id
+  }
 }
 
 /** Typ für den Vorgang: „Projekt“ im Space, sonst eine normale Seite. */
@@ -191,7 +210,16 @@ export function capacitiesWebLinks(text:string){
 }
 
 /** Legt die Notiz einmal an, sucht die Person und hängt einen Verweis an das Projekt. */
-export async function saveMailAsNote(token:string,input:{noteId?:string;markdown:string;title:string;personName?:string;personAddress?:string;projectId?:string;supplement?:string},fetchImpl:FetchLike=fetch){
+function identityValue(object:unknown,propertyId:string){
+  if(!object||typeof object!=='object')return
+  const properties=(object as {properties?:Record<string,unknown>}).properties
+  const prop=properties?.[propertyId]
+  if(!prop||typeof prop!=='object')return
+  const value=(prop as {text?:{value?:unknown}}).text?.value
+  return typeof value==='string'?value:undefined
+}
+
+export async function saveMailAsNote(token:string,input:{noteId?:string;markdown:string;title:string;mailId?:string;personName?:string;personAddress?:string;projectId?:string;supplement?:string},fetchImpl:FetchLike=fetch){
   if(input.noteId){
     const supplement=input.supplement?.trim()
     if(!supplement)return {noteId:input.noteId,created:false,appended:false,personId:undefined as string|undefined}
@@ -202,8 +230,23 @@ export async function saveMailAsNote(token:string,input:{noteId?:string;markdown
   if(!token.trim())throw new Error('Bitte den Capacities-Token in den Einstellungen eintragen.')
   const call=api(token,fetchImpl)
   const structures=structuresOf(await call('/space/structures','GET'))
-  const noteStructure=structureId(structures,noteNames)||'RootPage'
+  const noteType=structureEntry(structures,noteNames)
+  const noteStructure=noteType?.id||'RootPage'
   const personStructure=structureId(structures,personNames)
+  const identityId=capacitiesIdentityProperty(noteType)
+  const mailId=input.mailId?.trim()
+  if(identityId&&mailId){
+    try{
+      const found=await call('/objects/search','POST',{query:mailId.slice(0,512),structureIds:[noteStructure],limit:5}) as {results?:{id?:string}[]}
+      for(const row of found?.results||[]){
+        if(!row.id)continue
+        try{
+          const object=await call('/object?id='+encodeURIComponent(row.id),'GET')
+          if(identityValue(object,identityId)===mailId)return {noteId:row.id,created:false,appended:false,reused:true,personId:undefined as string|undefined}
+        }catch{/* der nächste Treffer */ }
+      }
+    }catch{/* ohne Suche entsteht eine neue Notiz */ }
+  }
   const created=await call('/object/markdown','POST',{structureId:noteStructure,markdown:input.markdown}) as {id?:string}
   if(!created?.id)throw new Error('Capacities hat keine Notizkennung geliefert.')
   const noteId=created.id
@@ -224,13 +267,14 @@ export async function saveMailAsNote(token:string,input:{noteId?:string;markdown
         if(person?.id)personId=person.id
       }
     }
+    if(identityId&&mailId)await call('/object','PATCH',{id:noteId,properties:{[identityId]:{type:'text',text:{value:mailId}}}})
     if(input.projectId)await call('/blocks/append','POST',{id:input.projectId,position:{type:'end'},blocks:[capacitiesProjectBlock(input.title,noteId)]})
   }catch(error){
     const wrapped=new CapacitiesSyncError(error instanceof Error?error.message:String(error))
     wrapped.kept={noteId,personId}
     throw wrapped
   }
-  return {noteId,created:true,appended:false,personId}
+  return {noteId,created:true,appended:false,reused:false,personId}
 }
 
 /** Neue http-Links einer schon angelegten Notiz werden Weblinks. Bekannte Links bleiben. */

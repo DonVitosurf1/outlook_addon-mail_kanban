@@ -298,4 +298,4 @@ Ausführlich in [superpowers/plans/2026-11-24-capacities-nachtrag.md](superpower
 
 - [x] Nachtrag an eine bestehende Notiz, ohne sie neu zu schreiben. Das Projekt verweist auf die Notiz als Objekt.
 - [x] Eine Person wird am Namen oder an der Mailadresse wiedererkannt.
-- [ ] Später: Mail-Kennung in einer Texteigenschaft, Anhangdateien, Status und Bereich des Projekts.
+- [x] Ein Textfeld Kennung an der Notiz merkt sich die Mail. Anhänge bleiben Namen. Status und Bereich des Projekts bleiben leer.

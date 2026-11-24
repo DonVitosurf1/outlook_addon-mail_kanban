@@ -36,8 +36,8 @@
 - [x] Test: eine Person mit dem Titel der Mailadresse wird wiederverwendet, es entsteht keine zweite.
 - [x] Die Suche trifft, wenn der Titel dem Anzeigenamen oder der Adresse entspricht.
 
-### Task 3: Später, nicht in diesem Durchgang
+### Task 3: Mailkennung, Anhänge, Projektfelder
 
-- Eine Text-Eigenschaft der Notiz für die Mail-Kennung, damit eine neue Installation dieselbe Notiz findet. Nur wenn der Typ so eine Eigenschaft hat.
-- Anhangdateien, sobald das Board die Datei selbst lesen kann.
-- Status und Bereich des Projekt-Typs bleiben leer, bis die Eigenschaften aus dem Space bekannt und bestätigt sind.
+- [x] Hat die Notiz ein beschreibbares Textfeld `Kennung`, `Mailkennung` oder `Mail-ID`, schreibt das Board die Mailkennung hinein. Eine neue Installation sucht danach und legt keine zweite Notiz an. Der Projektverweis enthält die Kennung nicht.
+- [x] Anhangdateien bleiben Namen. Das Board liest die Datei nicht, ein Upload entfällt.
+- [x] Status und Bereich des Projekts bleiben leer. Der Vorgang hat diese Felder nicht, und sie werden nicht aus dem Space geraten.

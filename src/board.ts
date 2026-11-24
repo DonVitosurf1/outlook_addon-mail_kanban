@@ -585,9 +585,9 @@ async function publishMailNote(mail:Mail){
   try{
     const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
     const project=caseNames(mail).map(name=>loadCases().find(c=>same(c.name,name))??allCases(mails).find(c=>same(c.name,name))).find(entry=>entry?.capacitiesId)
-    const result=await saveMailAsNote(token,{markdown:capacitiesNoteMarkdown(view),title:mail.subject||'(ohne Betreff)',personName:capacitiesPersonName(who),personAddress:capacitiesPersonAddress(who),projectId:project?.capacitiesId})
+    const result=await saveMailAsNote(token,{markdown:capacitiesNoteMarkdown(view),title:mail.subject||'(ohne Betreff)',mailId:mail.id,personName:capacitiesPersonName(who),personAddress:capacitiesPersonAddress(who),projectId:project?.capacitiesId})
     saveCapacitiesMail(mail.id,{...saved,noteId:result.noteId,personId:result.personId||saved.personId,stamp})
-    notify('Mail als Notiz in Capacities angelegt.')
+    notify(result.reused?'Diese Mail ist schon eine Notiz in Capacities.':'Mail als Notiz in Capacities angelegt.')
     if(selected?.id===mail.id)fillCapacities(mail)
   }catch(error){
     if(error instanceof CapacitiesSyncError&&error.kept){
@@ -937,7 +937,7 @@ async function start() {
   tokenInput.value=capacitiesToken();tokenInput.setAttribute('aria-label','Capacities-Token')
   tokenInput.onchange=()=>{saveCapacitiesToken(tokenInput.value.trim());notify(tokenInput.value.trim()?'Capacities-Token gespeichert.':'Capacities-Token entfernt.')}
   const tokenLabel=tag('label','Capacities-Token');tokenLabel.append(tokenInput)
-  const tokenHint=tag('p','Schreibt einen Vorgang als Projekt in Capacities. Fehlt dieser Typ, entsteht eine Seite. Die Checkliste wird zu Aufgaben. Eine Mail wird nur auf Klick zur Notiz, dann mit Text. Hat sich der Text geändert, hängt der nächste Klick einen Nachtrag an. Der Token steht nicht in der Sicherung.')
+  const tokenHint=tag('p','Schreibt einen Vorgang als Projekt in Capacities. Fehlt dieser Typ, entsteht eine Seite. Die Checkliste wird zu Aufgaben. Eine Mail wird nur auf Klick zur Notiz, dann mit Text. Hat sich der Text geändert, hängt der nächste Klick einen Nachtrag an. Ein Textfeld Kennung an der Notiz merkt sich die Mail, damit sie wiedergefunden wird. Der Token steht nicht in der Sicherung.')
   tokenHint.className='field-hint'
   parts.outlook.append(label,labelPrefix,tokenLabel,tokenHint)
   for(const [key,caption,fallback,min,max,part] of [

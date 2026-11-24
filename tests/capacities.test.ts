@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {restore, snapshot} from '../src/backup'
 import {normalizeCase} from '../src/planning-logic'
-import {CapacitiesSyncError, capacitiesFields, capacitiesNoteMarkdown, capacitiesPageMarkdown, capacitiesPageStructure, capacitiesProjectBlock, capacitiesStamp, capacitiesSupplement, capacitiesTokenKey, capacitiesWebLinks, saveAtomicNote, saveMailAsNote, saveMailLinks, syncCaseToCapacities} from '../src/capacities'
+import {CapacitiesSyncError, capacitiesFields, capacitiesIdentityProperty, capacitiesNoteMarkdown, capacitiesPageMarkdown, capacitiesPageStructure, capacitiesProjectBlock, capacitiesStamp, capacitiesSupplement, capacitiesTokenKey, capacitiesWebLinks, saveAtomicNote, saveMailAsNote, saveMailLinks, syncCaseToCapacities} from '../src/capacities'
 
 const pageId='11111111-1111-4111-8111-111111111111'
 const taskId='22222222-2222-4222-8222-222222222222'
@@ -242,6 +242,61 @@ test('Die Mailadresse wird erst gesucht, wenn der Name niemanden trifft',async()
   const created=await saveMailAsNote('cap-api-test',{markdown:'# Angebot',title:'Angebot',personName:'Anna',personAddress:'anna@labor.de'},fetchImpl)
   assert.deepEqual(queries,['Anna','anna@labor.de'])
   assert.equal(created.personId,personObjectId)
+})
+
+const kennungId='12121212-1212-4121-8121-121212121212'
+const notedTypes=[{...spaceTypes[1],propertyDefinitions:[{id:kennungId,name:'Kennung',type:'text',writable:true}]},...spaceTypes.filter(entry=>entry.id!==notizId)]
+
+test('Die Mailkennung sitzt nur in einem beschreibbaren Textfeld dieses Namens',()=>{
+  assert.equal(capacitiesIdentityProperty(notedTypes[0]),kennungId)
+  assert.equal(capacitiesIdentityProperty({propertyDefinitions:[{id:kennungId,name:'Kennung',type:'number',writable:true}]}),undefined)
+  assert.equal(capacitiesIdentityProperty({propertyDefinitions:[{id:kennungId,name:'Kennung',type:'text',writable:false}]}),undefined)
+  assert.equal(capacitiesIdentityProperty({propertyDefinitions:[]}),undefined)
+})
+
+test('Eine neue Installation findet die Notiz an der Kennung und legt keine zweite an',async()=>{
+  const calls:{method:string;path:string;body:unknown}[]=[]
+  const fetchImpl=async(url:string,init?:RequestInit)=>{
+    const path=url.replace('https://api.capacities.io','')
+    const body=init?.body?JSON.parse(String(init.body)):undefined
+    calls.push({method:init?.method||'GET',path,body})
+    if(path==='/space/structures')return json({structures:notedTypes})
+    if(path.startsWith('/objects/search'))return json({results:[{id:noteObjectId,structureId:notizId,title:'Angebot'}],nextCursor:null,hasMore:false})
+    if(path.startsWith('/object?'))return json({id:noteObjectId,properties:{[kennungId]:{type:'text',text:{value:'ENTRY77'}}}})
+    if(path==='/object/markdown')return json({id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'})
+    return json({})
+  }
+  const found=await saveMailAsNote('cap-api-test',{markdown:'# Angebot\n\nGEHEIM',title:'Angebot',mailId:'ENTRY77',projectId:pageId},fetchImpl)
+  assert.equal(found.created,false)
+  assert.equal(found.reused,true)
+  assert.equal(found.noteId,noteObjectId)
+  assert.equal(calls.some(c=>c.path==='/object/markdown'),false)
+  assert.equal(calls.some(c=>c.path==='/blocks/append'),false)
+  assert.equal(JSON.stringify(calls).includes('GEHEIM'),false)
+  const search=calls.find(c=>c.path==='/objects/search')
+  assert.equal((search?.body as {query:string}).query,'ENTRY77')
+})
+
+test('Ohne passende Kennung entsteht eine Notiz und das Textfeld bekommt die Mailkennung',async()=>{
+  const calls:{method:string;path:string;body:unknown}[]=[]
+  const fetchImpl=async(url:string,init?:RequestInit)=>{
+    const path=url.replace('https://api.capacities.io','')
+    const body=init?.body?JSON.parse(String(init.body)):undefined
+    calls.push({method:init?.method||'GET',path,body})
+    if(path==='/space/structures')return json({structures:notedTypes})
+    if(path.startsWith('/objects/search'))return json({results:[{id:noteObjectId,structureId:notizId,title:'Angebot'}],nextCursor:null,hasMore:false})
+    if(path.startsWith('/object?'))return json({id:noteObjectId,properties:{[kennungId]:{type:'text',text:{value:'andere-mail'}}}})
+    if(path==='/object/markdown')return json({id:noteObjectId})
+    return json({id:noteObjectId})
+  }
+  const created=await saveMailAsNote('cap-api-test',{markdown:'# Angebot\n\nGEHEIM',title:'Angebot',mailId:'ENTRY77',projectId:pageId},fetchImpl)
+  assert.equal(created.created,true)
+  assert.equal(created.noteId,noteObjectId)
+  const patch=calls.find(c=>c.path==='/object'&&c.method==='PATCH')
+  assert.deepEqual(patch?.body,{id:noteObjectId,properties:{[kennungId]:{type:'text',text:{value:'ENTRY77'}}}})
+  const append=calls.find(c=>c.path==='/blocks/append')
+  assert.equal(JSON.stringify(append?.body).includes('ENTRY77'),false)
+  assert.equal(JSON.stringify(append?.body).includes('GEHEIM'),false)
 })
 
 test('Links werden zu Weblinks, ein schon übernommener Link nicht noch einmal',async()=>{
