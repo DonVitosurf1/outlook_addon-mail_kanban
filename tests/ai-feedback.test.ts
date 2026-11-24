@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { FEEDBACK, VOTES, NO_MODEL, changeDegree, countDraft, countFeedback, currentVote, editRatio, feedbackSummary, filingSource, oldestDay, useSampleFeedback, vote } from '../src/ai-feedback'
+import { FEEDBACK, VOTES, SKIPPED_TASKS, NO_MODEL, changeDegree, countDraft, countTasks, countFeedback, currentVote, editRatio, feedbackSummary, filingSource, oldestDay, useSampleFeedback, vote } from '../src/ai-feedback'
 import { localDay } from '../src/views-logic'
 
 function storage(){
@@ -102,4 +102,22 @@ test('Quelle eines Ablagevorschlags aus dem Begründungstext',()=>{
     ['Bayes und Embeddings · Labor 0.91','Hybrid'],['Lokale Embeddings · Labor 0.91','Embedding'],['KI-Stichwahl · Messgerät','KI-Stichwahl'],
     ['Vorschlag der lokalen KI','KI'],['Begriff aus Ordnername oder Steckbrief · KI nicht verfügbar','Begriff'],['Begriff aus dem Beispielordner','Begriff'],['?','Sonstige']]
   for(const [reason,source] of cases)assert.equal(filingSource(reason),source,reason)
+})
+
+test('Aufgaben: später doch übernommene Aufgabe bucht den Fehlgriff um, Rückgängig stellt alles wieder her',()=>{
+  const map=storage()
+  const first=countTasks('sig','m',['Angebot freigeben'],['Techniker anrufen'])
+  assert.deepEqual(feedbackSummary(),{aufgaben:{m:{ok:1,bad:1}}})
+  assert.ok(!map.get(SKIPPED_TASKS)!.includes('Techniker'))
+  // Noch einmal abgewählt zählt nicht doppelt.
+  const again=countTasks('sig','m',[],['Techniker anrufen'])
+  assert.deepEqual(feedbackSummary(),{aufgaben:{m:{ok:1,bad:1}}})
+  again()
+  const later=countTasks('sig','m',['Techniker anrufen'],[])
+  assert.deepEqual(feedbackSummary(),{aufgaben:{m:{ok:2}}})
+  later()
+  assert.deepEqual(feedbackSummary(),{aufgaben:{m:{ok:1,bad:1}}})
+  first()
+  assert.deepEqual(feedbackSummary(),{})
+  assert.deepEqual(JSON.parse(map.get(SKIPPED_TASKS)!),{})
 })

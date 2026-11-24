@@ -1,6 +1,6 @@
 /** Abschnitt „Aufgaben“ in den Maildetails: Vorschläge der lokalen KI prüfen und als Checklistenpunkte in einen Vorgang übernehmen. */
 import {analysisModel, embeddingId} from './ai'
-import {countFeedback, FEEDBACK_FUNCTIONS} from './ai-feedback'
+import {countTasks} from './ai-feedback'
 import {caseNameFromSubject, caseNameProblem, caseNames, caseTag, type Case} from './planning-logic'
 import {newId, updateCase} from './planning-store'
 import {releaseTaken, setTaken, takenTasks, type Task} from './tasks-taken'
@@ -89,16 +89,14 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
       const id=embeddingId(mail),originals=chosen.map(r=>r.task.text)
       setTaken(id,[...takenTasks(id),...originals])
       // B1: übernommene Aufgaben zählen als Treffer, beim Übernehmen abgewählte als Fehlgriffe. Rückgängig zieht sie wieder ab.
-      const model=analysisModel(mail),skipped=rows.length-chosen.length
-      const tally=(sign:number)=>{countFeedback(FEEDBACK_FUNCTIONS.tasks,model,'ok',sign*chosen.length);countFeedback(FEEDBACK_FUNCTIONS.tasks,model,'bad',sign*skipped)}
-      tally(1)
+      const untally=countTasks(id,analysisModel(mail),originals,rows.filter(r=>!chosen.includes(r)).map(r=>r.task.text))
       // Punkte und Merker zurücknehmen. Ein neuer Vorgang verschwindet mit, wenn danach keine anderen Punkte hinzukamen.
       // Nur einmal: eine veraltete Rückmeldung und ein späteres Strg+Z auf denselben Schritt geben die Übernahme nicht doppelt frei.
       let released=false
       const release=(keepCase:boolean)=>{
         if(released)return
         released=true
-        tally(-1)
+        untally()
         updateCase(name,c=>{const items=c.items.filter(i=>!ids.has(i.id));return isNew&&!keepCase&&!items.length?undefined:{...c,items}})
         releaseTaken(id,originals)
       }

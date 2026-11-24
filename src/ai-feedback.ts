@@ -11,6 +11,8 @@ import {localDay} from './views-logic'
 
 export const FEEDBACK='mailboard-ai-feedback-v1'
 export const VOTES='mailboard-ai-votes-v1'
+/** Abgewählte Aufgaben je Mail-Signatur, nur als Prüfsumme des Texts mit Tag, damit eine spätere Übernahme den Fehlgriff umbucht. */
+export const SKIPPED_TASKS='mailboard-ai-skipped-tasks-v1'
 /** Modellname für Vorschläge ohne Sprach- oder Embedding-Modell (Regeln, Bayes, Begriffe). */
 export const NO_MODEL='-'
 /** So viele Tage bleiben die Zähler erhalten. */
@@ -147,6 +149,59 @@ export function countDraft(model:string,original:string,edited:string){
   countFeedback(FEEDBACK_FUNCTIONS.draft,model,degree)
   countFeedback(FEEDBACK_FUNCTIONS.draft,model,degree==='strong'?'bad':'ok')
   return degree
+}
+
+type SkippedEntry={m:string;h:Record<string,string>}
+const SKIPPED_LIMIT=1000
+function skippedTasks():Record<string,SkippedEntry>{
+  const raw=read(SKIPPED_TASKS),result:Record<string,SkippedEntry>={}
+  if(!isObject(raw))return result
+  for(const [id,value] of Object.entries(raw)){
+    if(!isObject(value)||typeof value.m!=='string'||!isObject(value.h))continue
+    const h=Object.fromEntries(Object.entries(value.h).filter((e):e is [string,string]=>typeof e[1]==='string'&&validDay(e[1])))
+    if(Object.keys(h).length)result[id]={m:value.m,h}
+  }
+  return result
+}
+function saveSkipped(all:Record<string,SkippedEntry>){
+  const keys=Object.keys(all)
+  for(const k of keys.slice(0,Math.max(0,keys.length-SKIPPED_LIMIT)))delete all[k]
+  write(SKIPPED_TASKS,all)
+}
+/** Kurze Prüfsumme eines Aufgabentexts. Der Text selbst wird nicht gespeichert. */
+function checksum(text:string){
+  let hash=2166136261
+  for(let i=0;i<text.length;i++)hash=Math.imul(hash^text.charCodeAt(i),16777619)
+  return (hash>>>0).toString(36)
+}
+/**
+ * B1 Aufgaben beim Übernehmen: übernommene zählen als Treffer, abgewählte als Fehlgriff. Wird eine früher abgewählte Aufgabe
+ * später doch übernommen, bucht das den Fehlgriff an seinem Tag in einen Treffer um, statt doppelt zu zählen.
+ * `id` ist die Mail-Signatur. Liefert die Rücknahme für Rückgängig.
+ */
+export function countTasks(id:string,model:string,taken:readonly string[],skipped:readonly string[]){
+  const fn=FEEDBACK_FUNCTIONS.tasks,today=localDay(),who=name(model,120)
+  const all=skippedTasks(),entry=all[id]??{m:who,h:{}}
+  const moved:[string,string][]=[],added:string[]=[]
+  for(const text of taken){const h=checksum(text);if(entry.h[h]){moved.push([h,entry.h[h]]);delete entry.h[h]}}
+  for(const text of skipped){const h=checksum(text);if(!entry.h[h]){entry.h[h]=today;added.push(h)}}
+  countFeedback(fn,who,'ok',taken.length,today)
+  for(const [,day] of moved)countFeedback(fn,entry.m,'bad',-1,day)
+  countFeedback(fn,who,'bad',added.length,today)
+  delete all[id]
+  if(Object.keys(entry.h).length)all[id]=entry
+  saveSkipped(all)
+  return ()=>{
+    countFeedback(fn,who,'ok',-taken.length,today)
+    for(const [,day] of moved)countFeedback(fn,entry.m,'bad',1,day)
+    countFeedback(fn,who,'bad',-added.length,today)
+    const now=skippedTasks(),back=now[id]??{m:entry.m,h:{}}
+    for(const [h,day] of moved)back.h[h]=day
+    for(const h of added)delete back.h[h]
+    delete now[id]
+    if(Object.keys(back.h).length)now[id]=back
+    saveSkipped(now)
+  }
 }
 
 export type VoteField='summary'|'needsReply'|'deadline'
