@@ -731,7 +731,7 @@ async function start() {
           const result=await syncCaseToCapacities(token,{pageId:entry.capacitiesId,markdown:capacitiesPageMarkdown(entry,rows),
             tasks:entry.items.map(item=>({itemId:item.id,title:item.text,done:item.done,due:item.due,capacitiesId:item.capacitiesId}))})
           remember(result)
-          notify(result.createdPage?'Vorgang in Capacities angelegt.':'Aufgaben in Capacities aktualisiert.')
+          notify(result.createdPage?(result.pageStructure==='RootPage'?'Vorgang in Capacities angelegt.':'Projekt in Capacities angelegt.'):'Aufgaben in Capacities aktualisiert.')
         }catch(error){
           if(error instanceof CapacitiesSyncError && error.partial)remember(error.partial)
           notify('Capacities: '+errorText(error))
@@ -829,7 +829,7 @@ async function start() {
   tokenInput.value=capacitiesToken();tokenInput.setAttribute('aria-label','Capacities-Token')
   tokenInput.onchange=()=>{saveCapacitiesToken(tokenInput.value.trim());notify(tokenInput.value.trim()?'Capacities-Token gespeichert.':'Capacities-Token entfernt.')}
   const tokenLabel=tag('label','Capacities-Token');tokenLabel.append(tokenInput)
-  const tokenHint=tag('p','Schreibt einen Vorgang in einen Capacities-Space. Der Token steht nicht in der Sicherung. Mailtexte gehen nicht mit.')
+  const tokenHint=tag('p','Schreibt einen Vorgang als Projekt in Capacities. Fehlt dieser Typ, entsteht eine Seite. Die Checkliste wird zu Aufgaben. Der Token steht nicht in der Sicherung. Mailtexte gehen nicht mit.')
   tokenHint.className='field-hint'
   parts.outlook.append(label,labelPrefix,tokenLabel,tokenHint)
   for(const [key,caption,fallback,min,max,part] of [

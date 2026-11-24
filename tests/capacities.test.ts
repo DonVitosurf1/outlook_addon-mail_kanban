@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {restore, snapshot} from '../src/backup'
 import {normalizeCase} from '../src/planning-logic'
-import {CapacitiesSyncError, capacitiesFields, capacitiesPageMarkdown, capacitiesTokenKey, syncCaseToCapacities} from '../src/capacities'
+import {CapacitiesSyncError, capacitiesFields, capacitiesPageMarkdown, capacitiesPageStructure, capacitiesTokenKey, syncCaseToCapacities} from '../src/capacities'
 
 const pageId='11111111-1111-4111-8111-111111111111'
 const taskId='22222222-2222-4222-8222-222222222222'
@@ -30,6 +30,30 @@ test('Capacities-Felder: Status „Erledigt“ und das Datumsfeld der Aufgabe',(
     {id:'date',name:'Datum',type:'date'},
   ]}])
   assert.deepEqual(fields,{openId:'open',doneId:'done',dateId:'date'})
+})
+
+const projektId='aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee'
+test('Ein Space mit dem Typ Projekt bekommt den Vorgang dort, sonst als Seite',async()=>{
+  assert.equal(capacitiesPageStructure([{id:'RootPage',title:'Seite',pluralName:'Seiten'}]),'RootPage')
+  assert.equal(capacitiesPageStructure([
+    {id:'RootPage',title:'Seite',pluralName:'Seiten'},
+    {id:projektId,title:'Projekt',pluralName:'Projekte'},
+  ]),projektId)
+  const calls:{body:unknown}[]=[]
+  const fetchImpl=async(url:string,init?:RequestInit)=>{
+    const path=url.replace('https://api.capacities.io','')
+    const body=init?.body?JSON.parse(String(init.body)):undefined
+    if(path==='/object/markdown')calls.push({body})
+    if(path==='/space/structures')return json({structures:[
+      {id:projektId,title:'Projekt',pluralName:'Projekte'},
+      {id:'RootTask',propertyDefinitions:[]},
+    ]})
+    if(path==='/object/markdown')return json({id:pageId})
+    return json({id:taskId})
+  }
+  const created=await syncCaseToCapacities('cap-api-test',{markdown:'# Bestellung\n',tasks:[]},fetchImpl)
+  assert.equal(created.pageStructure,projektId)
+  assert.deepEqual(calls[0]?.body,{structureId:projektId,markdown:'# Bestellung\n'})
 })
 
 test('Anlegen schreibt eine Seite und je Punkt eine Aufgabe, danach nur die Aufgaben',async()=>{

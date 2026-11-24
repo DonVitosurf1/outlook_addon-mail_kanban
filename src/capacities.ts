@@ -31,6 +31,20 @@ function optionId(options:readonly {id?:string;name?:string}[],names:readonly st
   return options.find(o=>wanted.has(String(o.id||'').toLowerCase())||wanted.has(String(o.name||'').toLowerCase()))?.id
 }
 
+const projectNames=['projekt','projekte','project','projects']
+
+/** Typ für den Vorgang: „Projekt“ im Space, sonst eine normale Seite. */
+export function capacitiesPageStructure(structures:unknown){
+  const list=Array.isArray(structures)?structures:[]
+  const hit=list.find(s=>{
+    if(!s||typeof s!=='object')return false
+    const entry=s as {id?:string;title?:string;pluralName?:string}
+    const names=[entry.title,entry.pluralName].map(name=>String(name||'').trim().toLowerCase())
+    return typeof entry.id==='string'&&names.some(name=>projectNames.includes(name))
+  }) as {id:string}|undefined
+  return hit?.id||'RootPage'
+}
+
 /** Status- und Datumsfeld der Aufgabenstruktur. Unbekannte Räume bleiben ohne Status. */
 export function capacitiesFields(structures:unknown):CapacitiesFields{
   const list=Array.isArray(structures)?structures:[]
@@ -65,7 +79,9 @@ export async function syncCaseToCapacities(token:string,input:{pageId?:string;ma
     return parsed
   }
   const space=await call('/space/structures','GET')
-  const fields=capacitiesFields(space&&typeof space==='object'?(space as {structures?:unknown}).structures:undefined)
+  const structures=space&&typeof space==='object'?(space as {structures?:unknown}).structures:undefined
+  const pageStructure=capacitiesPageStructure(structures)
+  const fields=capacitiesFields(structures)
   const properties=(task:CapacitiesTaskPlan,clearDate:boolean)=>{
     const value:Record<string,unknown>={title:{type:'title',title:{value:task.title}}}
     const status=task.done?fields.doneId:fields.openId
@@ -76,7 +92,7 @@ export async function syncCaseToCapacities(token:string,input:{pageId?:string;ma
   let pageId=input.pageId
   let createdPage=false
   if(!pageId){
-    const created=await call('/object/markdown','POST',{structureId:'RootPage',markdown:input.markdown}) as {id?:string}
+    const created=await call('/object/markdown','POST',{structureId:pageStructure,markdown:input.markdown}) as {id?:string}
     if(!created?.id)throw new Error('Capacities hat keine Seitenkennung geliefert.')
     pageId=created.id
     createdPage=true
@@ -99,7 +115,7 @@ export async function syncCaseToCapacities(token:string,input:{pageId?:string;ma
     if(pageId)wrapped.partial={pageId,createdPage,tasks}
     throw wrapped
   }
-  return {pageId,createdPage,tasks}
+  return {pageId,createdPage,pageStructure,tasks}
 }
 
 export function capacitiesToken(){

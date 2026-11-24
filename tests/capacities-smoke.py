@@ -35,7 +35,7 @@ try:
             request = route.request
             calls.append({'method':request.method,'path':request.url.replace('https://api.capacities.io',''),'body':request.post_data or ''})
             if request.url.endswith('/space/structures'):
-                route.fulfill(json={'structures':[{'id':'RootTask','propertyDefinitions':[
+                route.fulfill(json={'structures':[{'id':'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee','title':'Projekt','pluralName':'Projekte'},{'id':'RootTask','propertyDefinitions':[
                     {'id':'status','name':'Status','type':'label','labelSet':[{'id':'todo','name':'Offen'},{'id':'done','name':'Erledigt'}]},
                     {'id':'date','name':'Datum','type':'date'}]}]})
             elif request.url.endswith('/object/markdown'):
@@ -53,7 +53,8 @@ try:
         cases = page.locator('#casesView')
         cases.get_by_role('button', name='Bestellung · 1 Mails').click()
         cases.get_by_role('button', name='In Capacities anlegen').click()
-        expect(page.locator('#message')).to_contain_text('Vorgang in Capacities angelegt')
+        expect(page.locator('#message')).to_contain_text('Projekt in Capacities angelegt')
+        assert any(call['path']=='/object/markdown' and 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' in call['body'] for call in calls)
         expect(cases.get_by_role('button', name='Aufgaben in Capacities aktualisieren')).to_be_visible()
         page.screenshot(path='/opt/cursor/artifacts/capacities-angelegt.png')
         bodies = '\n'.join(call['body'] for call in calls)
@@ -64,6 +65,6 @@ try:
         assert sum(call['path']=='/object/markdown' for call in calls) == 1
         assert not errors, errors
         browser.close()
-        print('OK – Vorgang einmal als Seite, danach nur die Aufgaben, ohne Mailtext')
+        print('OK – Vorgang als Projekt, danach nur die Aufgaben, ohne Mailtext')
 finally:
     server.shutdown()
