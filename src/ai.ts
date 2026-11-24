@@ -1054,7 +1054,8 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
 }
 
 /** Ergebnis eines Testlaufs: Auswertung, Lernbeispiele je Ordner und ein Hinweis zum Semantikvergleich. */
-export type Measurement={date:string;report:EvaluationResult;samples:Record<string,number>;note:string}
+/** Ergebnis von `measureLearning`. `folders`: Lernordner der Messung (Einrichtung E2/E6), bei älteren Messungen fehlt die Liste. */
+export type Measurement={date:string;report:EvaluationResult;samples:Record<string,number>;note:string;folders?:string[]}
 /**
  * Testlauf auf den gespeicherten Lernbeispielen: je Ordner bleiben die zehn neuesten Mails zurück (`evaluateHoldout`).
  * Mit lokaler KI und Embeddings fließt der Vektorvergleich ein, sonst nur Bayes und Regeln. Speichert das Ergebnis für die Ablage-Auswertung.

@@ -154,15 +154,28 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             steps.nth(5).click()
             expect(view.get_by_role('button', name='Lernen und Messen läuft …')).to_be_disabled()
             expect(view.locator('.setup-status')).to_have_text('Neu lernen und vergleichen läuft noch. Das Ergebnis erscheint hier.')
-            steps.nth(6).click()
+            # Während des Laufs ist „Lernen und messen“ in Schritt 2 gesperrt, nach dem Ende wieder frei.
+            steps.nth(1).click()
+            expect(view.get_by_role('button', name='Lernen und messen', exact=True)).to_be_disabled()
+            expect(view.locator('.setup-status')).to_have_text('Neu lernen und vergleichen aus Schritt 6 läuft gerade. Danach kannst du hier messen.')
             page.evaluate("window.trainRelease()")
             expect(page.locator('.toast')).to_contain_text('Neu lernen und vergleichen ist fertig. Das Ergebnis steht in Schritt 6 der Einrichtung.')
-            assert page.evaluate("JSON.parse(localStorage.getItem('mailboard-setup-v1'))")['measurements'].get('after'), 'Ergebnis gespeichert'
-            expect(view.get_by_role('heading', name='Schritt 7 · Posteingang abarbeiten')).to_be_visible()
+            after = page.evaluate("JSON.parse(localStorage.getItem('mailboard-setup-v1'))")['measurements'].get('after')
+            assert after and sorted(after['folders']) == ['Einkauf', 'Labor', 'Reisen', 'Wartung'], after and after.get('folders')
+            expect(view.get_by_role('heading', name='Schritt 2 · Lernen und messen')).to_be_visible()
+            expect(view.get_by_role('button', name='Lernen und messen', exact=True)).to_be_enabled()
             steps.nth(5).click()
             expect(view.locator('table.setup-compare')).to_have_count(2)
             expect(view.get_by_role('button', name='Erneut lernen und vergleichen')).to_be_enabled()
+            expect(view.locator('.setup-note')).to_have_count(0)
             page.evaluate("window.trainGate=null")
+            # Ein geänderter Satz Lernordner wird im Vergleich genannt.
+            page.evaluate("""(()=>{const o=JSON.parse(localStorage.getItem('kanban-board-options-v1'));o.suggestion_folders=['Einkauf','Labor','Reisen'];
+              localStorage.setItem('kanban-board-options-v1',JSON.stringify(o))})()""")
+            steps.nth(5).click()
+            expect(view.locator('.setup-note')).to_have_text('Die Lernordner haben sich seit dieser Messung geändert (nicht mehr: „Wartung“). „Erneut lernen und vergleichen“ misst mit den aktuellen.')
+            page.evaluate("""(()=>{const o=JSON.parse(localStorage.getItem('kanban-board-options-v1'));o.suggestion_folders=['Einkauf','Labor','Reisen','Wartung'];
+              localStorage.setItem('kanban-board-options-v1',JSON.stringify(o))})()""")
 
             # Quellenwechsel während eines laufenden Entwurfs: Der Knopf ist danach sofort wieder frei,
             # das Ergebnis des alten Entwurfs landet nicht in der Liste.

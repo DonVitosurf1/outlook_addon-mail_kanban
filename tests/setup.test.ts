@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { compareMeasurements, diffText, defaultScopes, freshState, initialScopes, isComplete, nextOpen, parseState, progressText, shouldOfferSetup, stepIds } from '../src/setup-logic'
+import { compareMeasurements, diffText, folderSetChange, measuredFolders, defaultScopes, freshState, initialScopes, isComplete, nextOpen, parseState, progressText, shouldOfferSetup, stepIds } from '../src/setup-logic'
 
 const folders=[
   {name:'Posteingang',path:'',isInbox:true},
@@ -114,4 +114,15 @@ test('Vergleich: Differenz in Prozentpunkten, „schlechter“ je Ordner und Que
   assert.equal(result.sources[2].worse,true)
   assert.equal(result.sources[2].diff,-25)
   assert.deepEqual([diffText(5),diffText(-10),diffText(0),diffText(null)],['+5 Pp.','−10 Pp.','±0 Pp.','–'])
+})
+
+test('Lernordner einer Messung: gespeicherte Liste, sonst die Ordner der Lernbeispiele, Unterschied als Text',()=>{
+  assert.deepEqual(measuredFolders({samples:{Labor:3,Einkauf:5}}),['Einkauf','Labor'])
+  assert.deepEqual(measuredFolders({samples:{Labor:3},folders:['Labor','Reisen']}),['Labor','Reisen'])
+  assert.equal(folderSetChange(['A','B'],['A','B']),'')
+  assert.equal(folderSetChange(['A','B'],['B','C','D']),'neu: „C“, „D“ · nicht mehr: „A“')
+  const state=parseState({version:1,step:'E6',status:{},measurements:{
+    after:{date:'1.1.2026',note:'',samples:{A:1},report:{},folders:['A',3,'B']},baseline:{date:'1.1.2026',note:'',samples:{A:1},report:{},folders:'kaputt'}}})
+  assert.deepEqual(state.measurements.after?.folders,['A','B'])
+  assert.equal('folders' in state.measurements.baseline!,false)
 })

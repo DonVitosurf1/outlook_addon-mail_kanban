@@ -102,6 +102,24 @@ const renderers=new Map<StepId,StepRender>()
 /** Hinterlegt den Inhalt eines Schritts. Ein späterer Aufruf für dieselbe ID ersetzt den vorigen. */
 export function registerStep(id:StepId,render:StepRender){renderers.set(id,render)}
 
+/**
+ * Laufender Lern- und Messlauf der Einrichtung: `E2` (Ausgangswert) oder `E6` (Vergleich). Beide lernen neu und messen, deshalb läuft
+ * immer nur einer. Ein Lauf überdauert das Neuzeichnen und das Verlassen des Schritts. Endet er, zeichnet die Einrichtung den
+ * jeweils anderen Schritt neu, falls er gerade offen ist.
+ */
+let learningRun:'E2'|'E6'|undefined
+export function currentLearningRun(){return learningRun}
+export function setLearningRun(step:'E2'|'E6'|undefined){
+  const finished=learningRun
+  learningRun=step
+  if(!step&&finished)document.dispatchEvent(new CustomEvent('mailboard:setup-learning',{detail:finished}))
+}
+/** Hinweis im jeweils anderen Schritt, solange ein Lauf läuft. */
+export function learningRunNote(step:'E2'|'E6'){
+  return step==='E2'?'Lernen und Messen aus Schritt 2 läuft gerade. Danach kannst du hier neu lernen.'
+    :'Neu lernen und vergleichen aus Schritt 6 läuft gerade. Danach kannst du hier messen.'
+}
+
 const LATER_KEY='mailboard-setup-later'
 const stateNames:Record<StepStatus,string>={open:'offen',done:'erledigt',skipped:'übersprungen'}
 function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
@@ -126,6 +144,11 @@ export function initSetup(host:SetupHost){
   let token=0
   document.addEventListener('mailboard:view',event=>{if((event as CustomEvent).detail==='setup')render();else token++})
   document.addEventListener('mailboard:source-changed',()=>{if(currentView()==='setup')render()})
+  // Ein Lernlauf ist fertig: den jeweils anderen Lernschritt freigeben, falls er gerade offen ist.
+  document.addEventListener('mailboard:setup-learning',event=>{
+    const finished=(event as CustomEvent).detail,step=load().step
+    if(currentView()==='setup'&&(step==='E2'||step==='E6')&&step!==finished)render()
+  })
 
   function open(){showView('setup',true)}
   function go(state:SetupState,step:StepId){state.step=step;store(state);render();view.querySelector<HTMLElement>('.setup-step h3')?.focus()}
@@ -304,18 +327,23 @@ registerStep('E2',ctx=>{
   ctx.body.append(make('p',folders.length?folders.length+' Lernordner: '+folders.map(f=>f.path).join(', '):'Wähle zuerst in Schritt 1 mindestens einen Lernordner.'))
   if(!ctx.ai){const note=make('p','Ohne lokale KI lernt und misst das Board nur mit Bayes und festen Regeln.');note.className='setup-note';ctx.body.append(note)}
   const start=button('Lernen und messen',async()=>{
+    if(learningRun)return
     start.disabled=true
+    setLearningRun('E2')
     try{
       const trained=await trainFromFolders(folders,text=>ctx.status(text))
       if(!ctx.active())return
       const measured=await measureLearning(folders,text=>ctx.status(text))
       if(!ctx.active())return
-      ctx.save(state=>{state.measurements.baseline=measured;state.status.E2='done'})
+      ctx.save(state=>{state.measurements.baseline={...measured,folders:folders.map(f=>f.path)};state.status.E2='done'})
+      setLearningRun(undefined)
       ctx.refresh(trained.failures.length?'Nicht gelesen: '+trained.failures.join(' · '):'Lernen und Messen abgeschlossen.'+measured.note)
     }catch(e){ctx.status(errorText(e))}
-    finally{start.disabled=false}
+    finally{setLearningRun(undefined);start.disabled=!!learningRun}
   })
-  start.className='primary';start.disabled=!folders.length
+  start.className='primary';start.disabled=!folders.length||!!learningRun
+  if(learningRun==='E6')ctx.status(learningRunNote('E6'))
+  else if(learningRun==='E2'){start.textContent='Lernen und Messen läuft …';ctx.status('Lernen und Messen läuft noch.')}
   ctx.body.append(start)
   const baseline=ctx.state.measurements.baseline
   if(baseline)renderMeasurement(ctx.body,baseline,'Ausgangswert vom '+baseline.date)

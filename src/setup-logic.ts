@@ -74,7 +74,10 @@ export function parseState(raw:unknown):SetupState{
         })):{}
         report.confusion=confusion
       }
-      state.measurements[key]={...m,report} as unknown as Measurement
+      // Lernordner der Messung: nur Texte, sonst wie bei älteren Messungen ohne Liste.
+      const entry:Record<string,unknown>={...m,report}
+      if(Array.isArray(m.folders))entry.folders=m.folders.filter((f):f is string=>typeof f==='string');else delete entry.folders
+      state.measurements[key]=entry as unknown as Measurement
     }
   }
   if(isObject(raw.outliers))for(const [key,value] of Object.entries(raw.outliers)){
@@ -155,6 +158,16 @@ export function compareMeasurements(before:Measurement,after:Measurement):{sourc
   const folders=[...new Set([...Object.keys(a.byFolder??{}),...Object.keys(b.byFolder??{})])].sort((x,y)=>x.localeCompare(y,'de'))
     .map(name=>compareRow(name,a.byFolder?.[name],b.byFolder?.[name],!!b.byFolder?.[name]?.tested))
   return {sources:sources.filter(r=>r.before!=null||r.after!=null),folders}
+}
+/** Lernordner einer Messung: die gespeicherte Liste, bei älteren Messungen die Ordner der Lernbeispiele. */
+export function measuredFolders(m:Pick<Measurement,'samples'|'folders'>):string[]{
+  return [...(m.folders??Object.keys(m.samples))].sort((a,b)=>a.localeCompare(b,'de'))
+}
+/** Unterschied zweier Ordnermengen als Text („neu: „A“ · nicht mehr: „B““), leer ohne Unterschied. */
+export function folderSetChange(before:readonly string[],after:readonly string[]){
+  const was=new Set(before),now=new Set(after),quote=(l:string[])=>l.map(f=>'„'+f+'“').join(', ')
+  const added=after.filter(f=>!was.has(f)),removed=before.filter(f=>!now.has(f))
+  return [added.length?'neu: '+quote(added):'',removed.length?'nicht mehr: '+quote(removed):''].filter(Boolean).join(' · ')
 }
 /** „+5 Pp.“, „−3 Pp.“, „±0 Pp.“ oder „–“ ohne Differenz. */
 export function diffText(diff:number|null){return diff==null?'–':(diff>0?'+':diff<0?'−':'±')+Math.abs(diff)+' Pp.'}
