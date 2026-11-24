@@ -11,28 +11,33 @@ export const BACKLOG_PAGE=250
 export const ARCHIVE_MONTHS=3
 
 type Row={id:string;hasStatus?:boolean}
+/** Eine Seite von `outlook_backlog` mit Grenze: Karten und Fortsetzungspunkt der nächsten Seite (`null` am Ende des Posteingangs). */
+export type BacklogPage<T>={cards:T[];next:string|null}
 /**
- * Liest den Rückstand seitenweise (älteste zuerst) über `fetch(limit, offset)`, bis eine Seite leer ist oder `max` Mails ohne Status
- * gelesen sind. Mails mit Status (das Board verfolgt sie schon) zählen nicht, insgesamt liest es aber höchstens das Fünffache von `max`.
- * Eine kurze Seite heißt nicht, dass nichts mehr kommt (der Helfer überspringt Erledigte und Unlesbare). Doppelte IDs (Posteingang hat sich zwischen zwei Seiten
- * verschoben) kommen nur einmal vor. `progress` meldet die Zahl der bisher gelesenen Mails ohne Status.
- * `stop` bricht nach jeder Seite ab, dann ist das Ergebnis `undefined`.
+ * Liest den Rückstand seitenweise (älteste zuerst) über `fetch(limit, cursor)`, bis der Helfer kein `next` mehr liefert oder `max` Mails
+ * ohne Status gelesen sind. Jede Seite setzt am Fortsetzungspunkt der vorigen fort, statt die vorigen Seiten erneut zu lesen.
+ * Mails mit Status (das Board verfolgt sie schon) zählen nicht. Eine kurze oder leere Seite heißt nicht, dass nichts mehr kommt
+ * (der Helfer prüft je Seite höchstens das Vierfache der Grenze, Erledigte und Unlesbare eingeschlossen). Insgesamt liest es höchstens
+ * `5*max/page` Seiten. Doppelte IDs (gleich alte Mails nach einer Verschiebung) kommen nur einmal vor. `progress` meldet die Zahl der
+ * bisher gelesenen Mails ohne Status. `stop` bricht nach jeder Seite ab, dann ist das Ergebnis `undefined`.
  */
-export async function readBacklog<T extends Row>(fetch:(limit:number,offset:number)=>Promise<T[]>,progress?:(count:number)=>void,
+export async function readBacklog<T extends Row>(fetch:(limit:number,cursor?:string)=>Promise<BacklogPage<T>>,progress?:(count:number)=>void,
   stop?:()=>boolean,max=BACKLOG_MAX,page=BACKLOG_PAGE):Promise<T[]|undefined>{
   const seen=new Set<string>(),result:T[]=[]
-  for(let offset=0;result.length<max&&offset<5*max;){
-    const rows=await fetch(page,offset)
+  let cursor:string|undefined
+  for(let pages=0;result.length<max&&pages<Math.ceil(5*max/page);pages++){
+    const answer=await fetch(page,cursor)
     if(stop?.())return
-    if(!Array.isArray(rows))throw new Error('Outlook lieferte keine Mailliste.')
-    if(!rows.length)break
-    offset+=rows.length
-    for(const row of rows){
+    if(!answer||!Array.isArray(answer.cards))throw new Error('Outlook lieferte keine Mailliste.')
+    for(const row of answer.cards){
       if(seen.has(row.id))continue
       seen.add(row.id)
       if(row.hasStatus===false&&result.length<max)result.push(row)
     }
     progress?.(result.length)
+    // Ohne Fortsetzung oder ohne Fortschritt ist der Rückstand gelesen.
+    if(typeof answer.next!=='string'||!answer.next||answer.next===cursor)break
+    cursor=answer.next
   }
   return result
 }

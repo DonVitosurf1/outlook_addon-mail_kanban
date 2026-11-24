@@ -44,13 +44,23 @@ internal static class Contracts
         private int index;
         public bool Descending;
         public int Count { get { return values.Count; } }
-        public FakeItems Restrict(string query) { return this; }
+        public static int Visits;
+        public static readonly List<string> Restrictions=new List<string>();
+        // Wie Outlook: Datumsvergleich minutengenau, Datum im Format der Ländereinstellung.
+        public FakeItems Restrict(string query) {
+            const string prefix="[ReceivedTime] >= '";
+            if(!query.StartsWith(prefix)) return this;
+            Restrictions.Add(query);
+            DateTime from=DateTime.Parse(query.Substring(prefix.Length).TrimEnd('\''),System.Globalization.CultureInfo.CurrentCulture);
+            from=new DateTime(from.Year,from.Month,from.Day,from.Hour,from.Minute,0);
+            return new FakeItems { values=values.Where(m=>m.ReceivedTime>=from).ToList() };
+        }
         public void Sort(string field,bool descending)
         {
             Check(field=="[ReceivedTime]" || field=="[SentOn]","Sortierfeld"); Descending=descending;
         }
         public FakeMail GetFirst() { index=-1; return GetNext(); }
-        public FakeMail GetNext() { index++; return index<values.Count?values[index]:null; }
+        public FakeMail GetNext() { index++; Visits++; return index<values.Count?values[index]:null; }
     }
 
     internal class FakeProps
@@ -278,23 +288,69 @@ internal static class Contracts
         for(int i=0;i<360;i++)
             ns.Inbox.Items.values.Add(new FakeMail {EntryID="M"+i,Parent=ns.Inbox,Categories=i%10==3?"Status: Erledigt":"",
                 ReceivedTime=DateTime.Now.AddDays(-400+i)});
-        ns.Inbox.Items.values.Insert(5,new FakeMail {EntryID="BAD",Parent=ns.Inbox,Categories="",SubjectError=unchecked((int)0x80070005)});
+        ns.Inbox.Items.values.Insert(5,new FakeMail {EntryID="BAD",Parent=ns.Inbox,Categories="",SubjectError=unchecked((int)0x80070005),
+            ReceivedTime=ns.Inbox.Items.values[4].ReceivedTime.AddHours(1)});
         var commands=new BoardCommands(ns, ns.Inbox, ";");
         Func<string[],List<string>> ids=args=>((List<object>)commands.Execute(args,s=>s.Split('|'))).Select(c=>(string)((dynamic)c).id).ToList();
         var all=ids(new[]{"--backlog"});
         Check(all.Count==300 && all[0]=="M0" && !ns.Inbox.Items.Descending,"Rückstand ohne Parameter: älteste 300");
         Check(!all.Contains("BAD") && !all.Contains("M3"),"Rückstand ohne Unlesbare und Erledigte");
-        var first=ids(new[]{"--backlog","20","0"});
-        var second=ids(new[]{"--backlog","20","20"});
-        Check(first.Count==20 && second.Count==20,"Grenze eingehalten");
-        Check(!first.Intersect(second).Any(),"Seiten überschneiden sich nicht");
-        Check(first.Concat(second).SequenceEqual(all.Take(40)),"Seiten lückenlos in der Reihenfolge");
-        var whole=ids(new[]{"--backlog","5000","0"});
-        Check(whole.Count==324 && whole.Take(300).SequenceEqual(all),"Alle Seiten zusammen");
-        var last=ids(new[]{"--backlog","100","250"});
-        Check(last.Count==74 && last.SequenceEqual(whole.Skip(250)),"Letzte Seite kürzer");
-        Check(ids(new[]{"--backlog","20","400"}).Count==0,"Seite hinter dem Ende ist leer");
-        foreach(var bad in new[]{new[]{"--backlog","0","0"},new[]{"--backlog","20"},new[]{"--backlog","x","0"},new[]{"--backlog","20","-1"}}) {
+        // Seitenweise mit Fortsetzungspunkt: lückenlos, ohne Überschneidung, in der Reihenfolge, je Seite höchstens die Grenze.
+        Func<int,List<List<string>>> pages=limit=>{
+            var result=new List<List<string>>();
+            string cursor=null;
+            for(int guard=0;guard<1000;guard++) {
+                var args=cursor==null ? new[]{"--backlog-page",limit.ToString()} : new[]{"--backlog-page",limit.ToString(),cursor};
+                dynamic page=commands.Execute(args,s=>s.Split('|'));
+                var cards=((List<object>)page.cards).Select(c=>(string)((dynamic)c).id).ToList();
+                Check(cards.Count<=limit,"Grenze eingehalten");
+                result.Add(cards);
+                cursor=page.next;
+                if(cursor==null) return result;
+            }
+            throw new Exception("Kein Ende des Rückstands");
+        };
+        dynamic whole=commands.Execute(new[]{"--backlog-page","5000"},s=>s.Split('|'));
+        var expected=((List<object>)whole.cards).Select(c=>(string)((dynamic)c).id).ToList();
+        Check(whole.next==null && expected.Count==324 && expected.Take(300).SequenceEqual(all),"Alle Seiten zusammen");
+        Contracts.FakeItems.Visits=0;
+        var twenty=pages(20);
+        var flat=twenty.SelectMany(p=>p).ToList();
+        Check(twenty[0].Count==20 && twenty[1].Count==20,"Volle Seiten");
+        Check(flat.Count==flat.Distinct().Count(),"Seiten überschneiden sich nicht");
+        Check(flat.SequenceEqual(expected),"Seiten lückenlos in der Reihenfolge");
+        // Jede Seite springt zum Fortsetzungspunkt: insgesamt etwa einmal durch den Posteingang statt quadratisch.
+        Check(Contracts.FakeItems.Visits<2*361+twenty.Count*3,"Keine erneut gelesenen Vorseiten: "+Contracts.FakeItems.Visits);
+        Check(Contracts.FakeItems.Restrictions.Count>=twenty.Count-1,"Einschränkung auf die Empfangszeit");
+
+        // Viele Erledigte am Stück: kurze oder leere Seiten, aber keine Lücke und kein vorzeitiges Ende.
+        for(int i=40;i<300;i++) ns.Inbox.Items.values[i].Categories="Status: Erledigt";
+        var sparse=pages(10);
+        var open=sparse.SelectMany(p=>p).ToList();
+        var expectedOpen=ns.Inbox.Items.values.Where(m=>m.EntryID!="BAD" && m.Categories!="Status: Erledigt").Select(m=>m.EntryID).ToList();
+        Check(sparse.Any(p=>p.Count==0),"Leere Seite mitten im Rückstand");
+        Check(open.SequenceEqual(expectedOpen),"Keine Lücke bei vielen Erledigten");
+
+        // Gleich alte Mails über eine Seitengrenze und in anderer Ländereinstellung.
+        var culture=System.Globalization.CultureInfo.CurrentCulture;
+        System.Globalization.CultureInfo.CurrentCulture=new System.Globalization.CultureInfo("de-DE");
+        try {
+            var same=DateTime.Now.AddDays(-2);
+            same=new DateTime(same.Year,same.Month,same.Day,same.Hour,same.Minute,same.Second);
+            ns.Inbox.Items.values.Clear();
+            for(int i=0;i<9;i++)
+                ns.Inbox.Items.values.Add(new FakeMail {EntryID="T"+i,Parent=ns.Inbox,Categories="",ReceivedTime=i<6 ? same : same.AddSeconds(i)});
+            var tied=pages(4);
+            Check(tied.SelectMany(p=>p).SequenceEqual(Enumerable.Range(0,9).Select(i=>"T"+i)),"Gleich alte Mails ohne Lücke und doppelt");
+            // Die Mail des Fortsetzungspunkts ist inzwischen verschoben: gleich alte kommen lieber noch einmal als gar nicht.
+            dynamic head=commands.Execute(new[]{"--backlog-page","2"},s=>s.Split('|'));
+            ns.Inbox.Items.values.RemoveAt(1);
+            dynamic rest=commands.Execute(new[]{"--backlog-page","10",(string)head.next},s=>s.Split('|'));
+            var again=((List<object>)rest.cards).Select(c=>(string)((dynamic)c).id).ToList();
+            Check(again.SequenceEqual(new[]{"T0","T2","T3","T4","T5","T6","T7","T8"}),"Verschobene Fortsetzungsmail: "+string.Join(",",again));
+        } finally { System.Globalization.CultureInfo.CurrentCulture=culture; }
+        foreach(var bad in new[]{new[]{"--backlog-page","0"},new[]{"--backlog-page"},new[]{"--backlog-page","x"},new[]{"--backlog","20","0"},
+            new[]{"--backlog-page","20","kein"},new[]{"--backlog-page","20","-5|M1"},new[]{"--backlog-page","20","5|"}}) {
             try { ids(bad); throw new Exception("Ungültige Seite angenommen: "+string.Join(" ",bad)); }
             catch(ArgumentException) { }
         }

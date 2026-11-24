@@ -56,9 +56,10 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
   if(name==='outlook_board')return '[]'
   if(name==='outlook_correspondence')return JSON.stringify({incoming:[],sent:[]})
   if(name==='outlook_backlog'){
-    // Der Helfer darf weniger als die Grenze liefern: hier höchstens 25 je Seite.
+    // Seite ab dem Fortsetzungspunkt. Der Helfer darf weniger als die Grenze liefern: hier höchstens 25 je Seite.
     const rows=[...folders[0].mails].sort((a,b)=>a.received.localeCompare(b.received))
-    return JSON.stringify(rows.slice(args.offset,args.offset+Math.min(args.limit,25)).map(m=>card(m,folders[0])))
+    const start=args.cursor?Number(args.cursor.split('|')[0]):0,end=start+Math.min(args.limit,25)
+    return JSON.stringify({cards:rows.slice(start,end).map(m=>card(m,folders[0])),next:end<rows.length?end+'|'+rows[end-1].id:null})
   }
   if(name==='outlook_move'||name==='outlook_undo'){
     write(name)
@@ -97,10 +98,17 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(view.get_by_role('heading', name='Schritt 7 · Posteingang abarbeiten')).to_be_visible()
             status = view.locator('.setup-status')
 
-            # Lesen in Seiten bis zur leeren Seite, Mails mit Status zählen nicht.
+            # Abschließen vor dem ersten Lesen fragt nach. Abbrechen lässt den Schritt offen.
+            view.get_by_role('button', name='Einrichtung abschließen').click()
+            early = page.get_by_role('dialog').filter(has_text='Posteingang noch nicht gelesen. Trotzdem abschließen?')
+            early.get_by_role('button', name='Abbrechen').click()
+            expect(view.get_by_role('heading', name='Schritt 7 · Posteingang abarbeiten')).to_be_visible()
+            assert page.evaluate("JSON.parse(localStorage.getItem('mailboard-setup-v1')).status.E7") == 'open'
+
+            # Lesen in Seiten mit Fortsetzungspunkt bis zum Ende, Mails mit Status zählen nicht.
             view.get_by_role('button', name='Posteingang lesen').click()
             expect(status).to_have_text('38 Mails gelesen: 16 sicher, 4 unsicher, 18 ohne Ziel.')
-            assert [c[1] for c in calls('outlook_backlog')] == [{'limit': 250, 'offset': 0}, {'limit': 250, 'offset': 25}, {'limit': 250, 'offset': 40}]
+            assert [c[1] for c in calls('outlook_backlog')] == [{'limit': 250}, {'limit': 250, 'cursor': '25|i24'}], calls('outlook_backlog')
             expect(view.get_by_role('button', name='Neu lesen')).to_be_visible()
 
             # Sichere Stapel je Ziel mit aufklappbarer Betreffliste.
@@ -133,6 +141,10 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(toast).to_contain_text('Zurückgenommen')
             assert count('02') == 0 and count('01') == 40
             assert len(calls('outlook_undo')) == 10 and all(c[2] for c in calls('outlook_undo'))
+            # Die Ansicht weist auf „Neu lesen“ hin, statt die zurückgeholten Mails still zu verschweigen.
+            undone = 'Zurückgenommen. Mit „Neu lesen“ siehst du die Mails wieder.'
+            expect(status).to_have_text(undone)
+            expect(view.locator('.setup-note', has_text=undone)).to_be_visible()
 
             # Archivangebot mit Altersgrenze in Monaten, ohne Ziel und älter als die Grenze.
             none = view.get_by_role('region', name='Ohne Ziel')
@@ -157,13 +169,17 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             expect(none).to_contain_text('6 Mails ohne Ablagevorschlag. Älter als 3 Monate: 0. 6 jüngere bleiben im Posteingang.')
             expect(none.get_by_role('button')).to_have_count(0)
             expect(toast).to_contain_text('Archiv')
-            toast.get_by_role('button', name='Rückgängig').click()
+            # Strg+Z statt der Rückmeldung: derselbe Hinweis.
+            view.get_by_role('heading', name='Ohne Ziel').focus()
+            page.keyboard.press('Control+z')
             expect(toast).to_contain_text('Zurückgenommen')
             assert count('04') == 0 and count('01') == 40
+            expect(status).to_have_text(undone)
 
             # Ohne Archivziel: Hinweis mit Sprung zu Schritt 1.
             view.get_by_role('button', name='Neu lesen').click()
             expect(status).to_have_text('38 Mails gelesen: 16 sicher, 4 unsicher, 18 ohne Ziel.')
+            expect(view.locator('.setup-note', has_text=undone)).to_have_count(0)
             page.evaluate("""(()=>{const o=JSON.parse(localStorage.getItem('kanban-board-options-v1'));o.archive_folder='';
               localStorage.setItem('kanban-board-options-v1',JSON.stringify(o))})()""")
             view.locator('.setup-steps button').nth(6).click()

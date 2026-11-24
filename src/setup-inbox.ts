@@ -1,15 +1,19 @@
 /**
- * E7 Posteingang abarbeiten: liest alle Posteingangsmails ohne Status seitenweise (`outlook_backlog` mit Grenze und Versatz,
+ * E7 Posteingang abarbeiten: liest alle Posteingangsmails ohne Status seitenweise (`outlook_backlog` mit Grenze und Fortsetzungspunkt,
  * bis 2.000, `readBacklog`) und teilt sie ohne Modellaufruf ein (`classifyBacklog`):
  * - sicher (`trustedFolderBatch`): Stapel je Zielordner mit aufklappbarer Betreffliste, „Stapel ablegen“ über den Move-Weg des Boards
  *   (`host.moveMails`: Bestätigung, ein Rückgängig-Schritt je Stapel),
  * - unsicher (`likelyFolderBatch`): „Einzeln durchgehen“ öffnet „Posteingang aufräumen“ mit genau diesen Mails (`host.review`),
  * - ohne Ziel: Mails älter als die Altersgrenze (Monate, `SetupState.data.E7.months`, Standard 3) als Sammelangebot fürs Archiv,
  *   ein Rückgängig-Schritt. Ohne Archivordner gibt es einen Hinweis mit Sprung zu Schritt 1. Jüngere bleiben im Posteingang.
- * Gelesene Mails bleiben nur im Speicher dieser Sitzung. „Einrichtung abschließen“ markiert den Schritt als erledigt.
+ * Gelesene Mails bleiben nur im Speicher dieser Sitzung. „Einrichtung abschließen“ markiert den Schritt als erledigt (vor dem ersten Lesen
+ * mit Rückfrage).
+ * Wird ein Stapel oder das Archivangebot zurückgenommen (Rückmeldung oder Strg+Z), zeigt die Ansicht einen Hinweis auf „Neu lesen“. Die Mails
+ * haben nach der Rücknahme neue Outlook-IDs, deshalb liest der Schritt nicht selbst neu: das wären bis zu acht Outlook-Aufrufe direkt nach der
+ * Rücknahme, auch wenn du gerade woanders arbeitest.
  */
 import {likelyFolderBatch, trustedFolderBatch} from './ai'
-import {BACKLOG_MAX, archiveMonths, classifyBacklog, readBacklog, splitByAge} from './backlog'
+import {BACKLOG_MAX, archiveMonths, classifyBacklog, readBacklog, splitByAge, type BacklogPage} from './backlog'
 import type {Folder} from './live'
 import {getArchiveScope} from './projects'
 import {registerStep, type OffBoardMail, type StepContext} from './setup'
@@ -20,7 +24,10 @@ import type {ViewMail} from './views-logic'
 type BacklogMail=OffBoardMail&ViewMail&{hasStatus?:boolean}
 type Classes=ReturnType<typeof classifyBacklog<BacklogMail>>
 /** Letzter Lesevorgang dieser Sitzung. `gone` sind abgelegte Mails, `stamp` die Lernordner der Einteilung. */
-let read:{mails:BacklogMail[];inbox:string;stamp:string;classes:Classes;full:boolean;gone:Set<string>}|undefined
+let read:{mails:BacklogMail[];inbox:string;stamp:string;classes:Classes;full:boolean;gone:Set<string>;undone?:boolean}|undefined
+/** Zuletzt gezeichnete Ansicht, für den Hinweis nach einer Rücknahme. */
+let view:StepContext|undefined
+const UNDONE='Zurückgenommen. Mit „Neu lesen“ siehst du die Mails wieder.'
 let reading=false
 type Section='safe'|'unsure'|'none'
 let focusSection:Section|undefined
@@ -44,6 +51,7 @@ function classify(list:BacklogMail[],folders:Folder[]){
 }
 
 registerStep('E7',ctx=>{
+  view=ctx
   const service=ctx.host.service()
   if(!service){ctx.body.append(make('p','Bitte das Outlook-Postfach laden.'));return}
   const learners=ctx.host.learnerFolders()
@@ -57,7 +65,10 @@ registerStep('E7',ctx=>{
   ctx.body.append(start)
   if(read&&read.stamp!==stampOf(learners)){read.classes=classify(read.mails,learners);read.stamp=stampOf(learners)}
   if(read)draw(read)
-  const finish=button('Einrichtung abschließen',()=>ctx.done())
+  const finish=button('Einrichtung abschließen',()=>void (async()=>{
+    if(!read&&!await ctx.host.confirm('Posteingang noch nicht gelesen. Trotzdem abschließen?','Abschließen'))return
+    if(ctx.active())ctx.done()
+  })())
   const end=make('div');end.className='setup-inbox-end';end.append(finish)
   ctx.body.append(end)
 
@@ -65,7 +76,7 @@ registerStep('E7',ctx=>{
     if(reading)return
     reading=true;start.disabled=true
     try{
-      const list=await readBacklog((limit,offset)=>service!.json<BacklogMail[]>('outlook_backlog',{limit,offset}),
+      const list=await readBacklog((limit,cursor)=>service!.json<BacklogPage<BacklogMail>>('outlook_backlog',{limit,...(cursor?{cursor}:{})}),
         n=>ctx.status('Posteingang wird gelesen: '+mails(n)+' ohne Status …'),()=>ctx.host.mailbox()!=='outlook')
       if(!list)return
       const inbox=ctx.host.folders().find(f=>f.isInbox)?.id??list[0]?.folderId??''
@@ -92,6 +103,7 @@ registerStep('E7',ctx=>{
     const summary=make('p',total?mails(total)+' ohne Status im Posteingang.':'Keine Mails ohne Status mehr im Posteingang.')
     if(current.full)summary.textContent+=' Gelesen wurden die ältesten '+BACKLOG_MAX.toLocaleString('de-DE')+'. Nach dem Abarbeiten liest „Neu lesen“ die nächsten.'
     ctx.body.append(summary)
+    if(current.undone){const note=make('p',UNDONE);note.className='setup-note';ctx.body.append(note)}
     const sections:Record<Section,HTMLElement>={safe:make('section'),unsure:make('section'),none:make('section')}
     const heading=(section:Section,title:string)=>{
       const h=make('h4',title);h.tabIndex=-1;h.id='setup-inbox-'+section
@@ -157,6 +169,11 @@ registerStep('E7',ctx=>{
     const problem=await ctx.host.moveMails(items,target.id,id=>moved.push(id))
     if(!moved.length){if(problem)ctx.status('Nicht verschoben. '+problem);return}
     for(const id of moved)current?.gone.add(id)
+    ctx.host.afterUndo(()=>{
+      if(!current||read!==current)return
+      current.undone=true
+      if(view?.active())view.refresh(UNDONE)
+    })
     if(!archive)opened.delete(path)
     focusSection=archive?'none':'safe'
     const text=(archive?mails(moved.length)+' ins Archiv '+quoted(path)+' verschoben.':mails(moved.length)+' nach '+quoted(path)+' abgelegt.')+(problem?' '+problem:'')

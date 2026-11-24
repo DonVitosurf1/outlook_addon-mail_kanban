@@ -44,25 +44,33 @@ test('Altersgrenze: Stichtag am Monatsende abgeschnitten, ältere gehen ins Arch
   assert.deepEqual(splitByAge(mails,1,now).old.map(m=>m.id),['alt','grenze'])
 })
 
-test('Seitenweises Lesen: bis zur leeren Seite, nur Mails ohne Status, ohne Doppelte, höchstens 2.000',async()=>{
+test('Seitenweises Lesen: mit Fortsetzungspunkt bis zum Ende, nur Mails ohne Status, ohne Doppelte, höchstens 2.000',async()=>{
   assert.equal(BACKLOG_MAX,2000);assert.ok(BACKLOG_PAGE<BACKLOG_MAX)
   const inbox:Row[]=Array.from({length:40},(_,i)=>({id:'m'+i,subject:'S'+i,hasStatus:i%10===9}))
-  const calls:[number,number][]=[],seen:number[]=[]
-  // Der Helfer darf weniger als die Grenze liefern (übersprungene Erledigte). Die zweite Seite wiederholt eine Mail.
-  const fetch=async(limit:number,offset:number)=>{calls.push([limit,offset]);return offset===25?[inbox[24],...inbox.slice(25,40)]:inbox.slice(offset,offset+Math.min(limit,25))}
+  const calls:[number,string|undefined][]=[],seen:number[]=[]
+  // Der Helfer darf weniger als die Grenze liefern, auch eine leere Seite mitten im Rückstand (viele Erledigte).
+  // Die dritte Seite wiederholt eine Mail (gleich alte Mails nach einer Verschiebung).
+  const pages:Record<string,{cards:Row[];next:string|null}>={
+    start:{cards:inbox.slice(0,25),next:'c25'},c25:{cards:[],next:'c30'},c30:{cards:[inbox[24],...inbox.slice(25,40)],next:null}}
+  const fetch=async(limit:number,cursor?:string)=>{calls.push([limit,cursor]);return pages[cursor??'start']}
   const result=await readBacklog(fetch,n=>seen.push(n),undefined,2000,250)
-  assert.deepEqual(calls,[[250,0],[250,25],[250,41]])
+  assert.deepEqual(calls,[[250,undefined],[250,'c25'],[250,'c30']])
   assert.deepEqual(result!.map(r=>r.id),inbox.filter(r=>!r.hasStatus).map(r=>r.id))
-  assert.deepEqual(seen,[23,36])
-  const capped=await readBacklog(async(limit,offset)=>inbox.slice(offset,offset+limit),undefined,undefined,5,4)
+  assert.deepEqual(seen,[23,23,36])
+  const capped=await readBacklog(async(limit,cursor)=>{const at=Number(cursor??0);return {cards:inbox.slice(at,at+limit),next:String(at+limit)}},undefined,undefined,5,4)
   assert.deepEqual(capped!.map(r=>r.id),['m0','m1','m2','m3','m4'])
   let stopped=false
-  assert.equal(await readBacklog(async()=>{stopped=true;return inbox},undefined,()=>stopped),undefined)
-  await assert.rejects(readBacklog(async()=>null as unknown as Row[]),/keine Mailliste/)
-  // Nur Mails mit Status: Lesen endet nach dem Fünffachen der Höchstzahl.
+  assert.equal(await readBacklog(async()=>{stopped=true;return {cards:inbox,next:'x'}},undefined,()=>stopped),undefined)
+  await assert.rejects(readBacklog(async()=>null as unknown as {cards:Row[];next:null}),/keine Mailliste/)
+  await assert.rejects(readBacklog(async()=>inbox as unknown as {cards:Row[];next:null}),/keine Mailliste/)
+  // Ohne Fortschritt (gleicher Fortsetzungspunkt) endet das Lesen.
+  let repeated=0
+  assert.deepEqual(await readBacklog(async()=>{repeated++;return {cards:[],next:'gleich'}}),[])
+  assert.equal(repeated,2)
+  // Nur Mails mit Status: Lesen endet nach 5*max/page Seiten.
   let read=0
-  assert.deepEqual(await readBacklog(async(limit,offset)=>{read=offset+limit;return Array.from({length:limit},(_,i)=>({id:'x'+(offset+i),subject:'',hasStatus:true}))},undefined,undefined,10,10),[])
-  assert.equal(read,50)
+  assert.deepEqual(await readBacklog(async(limit,cursor)=>{read++;const at=Number(cursor??0);return {cards:Array.from({length:limit},(_,i)=>({id:'x'+(at+i),subject:'',hasStatus:true})),next:String(at+limit)}},undefined,undefined,10,10),[])
+  assert.equal(read,5)
 })
 
 function storage(){

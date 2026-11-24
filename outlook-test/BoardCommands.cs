@@ -45,9 +45,12 @@ internal sealed class BoardCommands
             foreach(string id in keys) board.AddRange(BoardRows(Folder(id),days,done,limit));
             return board;
         case "--backlog":
-            // Älteste zuerst. Ohne Parameter wie bisher die ältesten 300, sonst Grenze und Versatz für das seitenweise Lesen.
+            // Älteste zuerst, ohne Erledigte: die ältesten 300 (Posteingang aufräumen).
             if(args.Length==1) return FolderCards(inbox,true,0,0,300);
-            if(args.Length==3) return FolderCards(inbox,true,0,0,Range(args[1],1,5000),Range(args[2],0,100000));
+            break;
+        case "--backlog-page":
+            // Seitenweise für die Einrichtung (E7): Grenze und optional der Fortsetzungspunkt der vorigen Seite.
+            if(args.Length==2 || args.Length==3) return BacklogPage(Range(args[1],1,5000),args.Length==3 ? args[2] : null);
             break;
         case "--training":
             if(args.Length==4) return Training(Folder(args[1]),Range(args[2],0,5000),Range(args[3],0,36500));
@@ -614,7 +617,7 @@ internal sealed class BoardCommands
     }
 
     private IEnumerable<object> SafeCards(object folder, object collection, int scan, DateTime? cutoff,
-        int doneDays, bool requireStatus, bool backlog, HashSet<string> seen=null, int skip=0)
+        int doneDays, bool requireStatus, bool backlog, HashSet<string> seen=null)
     {
         foreach(dynamic mail in Walk(collection,scan)) {
             object card;
@@ -627,9 +630,6 @@ internal sealed class BoardCommands
                 if(status=="Erledigt" && (backlog || DoneExpired(mail,doneDays))) continue;
                 string id=(string)mail.EntryID;
                 if(seen!=null && seen.Contains(id)) continue;
-                // Versatz: übersprungene Mails zählen wie gelieferte, werden aber nicht vollständig gelesen.
-                // Der Betreff ist die Lesbarkeitsprobe, damit unlesbare Mails auf keiner Seite zählen.
-                if(skip>0) { GC.KeepAlive((string)mail.Subject); skip--; continue; }
                 card=Card(mail,folder,all,status);
                 if(seen!=null) seen.Add(id);
             } catch(Exception ex) {
@@ -640,12 +640,90 @@ internal sealed class BoardCommands
         }
     }
 
-    private List<object> FolderCards(dynamic folder,bool backlog,int days,int doneDays,int limit,int offset=0)
+    private List<object> FolderCards(dynamic folder,bool backlog,int days,int doneDays,int limit)
     {
         dynamic items=folder.Items;
         items.Sort("[ReceivedTime]",!backlog);
         DateTime? cutoff=days>0 ? (DateTime?)DateTime.Now.AddDays(-days) : null;
-        return SafeCards((object)folder,(object)items,(offset+limit)*4,cutoff,doneDays,false,backlog,null,offset).Take(limit).ToList();
+        return SafeCards((object)folder,(object)items,limit*4,cutoff,doneDays,false,backlog).Take(limit).ToList();
+    }
+
+    // Fortsetzungspunkt einer Rückstandsseite: Empfangszeit (Ticks) und EntryID der zuletzt geprüften Mail.
+    private static string BacklogCursor(DateTime when,string id) { return when.Ticks.ToString(CultureInfo.InvariantCulture)+"|"+id; }
+
+    // Eine Seite des Rückstands, älteste zuerst: höchstens `limit` Karten ohne Erledigte, nach dem Fortsetzungspunkt `cursor`.
+    // Statt die vorigen Seiten erneut zu lesen, springt die Seite über eine Einschränkung auf die Empfangszeit (minutengenau, eine Minute
+    // Puffer) und überspringt davor nur über die Empfangszeit. Je Seite prüft sie höchstens `limit*4` Mails; Erledigte und Unlesbare zählen
+    // dabei mit. `next` zeigt auf die zuletzt geprüfte Mail und ist nur am Ende des Posteingangs null, eine kurze oder leere Seite heißt
+    // also nicht, dass nichts mehr kommt. Gleich alte Mails folgen der Sortierung. Taucht die Mail des Fortsetzungspunkts nicht mehr auf
+    // (verschoben), kommen alle gleich alten noch einmal: lieber doppelt als eine Lücke.
+    private object BacklogPage(int limit,string cursor)
+    {
+        DateTime? after=null;
+        string afterId=null;
+        if(cursor!=null) {
+            int bar=cursor.IndexOf('|');
+            long ticks;
+            if(bar<1 || bar==cursor.Length-1 || !long.TryParse(cursor.Substring(0,bar),NumberStyles.None,CultureInfo.InvariantCulture,out ticks) ||
+                ticks>DateTime.MaxValue.Ticks)
+                throw new ArgumentException("Ungültiger Fortsetzungspunkt.");
+            after=new DateTime(ticks);
+            afterId=cursor.Substring(bar+1);
+        }
+        dynamic items=inbox.Items;
+        if(after.HasValue) {
+            try { items=items.Restrict("[ReceivedTime] >= '"+after.Value.AddMinutes(-1).ToString("g",CultureInfo.CurrentCulture)+"'"); }
+            catch(COMException ex) {
+                if(!IsItemReadError(ex) && ex.ErrorCode!=unchecked((int)0x80070057) && ex.ErrorCode!=unchecked((int)0x80004001)) throw;
+            }
+        }
+        items.Sort("[ReceivedTime]",false);
+        var cards=new List<object>();
+        var ties=new List<object>();
+        bool passed=!after.HasValue;
+        int scanned=0, budget=limit*4;
+        string next=null;
+        for(dynamic mail=items.GetFirst(); mail!=null; mail=items.GetNext()) {
+            DateTime when;
+            string id;
+            try { when=(DateTime)mail.ReceivedTime; id=(string)mail.EntryID; }
+            catch(Exception ex) { if(!IsItemReadError(ex)) throw; continue; }
+            if(!passed) {
+                if(when<after.Value) continue;
+                if(when==after.Value) {
+                    if(Same(id,afterId)) passed=true;
+                    else ties.Add(mail);
+                    continue;
+                }
+                // Die Mail des Fortsetzungspunkts fehlt: gleich alte Mails noch einmal prüfen.
+                passed=true;
+                foreach(dynamic tie in ties) {
+                    if(cards.Count>=limit) break;
+                    object early=BacklogCard(tie);
+                    if(early!=null) cards.Add(early);
+                }
+            }
+            scanned++;
+            next=BacklogCursor(when,id);
+            object card=BacklogCard(mail);
+            if(card!=null) cards.Add(card);
+            if(cards.Count>=limit || scanned>=budget) return new { cards, next };
+        }
+        return new { cards, next=(string)null };
+    }
+
+    private object BacklogCard(dynamic mail)
+    {
+        try {
+            if((int)mail.Class!=43) return null;
+            string[] all=Categories((string)mail.Categories);
+            string status=StatusOf(all);
+            if(status=="Erledigt") return null;
+            return Card(mail,inbox,all,status);
+        } catch(Exception ex) {
+            if(!IsItemReadError(ex)) throw;
+            return null;
+        }
     }
 
     private static bool DoneExpired(dynamic mail,int days)
