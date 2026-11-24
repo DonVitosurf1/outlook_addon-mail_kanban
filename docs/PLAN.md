@@ -159,8 +159,7 @@ Für alle Schritte gilt:
 
 - [x] **Unit-Tests:** Ausreißer-Regel (Schwelle, Abstand, Bestätigte, Ausgeschlossene), Erkennung von Überschneidungen, Plan für das Zusammenlegen (Reihenfolge, Umschlüsseln), Einteilung des Posteingangs, Altersgrenze.
 - [x] **Rust-HTTP-Tests:** `ai_outliers` und `ai_clusters` mit simulierten Vektoren, Cache-Treffer.
-- [ ] **Smoke-Test** mit simuliertem Outlook (drei Ordner, einer davon Sammelbecken, 40 Posteingangsmails): Assistent komplett durchlaufen, pausieren und fortsetzen, Ausreißer verschieben mit Undo, zusammenlegen nach `_Zusammengelegt` mit Undo, Stapelablage, Archivangebot.
-  - Offen als ein durchgehender Test. Abgedeckt ist es durch die Smoke-Tests der einzelnen Schritte: `setup-smoke.py` (Hinweis, Ordnerwahl, Lernen und Messen, Pausieren und Fortsetzen), `outliers-smoke.py` (Ausreißer verschieben mit Undo), `refine-smoke.py` und `structure-smoke.py` (Unterteilen, Zusammenlegen nach `_Zusammengelegt` mit Undo, Umbenennen, Gruppen aus dem Posteingang), `profiles-smoke.py` (Steckbriefe, Vergleich) und `inbox-smoke.py` (40 Posteingangsmails, Stapelablage, Archivangebot).
+- [x] **Smoke-Test** mit simuliertem Outlook (drei Ordner, einer davon Sammelbecken, 40 Posteingangsmails): Assistent komplett durchlaufen, pausieren und fortsetzen, Ausreißer verschieben mit Undo, zusammenlegen nach `_Zusammengelegt` mit Undo, Stapelablage, Archivangebot. Umgesetzt in `tests/setup-e2e-smoke.py`.
 - [x] **C#-Vertragstest** für den seitenweisen Backlog.
 - **Fertig, wenn** ein Postfach mit grober Struktur in einer Sitzung zu bereinigten Lernordnern mit Steckbriefen, gemessener Trefferquote vorher/nachher und einem abgearbeiteten Posteingang kommt. Jede Postfachänderung muss dabei bestätigt und rücknehmbar sein.
 
