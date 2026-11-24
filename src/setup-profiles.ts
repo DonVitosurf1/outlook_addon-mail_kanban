@@ -15,7 +15,8 @@ const errors=new Map<string,string>()
 let running=false,stop=false,progress='',epoch=0
 let latest:StepContext|undefined
 // Entwürfe gehören zum Postfach, aus dem sie stammen. Ein laufender Entwurf hält nach dem aktuellen Ordner an und verwirft ihn.
-document.addEventListener('mailboard:source-changed',()=>{epoch++;stop=true;items.clear();errors.clear();progress=''})
+// Ein noch laufender Entwurf gehört zur alten Quelle: Er läuft aus, sperrt aber den Knopf der neuen nicht mehr.
+document.addEventListener('mailboard:source-changed',()=>{epoch++;stop=true;running=false;items.clear();errors.clear();progress=''})
 
 function make<K extends keyof HTMLElementTagNameMap>(tag:K,text=''){const node=document.createElement(tag);node.textContent=text;return node}
 function button(label:string,run:()=>void,aria?:string){
@@ -47,7 +48,7 @@ registerStep('E5',ctx=>{
     try{
       try{const text=await draftProfile(item.id,item.key);if(mine!==epoch)return;item.text=text;item.state='Entwurf';errors.delete(item.key)}
       catch(e){if(mine!==epoch)return;errors.set(item.key,errorText(e))}
-    }finally{running=false}
+    }finally{if(mine===epoch)running=false}
     if(latest?.active())latest.refresh(item.state==='Entwurf'?'Entwurf für „'+item.key+'“ fertig.':'Erneut fehlgeschlagen: '+errors.get(item.key))
   }
   async function draftAll(){
@@ -63,7 +64,7 @@ registerStep('E5',ctx=>{
         catch(e){if(mine!==epoch)break;items.set(folder.path,{id:folder.id,key:folder.path,text:'',state:'Fehler'});errors.set(folder.path,errorText(e))}
         if(!stop&&index<queue.length-1&&latest?.active())latest.refresh('Entwurf '+(index+1)+' von '+queue.length+' fertig.')
       }
-    }finally{running=false;progress=''}
+    }finally{if(mine===epoch){running=false;progress=''}}
     if(mine!==epoch)return
     const left=queue.filter(f=>!items.has(f.path)).length
     if(latest?.active())latest.refresh(left?'Angehalten. '+left+' Ordner noch ohne Entwurf.':'Alle Entwürfe sind fertig. Prüfe sie unten.')

@@ -260,9 +260,16 @@ function needsStatus(mail:Mail,value:string){
  * `failed` zusätzlich zur Meldungszeile den Fehlertext.
  */
 type Mutation={kind:'move'|'status'|'tags'|Field;value:string|string[];status?:string;tagsFor?:(mail:Mail)=>string[];offBoard?:Mail[];moved?:(id:string)=>void;failed?:(text:string)=>void}
-const assignCase=(ids:string[],name:string,on:boolean)=>change(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,caseTag(name),on)})
-async function change(ids:string[],action:Mutation) {
-  if(action.offBoard&&!isLive())return
+const assignCase=(ids:string[],name:string,on:boolean)=>applyChange(ids,{kind:'tags',value:[],tagsFor:m=>withTag(m.tags,caseTag(name),on)})
+/**
+ * Ergebnis einer Änderung: `recorded` mit neuem Rückgängig-Schritt, `unchanged` ohne Fehler, aber ohne Schritt
+ * (Outlook hatte den Wert schon oder es gab nichts zu tun), `failed` bei Fehler, Abbruch oder beschäftigtem Board.
+ */
+export type ChangeOutcome='recorded'|'unchanged'|'failed'
+async function change(ids:string[],action:Mutation){await applyChange(ids,action)}
+async function applyChange(ids:string[],action:Mutation):Promise<ChangeOutcome> {
+  if(action.offBoard&&!isLive())return 'failed'
+  let outcome:ChangeOutcome='failed'
   await exclusive(()=>reporting(action.failed,async()=>{
     const rows=action.offBoard?.filter(m=>ids.includes(m.id))??mails.filter(m=>ids.includes(m.id))
     const field=action.kind
@@ -274,7 +281,7 @@ async function change(ids:string[],action:Mutation) {
       if(field==='tags')return JSON.stringify(m.tags)!==JSON.stringify(wanted(m))
       return m[field]!==value
     })
-    if(!todo.length) return
+    if(!todo.length){outcome='unchanged';return}
     const added:string[]=[],removed:string[]=[]
     if(field==='tags')for(const m of todo){
       const next=wanted(m).map(t=>t.toLowerCase()),prev=m.tags.map(t=>t.toLowerCase())
@@ -311,11 +318,13 @@ async function change(ids:string[],action:Mutation) {
         else if(field==='tags')m.tags=[...wanted(m)]
         else m[field]=value
       }},events,summary)
+      outcome='recorded'
       showToast(summary,undoThisStep())
       if(selected)fillDetail(selected)
       return
     }
     mutationVersion++
+    const before=undoMarker()
     await service!.writeBatch(async()=>{
       const batch=service!.begin(summary)
       const errors:string[]=[]
@@ -362,9 +371,12 @@ async function change(ids:string[],action:Mutation) {
       render()
       try {await refresh()} catch(e) {errors.push('Aktualisieren: '+errorText(e))}
       if(errors.length){const text=succeeded+' von '+todo.length+' geändert. '+errors.join(' · ');notify(text);action.failed?.(text)}
-      else{notify('');showToast(summary,undoThisStep())}
+      else if(undoMarker()!==before){outcome='recorded';notify('');showToast(summary,undoThisStep())}
+      // Outlook hatte die Werte schon: kein eigener Schritt, also auch kein Rückgängig, das einen früheren träfe.
+      else{outcome='unchanged';notify('');showToast(summary+' (in Outlook war das schon so)')}
     })
   }))
+  return outcome
 }
 /** Gibt einen Fehler zusätzlich an `failed` weiter, bevor `exclusive` ihn in der Meldungszeile zeigt. */
 function reporting(failed:((text:string)=>void)|undefined,action:()=>Promise<void>){
@@ -476,7 +488,7 @@ function initDetailBar() {
 }
 function showTasks(mail:Mail) {
   renderMailTasks(el('tasks'),mail,{cases:()=>allCases(mails),canAssign:hasMailbox,confirm:(question,label)=>ask(dialog,question,label),
-    assign:async(m,name)=>{await assignCase([m.id],name,true)},marker:undoMarker,undoIfLatest,
+    assign:(m,name)=>assignCase([m.id],name,true),marker:undoMarker,undoIfLatest,
     refresh:()=>{for(const m of mails)restoreAnalysis(m);if(selected)selected=mails.find(m=>m.id===selected!.id)||selected;window.dispatchEvent(new Event('kanban-analysis'))}})
 }
 window.addEventListener('kanban-analysis',()=>{if(selected&&dialog.open)showTasks(selected)})
@@ -629,7 +641,7 @@ async function start() {
     caseSuggestion:id=>{const m=mails.find(x=>x.id===id);return m&&caseSuggest?caseSuggest.suggestionFor(m):undefined}})
   let previousScope=''
   const overdueDays=()=>Number(getLegacyConfig().overdue_days??5)
-  const assign=assignCase
+  const assign=async(ids:string[],name:string,on:boolean)=>{await assignCase(ids,name,on)}
   // Lokale Planungsdaten (Routinen, Vorgänge) ändern Banner, Seitenleiste und offene Dialoge.
   document.addEventListener('mailboard:planning',()=>render())
   const toggleItem=toggleCaseItem
@@ -656,7 +668,7 @@ async function start() {
     plan:(id,field,day)=>change([id],{kind:field,value:day}),markRoutine,toggleItem,
     openCase:name=>cases?.open(name)})
   cases=initCases({getMails:()=>mails,selection:()=>views.selection(),canAssign:hasMailbox,assign,onPick:pick,showOnBoard:name=>views.showTag(caseTag(name))})
-  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:(id,name)=>assignCase([id],name,true),render})
+  caseSuggest=initCaseSuggest({mails:()=>mails,cases:()=>allCases(mails),selection:()=>views.selection(),assign:async(id,name)=>{await assignCase([id],name,true)},render})
   const runRoutine=(action:RoutineAction)=>{
     switch(action){
       case 'triage':triage?.start();break

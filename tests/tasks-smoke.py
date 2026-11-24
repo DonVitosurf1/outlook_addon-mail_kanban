@@ -36,7 +36,8 @@ window.__TAURI__={core:{invoke:async(name,args={})=>{
     if(!window.batchActive)throw Error('Kategorien ohne Schreibstapel')
     if(window.failCase&&args.wanted.some(t=>t.startsWith('Vorgang:')))throw Error('Kategorie in Outlook gesperrt')
     const mail=window.store.find(m=>m.id===args.id)
-    const previous=[...mail.tags];mail.tags=[...args.wanted]
+    // window.already: Outlook hatte die Kategorien schon (Board-Ansicht veraltet), es entsteht kein Rückgängig-Schritt.
+    const previous=window.already?[...args.wanted]:[...mail.tags];mail.tags=[...args.wanted]
     window.tagCalls.push([args.id,[...args.wanted]])
     return JSON.stringify({previous,tags:mail.tags})
   }
@@ -162,6 +163,39 @@ def run(browser, base, due):
     assert not errors, errors
     page.close()
 
+def check_already_assigned(browser, base, due):
+    """Hatte Outlook die Kategorie schon, gibt es keinen eigenen Schritt: Rückgängig nimmt nur die Punkte zurück, nie die frühere Änderung."""
+    page = browser.new_page(viewport={'width': 1280, 'height': 900})
+    page.add_init_script("localStorage.setItem('board.layout.intro','1')")
+    page.add_init_script(f"window.DUE='{due}'")
+    page.add_init_script(LIVE)
+    errors = []
+    page.on('pageerror', lambda error: errors.append(str(error)))
+    page.goto(base)
+    page.locator('#loadInbox').click()
+    card = page.locator('#mail-a1')
+    expect(card.locator('.count-tasks')).to_have_text('2 Aufgaben')
+    card.focus()
+    page.keyboard.press('f')
+    expect(page.locator('#focusViews button', has_text='Fokus')).to_have_text('Fokus · 1')
+    page.evaluate('window.already=true')
+    card.click()
+    page.get_by_role('region', name='Aufgaben').get_by_role('button', name='Übernehmen').click()
+    page.get_by_role('dialog').filter(has_text='anlegen und diese Mail zuordnen').get_by_role('button', name='Anlegen und zuordnen').click()
+    expect(page.locator('.toast')).to_contain_text('2 Punkte in „Angebot Zentrifuge Freigabe“ übernommen.')
+    page.get_by_role('tab', name='Vorgänge').click()
+    expect(page.locator('#casesView')).to_contain_text('Angebot Zentrifuge Freigabe · 1 Mails · 0/2')
+    page.get_by_role('tab', name='Board').click()
+    page.locator('.toast').get_by_role('button', name='Rückgängig').click()
+    expect(card.locator('.count-tasks')).to_have_text('2 Aufgaben')
+    expect(page.locator('.toast', has_text='weil danach')).to_have_count(0)
+    # Der Fokus-Schritt bleibt, die schon vorhandene Kategorie auch.
+    assert page.evaluate('store[0].tags') == ['Fokus', 'Vorgang: Angebot Zentrifuge Freigabe'], page.evaluate('store[0].tags')
+    page.get_by_role('tab', name='Vorgänge').click()
+    expect(page.locator('#casesView')).not_to_contain_text('0/2')
+    assert not errors, errors
+    page.close()
+
 
 if __name__ == '__main__':
     root = Path(__file__).resolve().parents[1]
@@ -174,6 +208,7 @@ if __name__ == '__main__':
                 run(browser, f'http://127.0.0.1:{server.server_port}/', due)
                 check_undo(browser, f'http://127.0.0.1:{server.server_port}/', due)
                 check_failed_assign(browser, f'http://127.0.0.1:{server.server_port}/', due)
+                check_already_assigned(browser, f'http://127.0.0.1:{server.server_port}/', due)
                 browser.close()
         finally:
             server.shutdown()

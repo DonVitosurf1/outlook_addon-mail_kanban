@@ -139,6 +139,23 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(Quiet, directory=root / 'dist
             assert state['measurements']['baseline'] and state['measurements']['after'], state
             view.get_by_role('button', name='Schritt abschließen', exact=True).click()
             assert page.evaluate("JSON.parse(localStorage.getItem('mailboard-setup-v1'))")['status']['E6'] == 'done'
+
+            # Quellenwechsel während eines laufenden Entwurfs: Der Knopf ist danach sofort wieder frei,
+            # das Ergebnis des alten Entwurfs landet nicht in der Liste.
+            # Ein Quellenwechsel leert die Entwürfe dieser Sitzung, Labor und Reisen sind wieder offen.
+            page.evaluate("document.dispatchEvent(new CustomEvent('mailboard:source-changed'))")
+            view.locator('.setup-steps button', has_text='Steckbriefe').click()
+            expect(view.get_by_role('heading', name='Schritt 5 · Steckbriefe')).to_be_visible()
+            page.evaluate("(()=>{window.gate=()=>new Promise(r=>{window.release=()=>{window.gate=null;r()}})})()")
+            view.get_by_role('button', name='Steckbriefe entwerfen').click()
+            expect(view.get_by_role('button', name='Entwurf läuft …')).to_be_disabled()
+            page.evaluate("document.dispatchEvent(new CustomEvent('mailboard:source-changed'))")
+            view.locator('.setup-steps button', has_text='Steckbriefe').click()
+            expect(view.get_by_role('button', name='Steckbriefe entwerfen')).to_be_enabled()
+            page.evaluate("window.release()")
+            page.wait_for_timeout(300)
+            expect(view.get_by_role('list', name='Steckbrief-Entwürfe')).to_have_count(0)
+            expect(view.get_by_role('button', name='Steckbriefe entwerfen')).to_be_enabled()
             assert not errors, errors
             browser.close()
             print('OK – Steckbriefe entwerfen, übernehmen, verwerfen; Neu lernen und vergleichen mit Markierung „schlechter“')

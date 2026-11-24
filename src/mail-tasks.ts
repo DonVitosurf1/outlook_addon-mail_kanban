@@ -11,7 +11,8 @@ type Options = {
   cases():readonly Case[]
   canAssign():boolean
   /** Setzt die Kategorie „Vorgang: Name“ an der Mail (Postfachänderung mit Rücknahme). */
-  assign(mail:TaskMail,name:string):Promise<void>
+  /** `recorded`: eigener Rückgängig-Schritt, `unchanged`: Outlook hatte die Kategorie schon, `failed`: nicht gesetzt. */
+  assign(mail:TaskMail,name:string):Promise<'recorded'|'unchanged'|'failed'>
   confirm(question:string,label:string):Promise<boolean>
   /** Kennung des letzten Rücknahme-Schritts. */
   marker():string
@@ -67,12 +68,15 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
       if(!updateCase(name,c=>({...c,items:[...c.items,...added]}),{name,created:localDay(),items:[]})){status.textContent='Die Punkte konnten nicht gespeichert werden.';return}
       let marker=''
       if(isNew){
-        // Ohne neuen Rücknahme-Schritt (Board beschäftigt, Kategorie nicht geschrieben) gilt die Zuordnung als gescheitert.
-        // Sonst gehörte die Kennung zu einer früheren, fremden Änderung und Rückgängig nähme diese zurück.
+        // Nur ein eigener Rücknahme-Schritt bekommt eine Kennung. Hatte Outlook die Kategorie schon, nimmt Rückgängig
+        // nur die Punkte zurück. Sonst gehörte die Kennung zu einer früheren, fremden Änderung.
         const previous=options.marker()
-        try{await options.assign(mail,name);marker=options.marker()}
+        let outcome:'recorded'|'unchanged'|'failed'
+        try{outcome=await options.assign(mail,name)}
         catch(error){dropItems();throw error}
-        if(marker===previous){dropItems();status.textContent='Die Zuordnung zum Vorgang ist fehlgeschlagen. Die Punkte wurden nicht übernommen.';return}
+        const now=options.marker()
+        if(outcome==='failed'||(outcome==='recorded'&&now===previous)){dropItems();status.textContent='Die Zuordnung zum Vorgang ist fehlgeschlagen. Die Punkte wurden nicht übernommen.';return}
+        if(outcome==='recorded')marker=now
       }
       const id=embeddingId(mail),before=takenTasks(id),originals=chosen.map(r=>r.task.text)
       setTaken(id,[...before,...originals])
@@ -81,7 +85,8 @@ export function renderMailTasks(host:HTMLElement,mail:TaskMail,options:Options){
         updateCase(name,c=>({...c,items:c.items.filter(i=>!ids.has(i.id))}))
         setTaken(id,before)
         let kept=false
-        if(isNew){
+        if(isNew&&!marker)dropItems()
+        else if(isNew){
           try{if(await options.undoIfLatest(marker))dropItems();else kept=true}
           catch(error){status.textContent=error instanceof Error?error.message:String(error);kept=true}
         }
