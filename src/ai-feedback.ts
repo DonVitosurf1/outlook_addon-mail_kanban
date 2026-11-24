@@ -124,6 +124,98 @@ export function feedbackSummary(){
   return summary
 }
 
+/** Fenster der Auswertung „KI-Qualität“: die letzten 30 Tage, Trend gegen die 30 Tage davor. */
+export const QUALITY_DAYS=30
+/** Unter so vielen bewerteten Rückmeldungen bleibt der Trend leer und es gibt keinen Hinweis. */
+export const QUALITY_MIN=4
+/** Ab dieser Trefferquote (unter 70 %) nennt die Auswertung einen Hinweis. */
+const QUALITY_HINT_RATE=0.7
+export type QualityTrend='besser'|'schlechter'|'gleich'|''
+export type QualityRow={fn:string;label:string;model:string;ok:number;bad:number;rate:number;trend:QualityTrend}
+export type QualityReport={rows:QualityRow[];hints:string[];csv:string}
+
+const FUNCTION_LABELS:Record<string,string>={
+  'ablage:Regel':'Ablage: Regel','ablage:Bayes':'Ablage: Bayes','ablage:Hybrid':'Ablage: Hybrid',
+  'ablage:Embedding':'Ablage: Embedding','ablage:KI-Stichwahl':'Ablage: KI-Stichwahl','ablage:KI':'Ablage: KI',
+  'ablage:Begriff':'Ablage: Begriff','ablage:Sonstige':'Ablage: Sonstige',
+  vorgang:'Vorgangsvorschlag',aufgaben:'Aufgaben',antwortentwurf:'Antwortentwurf',
+  zusammenfassung:'Zusammenfassung',antwort_noetig:'Antwort nötig',frist:'Frist',
+}
+const functionLabel=(fn:string)=>FUNCTION_LABELS[fn]??fn
+const shiftDay=(day:string,delta:number)=>{
+  const [y,m,d]=day.split('-').map(Number)
+  return localDay(new Date(y,m-1,d+delta))
+}
+const rated=(counts:Counts)=>({ok:counts.ok??0,bad:counts.bad??0})
+const percent=(ok:number,bad:number)=>{const n=ok+bad;return n?Math.round(100*ok/n):0}
+
+function collect(today:string,fromDelta:number,toDelta:number){
+  const from=shiftDay(today,fromDelta),to=shiftDay(today,toDelta)
+  const totals=new Map<string,{ok:number;bad:number}>()
+  for(const [day,fns] of Object.entries(load())){
+    if(day<from||day>to||day<oldestDay(today)||day>today)continue
+    for(const [fn,models] of Object.entries(fns))
+      for(const [model,counts] of Object.entries(models)){
+        const {ok,bad}=rated(counts)
+        if(!ok&&!bad)continue
+        const key=fn+'\0'+model
+        const bucket=totals.get(key)??{ok:0,bad:0}
+        bucket.ok+=ok;bucket.bad+=bad
+        totals.set(key,bucket)
+      }
+  }
+  return totals
+}
+
+function qualityHint(group:string,ok:number,bad:number){
+  const quote=percent(ok,bad)+' %'
+  if(group==='ablage')return 'Ablagevorschläge nur '+quote+': Steckbriefe der Lernordner prüfen.'
+  if(group==='vorgang')return 'Vorgangsvorschläge nur '+quote+': Schwelle und Abstand unter Einstellungen, Lernen prüfen.'
+  if(group==='aufgaben')return 'Aufgaben nur '+quote+': Übernommene und abgewählte Aufgaben in den Maildetails prüfen.'
+  if(group==='antwortentwurf')return 'Antwortentwürfe nur '+quote+': Das Modell für Entwürfe prüfen.'
+  return functionLabel(group)+' nur '+quote+'.'
+}
+
+/**
+ * Auswertung der Rückmeldungen: eine Zeile je Funktion und Modell für die letzten 30 Tage.
+ * Die Quote ist Treffer geteilt durch Treffer plus Fehlgriffe. Der Trend vergleicht diese Quote
+ * mit den 30 Tagen davor, in Prozentpunkten. Ein Hinweis erscheint unter 70 % bei mindestens vier Bewertungen.
+ */
+export function qualityReport(today=localDay()):QualityReport{
+  const current=collect(today,-(QUALITY_DAYS-1),0)
+  const prior=collect(today,-(QUALITY_DAYS*2-1),-QUALITY_DAYS)
+  const rows:QualityRow[]=[]
+  for(const [key,bucket] of current){
+    const [fn,model]=key.split('\0')
+    const n=bucket.ok+bucket.bad
+    if(!n)continue
+    const earlier=prior.get(key)
+    const earlierN=earlier?earlier.ok+earlier.bad:0
+    const now=percent(bucket.ok,bucket.bad)
+    const before=earlierN>=QUALITY_MIN?percent(earlier!.ok,earlier!.bad):undefined
+    const delta=before===undefined?0:now-before
+    const trend:QualityTrend=before===undefined?'':delta>=5?'besser':delta<=-5?'schlechter':'gleich'
+    rows.push({fn,label:functionLabel(fn),model,ok:bucket.ok,bad:bucket.bad,rate:bucket.ok/n,trend})
+  }
+  rows.sort((a,b)=>a.label.localeCompare(b.label,'de')||a.model.localeCompare(b.model,'de'))
+  const groups=new Map<string,{ok:number;bad:number}>()
+  for(const row of rows){
+    const group=row.fn.startsWith('ablage:')?'ablage':row.fn
+    const bucket=groups.get(group)??{ok:0,bad:0}
+    bucket.ok+=row.ok;bucket.bad+=row.bad
+    groups.set(group,bucket)
+  }
+  const hints:string[]=[]
+  for(const [group,bucket] of groups){
+    const n=bucket.ok+bucket.bad
+    if(n>=QUALITY_MIN&&bucket.ok/n<QUALITY_HINT_RATE)hints.push(qualityHint(group,bucket.ok,bucket.bad))
+  }
+  const cell=(value:string)=>/[;"\n]/.test(value)?'"'+value.replace(/"/g,'""')+'"':value
+  const lines=['Funktion;Modell;Treffer;Fehlgriffe;Quote;Trend']
+  for(const row of rows)lines.push([row.label,row.model,String(row.ok),String(row.bad),percent(row.ok,row.bad)+' %',row.trend].map(cell).join(';'))
+  return {rows,hints,csv:lines.join('\n')}
+}
+
 /** Wörter für den Vergleich: Leerraum zählt nicht, Groß- und Kleinschreibung schon. */
 const tokens=(text:string)=>text.trim().split(/\s+/).filter(Boolean).slice(0,1000)
 /** Normalisierte Wortdifferenz (Levenshtein über Wörter) zwischen 0 (gleich) und 1 (völlig anders). */
