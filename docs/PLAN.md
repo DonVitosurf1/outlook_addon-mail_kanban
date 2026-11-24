@@ -4,6 +4,7 @@ Fortlaufende Arbeitsliste. Neue Themen kommen als eigener Abschnitt hinzu. Erled
 
 ## 1. Wartet auf dich
 
+- [ ] **ZIP aus dem Release „aktuell“** herunterladen (Link im README) und starten. GitHub baut es nach jedem Push auf `main`, selbst bauen ist nicht nötig.
 - [ ] **Redesign testen** (PR #1): Laptop- und Zweitmonitor-Ansicht, Tabs, Karten-Pillen, Triage-Banner, Ziersymbole ☀ ☰ ⚙ 📎 ✉ unter Windows mit Segoe UI. Rückmeldungen zu Farben, Abständen und Elementen sammeln.
 - [ ] **Windows-Abnahme** nach [WINDOWS-ABNAHME.md](WINDOWS-ABNAHME.md) mit echtem klassischen Outlook.
 - [ ] **Kategorien „Fokus“ und „Vorgang: …“** im echten Postfach prüfen, auch bei verwalteter Hauptkategorienliste.
@@ -268,6 +269,29 @@ Diese Punkte lassen sich vor den KI-Erweiterungen umsetzen.
 - [x] **Smoke-Tests:** Aktionsleiste und Kontextmenü per Maus und Tastatur, Meldung mit Rückgängig, Freigabe des Verschiebens im Dialog, Einführung überspringen und erneut zeigen, `?`-Übersicht.
 - [x] **Bestehende Tests anpassen,** die heute `.view-dialog` als Kontextmenü, die Start-Knöpfe oder den Werkzeug-Eintrag „Gesendet ohne Antwort“ verwenden (`board-views-smoke.py`, `cockpit-smoke.py`, `planning-smoke.py`).
 
-## 6. Weitere Themen
+## 6. Offene Entscheidungen
+
+- [ ] **Betreffs beim Benennen neuer Ordner:** Die lokale KI bekommt heute bis zu 20 Betreffs eines Ordners (E4). Der Plan nannte „drei Beispielbetreffs“, gemeint war womöglich nur die Anzeige. Beibehalten oder auf 3 begrenzen?
+- [ ] **Ordnerauswahl in E1:** heute eine flache Liste von Pfaden. Reicht das, oder soll es ein aufklappbarer Baum werden?
+- [ ] **Wochenstatistik:** Verschiebungen aus der Einrichtung (E3, E4, E7) zählen als „abgelegt“. So lassen oder getrennt ausweisen?
+- [ ] **Phase 2 des KI-Ausbaus** (Abschnitt 3) sofort oder erst nach dem Windows-Test mit echten Zahlen?
+
+## 7. Bekannte Kleinigkeiten
+
+Aus den Prüfungen, bewusst nicht behoben, weil selten und ohne Datenverlust:
+
+- [ ] **Rückgängig einer Aufgabenübernahme:** Schlägt nach einem erfolgreichen Outlook-Rückgängig das Aktualisieren fehl, meldet das Board „übersprungen“, obwohl die Kategorie entfernt wurde.
+- [ ] **E6 mit alten Messungen:** Ausgangswerte von vor dem 24.11.2026 kennen ihre Lernordner nicht. E6 kann dann fälschlich „neu: …“ zeigen.
+- [ ] **Zeitumstellung im Herbst:** In der doppelten Stunde kann das seitenweise Lesen in E7 eine Mail überspringen.
+- [ ] **Stichwahl und Quellenwechsel:** Wechselt man während einer laufenden Stichwahl die Outlook-Quelle, kann ein veraltetes Ergebnis im Zwischenspeicher landen (harmlos, an Mail und Modell gebunden).
+- [ ] **Stichwahl-Fehlschläge** bleiben bis zum Neustart oder Quellenwechsel gemerkt, auch wenn der Modellserver nur kurz weg war oder ein Modell das Nachdenken nicht ganz abschaltet. Hinweis in der Hilfe ergänzen.
+- [ ] **Ausgelassene Aufgaben unter wechselndem Modell:** Die Umbuchung bei späterer Übernahme trifft das zuerst verwendete Modell.
+- [ ] **Unterordner verteilen (E4):** Rückgängig nimmt den Rückmeldungszähler nicht zurück.
+- [ ] **Identische Mails** (gleicher Betreff, Absender, Text und Zeitpunkt) teilen sich einen Kartenvorschlag.
+- [ ] **Kartenvorschläge bei sehr großem Posteingang:** Die Inhaltskennung wird bei jedem Zeichnen neu berechnet. Bei Bedarf je Mail zwischenspeichern.
+- [ ] **„Einrichtung abschließen“** fragt nach einem Neustart erneut nach, auch wenn der Posteingang früher schon gelesen wurde.
+- [ ] **Neue Einbettungsversuche** nach einem Fehler kommen erst mit der nächsten Aktualisierung des Boards (kein eigener Zeitgeber).
+
+## 8. Weitere Themen
 
 *Folgen aus dem nächsten Gespräch.*
