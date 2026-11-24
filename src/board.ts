@@ -446,13 +446,18 @@ async function undo():Promise<boolean> {
         try {if(await undoProjectIfLatest(service?.latest||0)){done();return}}
         catch(error){await offerSkip(error);return}
         if(!service?.canUndo)return
+        // Das Nachlesen darf einen bereits ausgeführten Schritt nicht als übersprungen melden.
+        let reverted=false
         try {await service.undo(step=>{
           if(step.kind==='field'&&step.value&&step.field==='followUp')cockpit.record('followed_up',-1)
-          if(step.kind==='field'&&step.value&&step.field==='snoozeUntil')cockpit.record('snoozed',-1)})} catch(error){
+          if(step.kind==='field'&&step.value&&step.field==='snoozeUntil')cockpit.record('snoozed',-1)})
+          reverted=true
+        } catch(error){
           await offerSkip(error)
-          return
-        } finally {await refresh()}
-        done()
+        }
+        try {await refresh()}
+        catch(error){notify('Aktualisieren: '+errorText(error))}
+        if(reverted)done()
       })
     } else {
       const old=demoUndo.pop()
