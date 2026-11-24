@@ -21,11 +21,11 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - uses: Swatinem/rust-cache@v2
@@ -47,7 +47,7 @@ jobs:
       - name: Outlook-Helfer, Desktop-App und ZIP
         run: npm run portable
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Mail-Board-Windows-x64
           path: downloads/Mail-Board-Windows-x64.zip
@@ -60,7 +60,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           name: Mail-Board-Windows-x64
 
