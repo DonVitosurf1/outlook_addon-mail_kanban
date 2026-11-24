@@ -1,4 +1,4 @@
-import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderCards} from './views-logic'
+import {ArrivalMarks,collapseThreads, groupCards, localDay, matchesFocus, matchesSplit, orderByRelevance, orderCards} from './views-logic'
 import {BoardLayout} from './views-layout'
 import {cardRow, counter} from './card-content'
 import {shortcutFor} from './shortcuts'
@@ -88,6 +88,7 @@ export class BoardViews {
   private overdueDays=5
   private resetButton=button('Zurücksetzen',()=>this.clearFilters())
   private zoom=Number(remembered('zoom'))||100
+  private relevance:(()=>ReadonlyMap<string,number>|undefined)|undefined
   private extra:((mail:ViewMail)=>boolean)|undefined
 
   constructor(private api:BoardActions) {
@@ -207,6 +208,8 @@ export class BoardViews {
     const result=orderCards(source.rows.filter(m=> (!this.extra || this.extra(m)) && matchesFocus(m,this.focus,today,this.overdueDays) &&
       matchesSplit(m,this.split.value as Split,this.vipTokens,today,this.overdueDays) &&
       (!this.tag.value || m.tags.includes(this.tag.value))),this.sort.value as Sort,this.overdueDays)
+    const relevance=this.relevance?.()
+    if(relevance)result.splice(0,result.length,...orderByRelevance(result,relevance))
     result.sort((a,b)=>Number(this.marks.returned.has(b.id))-Number(this.marks.returned.has(a.id)))
     this.groups=groupCards(result,this.group.value as Group)
     const ids=new Set(result.map(m=>m.id))
@@ -289,6 +292,8 @@ export class BoardViews {
   /** Aktuell markierte Karten, etwa für die Zuordnung zu einem Vorgang. */
   selection(){return [...this.selected]}
   /** Zusätzlicher Filter, etwa für den aktuellen Triage-Schritt. */
+  /** Bedeutungssuche (K5): liefert id → Relevanz, solange sie aktiv ist; die Spalten sortieren dann danach statt nach der Ansicht. */
+  setRelevance(relevance:(()=>ReadonlyMap<string,number>|undefined)|undefined){this.relevance=relevance}
   setExtraFilter(filter:((mail:ViewMail)=>boolean)|undefined){this.extra=filter;this.resetSelection()}
   captureView():ViewState{
     const search=document.getElementById('search') as HTMLInputElement|null

@@ -32,6 +32,7 @@
       <label class="search-box">
         <span class="search-icon" aria-hidden="true"></span>
         <input id="search" type="search" placeholder="Mails durchsuchen …" aria-label="Mails durchsuchen (Strg+F)">
+        <button type="button" id="semanticToggle" class="semantic-toggle" aria-pressed="false" aria-label="Suche nach Bedeutung" title="Sucht nach Bedeutung statt nach Wörtern (lokale Einbettungen)" hidden>≈ Bedeutung</button>
         <kbd aria-hidden="true">Strg F</kbd>
       </label>
       <div class="work-actions" id="workActions">
@@ -102,6 +103,7 @@
       <button id="applySuggestion" hidden>Vorschlag übernehmen …</button>
     </section>
     <section id="tasks" class="mail-tasks" aria-label="Aufgaben" hidden></section>
+    <section id="similar" class="mail-similar" aria-label="Ähnliche Mails" hidden></section>
     <section id="analysis" aria-label="Lokale KI-Analyse"></section>
   </dialog>
 

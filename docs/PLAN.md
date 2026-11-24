@@ -67,10 +67,10 @@ Für alle Punkte gilt:
 
 ### K5 Suche nach Bedeutung
 
-- [ ] **Umschalter** „≈ Bedeutung“ im Suchfeld (`index.html`, `aria-pressed`). Der Zustand gilt nur für die Sitzung.
-- [ ] **Bei aktivem Umschalter** ersetzt die Rangfolge aus `ai_rank` die Wortsuche (`matchesQuery`). Gezeigt werden höchstens 50 Mails über einer Mindestähnlichkeit, innerhalb der Spalten nach Relevanz sortiert. Die Eingabe wird entprellt (300 ms). Ist die Einbettung noch nicht fertig, sagt das ein Hinweis.
-- [ ] **„Ähnliche Mails“** in den Maildetails: die fünf ähnlichsten geladenen Mails ohne dieselbe Unterhaltung, als Links.
-- [ ] **Tests**: Smoke-Test mit simuliertem Ranking: Umschalten, Treffer ohne gemeinsames Wort, Zurückschalten stellt die Wortsuche wieder her.
+- [x] **Umschalter** „≈ Bedeutung“ im Suchfeld (`index.html`, `aria-pressed`). Der Zustand gilt nur für die Sitzung.
+- [x] **Bei aktivem Umschalter** ersetzt die Rangfolge aus `ai_rank` die Wortsuche (`matchesQuery`). Gezeigt werden höchstens 50 Mails über einer Mindestähnlichkeit, innerhalb der Spalten nach Relevanz sortiert. Die Eingabe wird entprellt (300 ms). Ist die Einbettung noch nicht fertig, sagt das ein Hinweis.
+- [x] **„Ähnliche Mails“** in den Maildetails: die fünf ähnlichsten geladenen Mails ohne dieselbe Unterhaltung, als Links.
+- [x] **Tests**: Smoke-Test mit simuliertem Ranking: Umschalten, Treffer ohne gemeinsames Wort, Zurückschalten stellt die Wortsuche wieder her.
 
 ## 3. Zurückgestellt
 

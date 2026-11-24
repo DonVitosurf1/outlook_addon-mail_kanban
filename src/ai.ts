@@ -840,7 +840,7 @@ export async function queueEmbeddings(){
       const batch=pending.slice(i,i+embedBatch)
       reportQueue('Einbettung '+(i+batch.length)+' von '+pending.length+' …')
       await invoke<number>('ai_embed',{url:cfg.embedUrl,model:cfg.embedModel,items:batch.map(m=>({id:embeddingId(m),text:embedText(m)}))})
-      if(current(epoch)&&embeddedStamp===stamp)for(const m of batch)done.add(embeddingId(m))
+      if(current(epoch)&&embeddedStamp===stamp){for(const m of batch)done.add(embeddingId(m));if(typeof document!=='undefined')document.dispatchEvent?.(new CustomEvent('mailboard:embedding-progress'))}
     }
     if(current(epoch)){reportQueue('Einbettung abgeschlossen.');if(typeof document!=='undefined')document.dispatchEvent(new CustomEvent('mailboard:embedded'))}
   }catch(error){if(current(epoch))reportQueue('Einbettung angehalten. '+String(error))}
@@ -873,6 +873,8 @@ export const embeddingIndex={
     const items=indexItems(ids)
     return indexCall('ai_rank',{query,items},items)
   },
+  /** Ähnlichkeit der Mails `ids` zum Text von `mail` (K5, „Ähnliche Mails“). */
+  similar(mail:AiMail,ids:string[]):Promise<{id:string;score:number}[]>{return this.rank(embedText(mail),ids)},
   groups(groups:{name:string;ids:string[]}[],ids:string[]):Promise<GroupMatch[]>{
     const sets=groups.map(g=>({name:g.name,items:indexItems(g.ids)})), items=indexItems(ids)
     return indexCall('ai_groups',{groups:sets,items},[...sets.flatMap(g=>g.items),...items])

@@ -165,3 +165,20 @@ export class ArrivalMarks{
   }
   seen(id:string){this.returned.delete(id);this.fresh.delete(id)}
 }
+/** Bedeutungssuche (K5): höchstens so viele Mails, und nur mit mindestens dieser Ähnlichkeit. */
+export const SEMANTIC_LIMIT=50
+export const SEMANTIC_MIN_SCORE=0.35
+/** Treffer der Rangfolge: absteigend nach Ähnlichkeit, über der Mindestähnlichkeit, begrenzt. Liefert id → Ähnlichkeit. */
+export function selectRelevant(ranked:{id:string;score:number}[],limit=SEMANTIC_LIMIT,min=SEMANTIC_MIN_SCORE):Map<string,number>{
+  return new Map(ranked.filter(r=>r.score>=min).sort((a,b)=>b.score-a.score).slice(0,limit).map(r=>[r.id,r.score]))
+}
+/** Sortiert jede Spalte nach Relevanz (höchste Ähnlichkeit zuerst). Gleichstand und fehlende Werte behalten die bisherige Reihenfolge. */
+export function orderByRelevance<T extends ViewMail>(mails:T[],relevance:ReadonlyMap<string,number>):T[]{
+  const lanes=new Map<string,T[]>()
+  for(const mail of mails){
+    if(!lanes.has(mail.status))lanes.set(mail.status,[])
+    lanes.get(mail.status)!.push(mail)
+  }
+  const score=(m:T)=>relevance.get(m.id)??-Infinity
+  return [...lanes.values()].flatMap(rows=>rows.map((m,i)=>({m,i})).sort((a,b)=>score(b.m)-score(a.m)||a.i-b.i).map(x=>x.m))
+}

@@ -8,6 +8,7 @@ import { useSampleSettings, ask, readLimits, textSnippets, getLegacyConfig, upda
 import { bindProjectBoard, projectUndoLatest, undoProjectIfLatest, getBoardScope, getLearningScope, getArchiveScope } from './projects'
 import demo from './demo.json'
 import { countsAsFiling, LiveBoard, UndoSkippable, type Folder, type Invoke } from './live'
+import { initSemanticSearch, renderSimilar } from './semantic-search'
 import { setAiLive, suggestFolder, recordFiling, renderAiSettings, renderAnalysis, restoreAnalysis, rejectSuggestion, bindAiBoard, queueAnalyses, trustedFolderBatch } from './ai'
 import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
@@ -38,6 +39,7 @@ const states = ['Offen','In Bearbeitung','Warten','Erledigt']
 const demoFolders:Folder[] = [...new Set(['Posteingang','Organisation','Pipettenspitzen',...demo.map(m=>m.folder)])].map(name=>({id:name,name,path:name}))
 const el = <T extends HTMLElement>(id:string) => document.getElementById(id) as T
 const search = el<HTMLInputElement>('search')
+let semantic:ReturnType<typeof initSemanticSearch>|undefined
 const dialog = el<HTMLDialogElement>('detail')
 const undoButton = el<HTMLButtonElement>('undo')
 const inboxButton=el<HTMLButtonElement>('loadInbox')
@@ -491,6 +493,7 @@ function fillDetail(mail:Mail) {
   renderAnalysis(el('analysis'),mail,choices,isLive()?async(text:string)=>{await draft(mail,'reply',text)}:undefined,
     async(tags:string[])=>{await change([mail.id],{kind:'tags',value:tags})})
   showTasks(mail)
+  renderSimilar(el('similar'),mail,{mails:()=>mails,open:pick})
   const suggest=el<HTMLButtonElement>('suggestFolder')
   suggest.disabled=false
   currentSuggestion=async(apply:boolean)=>{
@@ -561,9 +564,10 @@ function render() {
   caseSuggest?.refresh()
   calendarView?.refresh()
   views.sync(mails)
-  const visible=views.filter(mails.filter(m=>(isLive()||!scope||m.folder===scope)&&matchesQuery(m,search.value)))
+  const visible=views.filter(mails.filter(m=>(isLive()||!scope||m.folder===scope)&&(semantic?.active()?semantic.matches(m,x=>matchesQuery(x,search.value)):matchesQuery(m,search.value))))
   el('title').textContent=!hasMailbox()?'Outlook-Postfach':isLive()?'Outlook · '+(scope==='__backlog'?'Aufräumen':folders.find(f=>f.id===scope)?.name||'Alle Mails'):scope||'Alle Mails'
-  el('summary').textContent=!hasMailbox()?'':visible.length+' von '+mails.length+' Mails'
+  semantic?.sync()
+  el('summary').textContent=!hasMailbox()?'':visible.length+' von '+mails.length+' Mails'+(semantic?.hint()?' · '+semantic.hint():'')
   const board=el('board');board.replaceChildren()
   board.hidden=el('viewMenu').hidden=!hasMailbox()
   if(!hasMailbox()){controls();return}
@@ -768,7 +772,9 @@ async function start() {
   syncColors=colorSettings(parts.outlook,service,()=>isLive(),render)
   initDetailBar()
   dialog.onclose=()=>{suggestionVersion++;if(selected)document.getElementById('mail-'+selected.id)?.focus()}
-  search.oninput=render
+  search.oninput=()=>{if(!semantic?.active())render()}
+  semantic=initSemanticSearch({mails:()=>mails,render,input:search,toggle:el<HTMLButtonElement>('semanticToggle')})
+  views.setRelevance(()=>semantic?.relevance())
   undoButton.onclick=()=>void undo()
   back.onclick=()=>{if(busy)return;connection=undefined;sourceUpdated(demoMails,'demo',demoFolders,'');notify('')}
   if(service) {

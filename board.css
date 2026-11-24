@@ -131,6 +131,12 @@ main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .search-box input { width: 100%; padding-inline: 0; border: 0; outline: none; background: transparent; }
 .search-icon { width: .75rem; height: .75rem; border: 1.5px solid currentColor; border-radius: 50%; position: relative; flex: none; margin-right: .15rem; }
 .search-icon::after { content:""; position:absolute; width:.4rem; height:1.5px; background:currentColor; transform:rotate(45deg); top:95%; left:85%; }
+.semantic-toggle { flex: none; padding: .1rem .55rem; min-height: 1.7rem; font-size: .75rem; border-radius: 999px; border: 1px solid var(--edge); background: var(--soft); color: inherit; }
+.semantic-toggle[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.mail-similar { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: .75rem; }
+.mail-similar h3 { margin: 0 0 .4rem; font-size: 1rem; }
+.mail-similar ul { list-style: none; display: grid; gap: .3rem; margin: 0; padding: 0; }
+.mail-similar li button { width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 kbd { line-height: 1.4; font-family: inherit; font-size: .69rem; white-space: nowrap; border: 1px solid var(--edge); padding: .05rem .35rem; border-radius: 999px; background: var(--soft); }
 .work-actions, #viewControls { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-size: .83rem; }
 .work-actions > button, .tools > summary { box-shadow: var(--shadow); }
