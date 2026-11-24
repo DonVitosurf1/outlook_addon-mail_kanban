@@ -102,7 +102,7 @@ Für alle Punkte gelten die Regeln aus Abschnitt 2: nur lokale Modelle mit `chec
 ### Phase 3 – Stil und Modellwahl
 
 - [x] **C3 Schreibstil:** Knopf „Stil aus gesendeten Mails lernen“ liest die letzten etwa 30 gesendeten Mails und leitet einen bearbeitbaren Stilsteckbrief ab (Anrede, Du oder Sie, Grußformel, Länge, typische Wendungen). Antwortentwürfe bekommen den gespeicherten Stilsteckbrief und, wenn Embeddings an sind, zwei eigene frühere Antworten auf ähnliche Mails. Du oder Sie je Empfänger aus den bisherigen Mails. Kein automatisches Nachlernen. Im Beispielpostfach kein Modellaufruf.
-- [ ] **A2 „Modell testen“:** 5–10 Mails aus dem Beispielpostfach mit Sollwerten. Gemessen werden Antwortzeit, gültige Antworten und Treffer. Ergebnis als Note mit Tempo, keine echten Mails.
+- [x] **A2 „Modell testen“:** Sechs Mails aus dem Beispielpostfach mit Sollwert „Antwort nötig“. Gemessen werden Antwortzeit, gültige Antworten und Treffer. Ergebnis als Note mit Tempo, keine echten Mails. `benchGrade()` in `src/model-bench.ts`.
 - [ ] **A3 Empfehlung:** Tabelle nach Grafikspeicher für Chat- und Embedding-Modell mit kopierbarem `ollama pull`-Befehl. Das Board lädt nichts selbst herunter.
 
 ### Phase 4 – weitere Ideen

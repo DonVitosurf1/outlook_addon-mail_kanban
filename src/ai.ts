@@ -2,6 +2,7 @@ import { getLegacyConfig, getLegacyProfiles, getLegacyFile, updateConfig } from 
 import type { Folder, Invoke } from './live'
 import { openTasks, type Task } from './tasks-taken'
 import { formatModelInfo } from './model-info'
+import { BENCH, benchGrade } from './model-bench'
 import { localDay } from './views-logic'
 import { NO_MODEL, countDraft, countFeedback, currentVote, filingFunction, filingSource, vote, type VoteField } from './ai-feedback'
 import { addressForm, formOf, styleKey, styleText, type SentSample, type StyleCard } from './style'
@@ -1232,8 +1233,9 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   const check=document.createElement('button');check.type='button';check.textContent='Lokale Modelle laden'
   const save=document.createElement('button');save.type='button';save.textContent='KI-Einstellungen speichern'
   const test=document.createElement('button');test.type='button';test.textContent='Verbindung testen'
+  const bench=document.createElement('button');bench.type='button';bench.textContent='Modell testen'
   const feedback=document.createElement('p');feedback.setAttribute('role','status')
-  section.append(list,check,test,save,feedback);container.append(section)
+  section.append(list,check,test,bench,save,feedback);container.append(section)
   learnStyle.onclick=async()=>{
     if(!liveSource){feedback.textContent='Den Schreibstil gibt es nur im Outlook-Postfach.';return}
     learnStyle.disabled=true
@@ -1250,6 +1252,25 @@ function renderLiveAiSettings(container:HTMLElement,getTrainingFolders?:()=>Fold
   saveStyle.onclick=()=>{
     localStorage.setItem(styleKey,JSON.stringify({text:styleBox.value,form:formOf(styleBox.value)}))
     feedback.textContent='Stilsteckbrief gespeichert.'
+  }
+  bench.onclick=async()=>{
+    bench.disabled=true
+    feedback.textContent='Modelltest mit sechs Beispielmails …'
+    try{
+      const probe={...config(),enabled:on.checked,url:url.value.trim(),model:model.value.trim(),draftModel:draftModel.value.trim()}
+      const chosen=await activeModel(probe,'analyze')
+      const rows:{valid:boolean;hit:boolean;seconds:number}[]=[]
+      for(const sample of BENCH){
+        const started=performance.now()
+        try{
+          const result=await native()<Analysis>('ai_analyze',{url:probe.url,model:chosen,mail:{subject:sample.subject,sender:sample.sender,body:sample.body},folders:[]})
+          const valid=typeof result.zusammenfassung==='string'&&result.zusammenfassung.trim().length>0&&typeof result.antwort_noetig==='boolean'
+          rows.push({valid,hit:valid&&result.antwort_noetig===sample.reply,seconds:(performance.now()-started)/1000})
+        }catch{rows.push({valid:false,hit:false,seconds:(performance.now()-started)/1000})}
+      }
+      feedback.textContent='Modelltest: '+benchGrade(rows)
+    }catch(error){feedback.textContent=error instanceof Error?error.message:String(error)}
+    finally{bench.disabled=false}
   }
   // A1: Angaben zu jedem gewählten Modell, beim Öffnen der Einstellungen und nach einem Modellwechsel.
   const chosen=async()=>firstChatModel(await native()<string[]>('ai_models',{url:url.value.trim()}))
