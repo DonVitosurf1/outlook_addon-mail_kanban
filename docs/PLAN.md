@@ -292,6 +292,10 @@ Aus den Prüfungen, bewusst nicht behoben, weil selten und ohne Datenverlust:
 - [ ] **„Einrichtung abschließen“** fragt nach einem Neustart erneut nach, auch wenn der Posteingang früher schon gelesen wurde.
 - [ ] **Neue Einbettungsversuche** nach einem Fehler kommen erst mit der nächsten Aktualisierung des Boards (kein eigener Zeitgeber).
 
-## 8. Weitere Themen
+## 8. Capacities
 
-*Folgen aus dem nächsten Gespräch.*
+Ausführlich in [superpowers/plans/2026-11-24-capacities-nachtrag.md](superpowers/plans/2026-11-24-capacities-nachtrag.md). Windows-Abnahme, Abschnitt 6 und die seltenen Fehler in Abschnitt 7 bleiben eigene Punkte.
+
+- [x] Nachtrag an eine bestehende Notiz, ohne sie neu zu schreiben. Das Projekt verweist auf die Notiz als Objekt.
+- [x] Eine Person wird am Namen oder an der Mailadresse wiedererkannt.
+- [ ] Später: Mail-Kennung in einer Texteigenschaft, Anhangdateien, Status und Bereich des Projekts.

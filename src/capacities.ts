@@ -147,6 +147,10 @@ export function capacitiesPersonName(sender:string){
   return (named?named[1]:sender).replace(/["']/g,'').trim()
 }
 
+export function capacitiesPersonAddress(sender:string){
+  return sender.match(/<([^>\s]+@[^>\s]+)>/)?.[1]||sender.match(/[^\s<>]+@[^\s<>]+/)?.[0]||''
+}
+
 /** Notiz einer einzelnen Mail. Der Mailtext gehört hierher, weil der Klick ihn ausdrücklich übernimmt. */
 export function capacitiesNoteMarkdown(mail:{subject?:string;sender?:string;recipients?:string;isSent?:boolean;status?:string;received?:string;body?:string;note?:string;attachments?:readonly string[]}){
   const title=plain(mail.subject||'(ohne Betreff)')
@@ -162,9 +166,23 @@ export function capacitiesNoteMarkdown(mail:{subject?:string;sender?:string;reci
   return lines.join('\n').replace(/\n+$/,'')+'\n'
 }
 
-/** Kurzer Verweis am Projekt. Der Mailtext bleibt auf der Notiz. */
-export function capacitiesProjectLine(subject:string){
-  return 'Notiz: '+plain(subject||'(ohne Betreff)')+'\n'
+/** Verweis am Projekt auf die Notiz. Der Mailtext bleibt draußen. */
+export function capacitiesProjectBlock(subject:string,noteId:string){
+  return {type:'TextBlock' as const,hierarchy:{key:'Base',val:0},tokens:[{type:'LinkToken' as const,text:plain(subject||'(ohne Betreff)'),entityId:noteId}]}
+}
+
+/** Nachtrag, wenn sich eine schon übernommene Mail ändert. */
+export function capacitiesSupplement(mail:{body?:string;note?:string}){
+  const lines=['## Nachtrag','']
+  if(mail.note?.trim())lines.push(mail.note.trim(),'')
+  lines.push((mail.body||'').trim())
+  return lines.join('\n').replace(/\n+$/,'')+'\n'
+}
+
+export function capacitiesStamp(parts:readonly string[]){
+  let hash=0
+  for(const char of parts.join('\u001f'))hash=Math.imul(hash,31)+char.codePointAt(0)!|0
+  return (hash>>>0).toString(16)
 }
 
 export function capacitiesWebLinks(text:string){
@@ -173,8 +191,14 @@ export function capacitiesWebLinks(text:string){
 }
 
 /** Legt die Notiz einmal an, sucht die Person und hängt einen Verweis an das Projekt. */
-export async function saveMailAsNote(token:string,input:{noteId?:string;markdown:string;title:string;personName?:string;projectId?:string;projectLine?:string},fetchImpl:FetchLike=fetch){
-  if(input.noteId)return {noteId:input.noteId,created:false,personId:undefined as string|undefined}
+export async function saveMailAsNote(token:string,input:{noteId?:string;markdown:string;title:string;personName?:string;personAddress?:string;projectId?:string;supplement?:string},fetchImpl:FetchLike=fetch){
+  if(input.noteId){
+    const supplement=input.supplement?.trim()
+    if(!supplement)return {noteId:input.noteId,created:false,appended:false,personId:undefined as string|undefined}
+    if(!token.trim())throw new Error('Bitte den Capacities-Token in den Einstellungen eintragen.')
+    await api(token,fetchImpl)('/blocks/append','POST',{id:input.noteId,position:{type:'end'},markdown:input.supplement})
+    return {noteId:input.noteId,created:false,appended:true,personId:undefined as string|undefined}
+  }
   if(!token.trim())throw new Error('Bitte den Capacities-Token in den Einstellungen eintragen.')
   const call=api(token,fetchImpl)
   const structures=structuresOf(await call('/space/structures','GET'))
@@ -186,22 +210,27 @@ export async function saveMailAsNote(token:string,input:{noteId?:string;markdown
   let personId:string|undefined
   try{
     const name=input.personName?.trim()
-    if(personStructure&&name){
-      const found=await call('/objects/search','POST',{query:name,structureIds:[personStructure],limit:5}) as {results?:{id?:string;title?:string}[]}
-      const match=(found?.results||[]).find(row=>String(row.title||'').trim().toLowerCase()===name.toLowerCase())
+    const address=input.personAddress?.trim()
+    if(personStructure&&(name||address)){
+      const wanted=new Set([name||'',address||''].map(value=>value.toLowerCase()).filter(Boolean))
+      const look=async(query:string)=>{
+        const found=await call('/objects/search','POST',{query,structureIds:[personStructure],limit:5}) as {results?:{id?:string;title?:string}[]}
+        return (found?.results||[]).find(row=>wanted.has(String(row.title||'').trim().toLowerCase()))
+      }
+      const match=await look(name||address!)||(address&&address.toLowerCase()!==(name||'').toLowerCase()?await look(address):undefined)
       if(match?.id)personId=match.id
       else{
-        const person=await call('/object','POST',{structureId:personStructure,properties:{title:{type:'title',title:{value:name}}}}) as {id?:string}
+        const person=await call('/object','POST',{structureId:personStructure,properties:{title:{type:'title',title:{value:name||address}}}}) as {id?:string}
         if(person?.id)personId=person.id
       }
     }
-    if(input.projectId&&input.projectLine)await call('/blocks/append','POST',{id:input.projectId,position:{type:'end'},markdown:input.projectLine})
+    if(input.projectId)await call('/blocks/append','POST',{id:input.projectId,position:{type:'end'},blocks:[capacitiesProjectBlock(input.title,noteId)]})
   }catch(error){
     const wrapped=new CapacitiesSyncError(error instanceof Error?error.message:String(error))
     wrapped.kept={noteId,personId}
     throw wrapped
   }
-  return {noteId,created:true,personId}
+  return {noteId,created:true,appended:false,personId}
 }
 
 /** Neue http-Links einer schon angelegten Notiz werden Weblinks. Bekannte Links bleiben. */
@@ -236,7 +265,7 @@ export async function saveAtomicNote(token:string,input:{sentence:string;subject
 }
 
 export const capacitiesMailKey='mailboard-capacities-mails-v1'
-export type CapacitiesMailRecord={noteId?:string;personId?:string;links?:Record<string,string>;atoms?:Record<string,string>}
+export type CapacitiesMailRecord={noteId?:string;personId?:string;stamp?:string;links?:Record<string,string>;atoms?:Record<string,string>}
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 function keepId(value:unknown){return typeof value==='string'&&uuid.test(value)?value:undefined}
 function keepMap(value:unknown){
@@ -259,6 +288,7 @@ export function capacitiesMailRecord(id:string):CapacitiesMailRecord{
   const noteId=keepId(row.noteId),personId=keepId(row.personId)
   if(noteId)record.noteId=noteId
   if(personId)record.personId=personId
+  if(typeof row.stamp==='string'&&/^[0-9a-f]{1,8}$/i.test(row.stamp))record.stamp=row.stamp.toLowerCase()
   const links=keepMap(row.links),atoms=keepMap(row.atoms)
   if(links)record.links=links
   if(atoms)record.atoms=atoms

@@ -24,7 +24,7 @@ import { allCases, initCases, toggleCaseItem } from './cases'
 import { shortcutFor, type ShortcutAction } from './shortcuts'
 import { caseMails, caseNames, caseProgress, caseTag, CASE_PREFIX, focusTarget, FOCUS_TAG, hasFocus, withTag, type RoutineAction } from './planning-logic'
 import { loadCases, loadRoutines, updateCase, useSamplePlanning } from './planning-store'
-import { CapacitiesSyncError, capacitiesMailRecord, capacitiesNoteMarkdown, capacitiesPageMarkdown, capacitiesPersonName, capacitiesProjectLine, capacitiesToken, capacitiesWebLinks, saveAtomicNote, saveCapacitiesMail, saveCapacitiesToken, saveMailAsNote, saveMailLinks, syncCaseToCapacities } from './capacities'
+import { CapacitiesSyncError, capacitiesMailRecord, capacitiesNoteMarkdown, capacitiesPageMarkdown, capacitiesPersonAddress, capacitiesPersonName, capacitiesStamp, capacitiesSupplement, capacitiesToken, capacitiesWebLinks, saveAtomicNote, saveCapacitiesMail, saveCapacitiesToken, saveMailAsNote, saveMailLinks, syncCaseToCapacities } from './capacities'
 import { useSampleFeedback } from './ai-feedback'
 import { initTabs } from './tabs'
 import { initSetup, type OffBoardMail, type SetupFolder } from './setup'
@@ -566,20 +566,32 @@ async function publishMailNote(mail:Mail){
   const token=capacitiesToken()
   if(!token){notify('Bitte den Capacities-Token unter Outlook und lokale KI eintragen.');return}
   const saved=capacitiesMailRecord(mail.id)
-  if(saved.noteId){notify('Diese Mail ist schon eine Notiz in Capacities.');return}
+  const view=mail as typeof mail & {isSent?:boolean;recipients?:string}
+  const who=view.isSent?view.recipients||mail.sender:mail.sender
+  const stamp=capacitiesStamp([mail.subject||'',mail.body||'',mail.note||''])
+  if(saved.noteId){
+    if(saved.stamp===stamp){notify('Diese Mail ist schon eine Notiz in Capacities.');return}
+    noting=true
+    try{
+      await saveMailAsNote(token,{noteId:saved.noteId,markdown:'',title:mail.subject||'(ohne Betreff)',supplement:capacitiesSupplement(mail)})
+      saveCapacitiesMail(mail.id,{...saved,stamp})
+      notify('Nachtrag an die Capacities-Notiz angehängt.')
+      if(selected?.id===mail.id)fillCapacities(mail)
+    }catch(error){notify('Capacities: '+errorText(error))}
+    finally{noting=false}
+    return
+  }
   noting=true
   try{
     const same=(a:string,b:string)=>a.localeCompare(b,'de',{sensitivity:'base'})===0
     const project=caseNames(mail).map(name=>loadCases().find(c=>same(c.name,name))??allCases(mails).find(c=>same(c.name,name))).find(entry=>entry?.capacitiesId)
-    const view=mail as typeof mail & {isSent?:boolean;recipients?:string}
-    const person=view.isSent?capacitiesPersonName(view.recipients||mail.sender):capacitiesPersonName(mail.sender)
-    const result=await saveMailAsNote(token,{markdown:capacitiesNoteMarkdown(view),title:mail.subject||'(ohne Betreff)',personName:person,projectId:project?.capacitiesId,projectLine:capacitiesProjectLine(mail.subject||'')})
-    saveCapacitiesMail(mail.id,{...saved,noteId:result.noteId,personId:result.personId||saved.personId})
+    const result=await saveMailAsNote(token,{markdown:capacitiesNoteMarkdown(view),title:mail.subject||'(ohne Betreff)',personName:capacitiesPersonName(who),personAddress:capacitiesPersonAddress(who),projectId:project?.capacitiesId})
+    saveCapacitiesMail(mail.id,{...saved,noteId:result.noteId,personId:result.personId||saved.personId,stamp})
     notify('Mail als Notiz in Capacities angelegt.')
     if(selected?.id===mail.id)fillCapacities(mail)
   }catch(error){
     if(error instanceof CapacitiesSyncError&&error.kept){
-      saveCapacitiesMail(mail.id,{...capacitiesMailRecord(mail.id),noteId:error.kept.noteId,personId:error.kept.personId})
+      saveCapacitiesMail(mail.id,{...capacitiesMailRecord(mail.id),noteId:error.kept.noteId,personId:error.kept.personId,stamp})
       if(selected?.id===mail.id)fillCapacities(mail)
     }
     notify('Capacities: '+errorText(error))
@@ -925,7 +937,7 @@ async function start() {
   tokenInput.value=capacitiesToken();tokenInput.setAttribute('aria-label','Capacities-Token')
   tokenInput.onchange=()=>{saveCapacitiesToken(tokenInput.value.trim());notify(tokenInput.value.trim()?'Capacities-Token gespeichert.':'Capacities-Token entfernt.')}
   const tokenLabel=tag('label','Capacities-Token');tokenLabel.append(tokenInput)
-  const tokenHint=tag('p','Schreibt einen Vorgang als Projekt in Capacities. Fehlt dieser Typ, entsteht eine Seite. Die Checkliste wird zu Aufgaben. Eine Mail wird nur auf Klick zur Notiz, dann mit Text. Der Token steht nicht in der Sicherung.')
+  const tokenHint=tag('p','Schreibt einen Vorgang als Projekt in Capacities. Fehlt dieser Typ, entsteht eine Seite. Die Checkliste wird zu Aufgaben. Eine Mail wird nur auf Klick zur Notiz, dann mit Text. Hat sich der Text geändert, hängt der nächste Klick einen Nachtrag an. Der Token steht nicht in der Sicherung.')
   tokenHint.className='field-hint'
   parts.outlook.append(label,labelPrefix,tokenLabel,tokenHint)
   for(const [key,caption,fallback,min,max,part] of [

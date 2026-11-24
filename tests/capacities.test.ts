@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {restore, snapshot} from '../src/backup'
 import {normalizeCase} from '../src/planning-logic'
-import {CapacitiesSyncError, capacitiesFields, capacitiesNoteMarkdown, capacitiesPageMarkdown, capacitiesPageStructure, capacitiesProjectLine, capacitiesTokenKey, capacitiesWebLinks, saveAtomicNote, saveMailAsNote, saveMailLinks, syncCaseToCapacities} from '../src/capacities'
+import {CapacitiesSyncError, capacitiesFields, capacitiesNoteMarkdown, capacitiesPageMarkdown, capacitiesPageStructure, capacitiesProjectBlock, capacitiesStamp, capacitiesSupplement, capacitiesTokenKey, capacitiesWebLinks, saveAtomicNote, saveMailAsNote, saveMailLinks, syncCaseToCapacities} from '../src/capacities'
 
 const pageId='11111111-1111-4111-8111-111111111111'
 const taskId='22222222-2222-4222-8222-222222222222'
@@ -169,8 +169,11 @@ test('Eine übernommene Mail wird zur Notiz mit Text, der Verweis am Projekt ble
   assert.match(markdown,/GEHEIM im Mailtext/)
   assert.match(markdown,/Kosten\.xlsx/)
   assert.match(markdown,/lokal/)
-  assert.equal(capacitiesProjectLine('Angebot').includes('GEHEIM'),false)
-  assert.match(capacitiesProjectLine('Angebot'),/Notiz: Angebot/)
+  const link=capacitiesProjectBlock('Angebot',noteObjectId)
+  assert.equal(JSON.stringify(link).includes('GEHEIM'),false)
+  assert.deepEqual(link.tokens[0],{type:'LinkToken',text:'Angebot',entityId:noteObjectId})
+  assert.match(capacitiesSupplement({body:'Neuer Text',note:'Karte'}),/## Nachtrag\n\nKarte\n\nNeuer Text/)
+  assert.notEqual(capacitiesStamp(['Angebot','alt']),capacitiesStamp(['Angebot','neu']))
   assert.deepEqual(capacitiesWebLinks('siehe https://example.com/angebot). und https://example.com/angebot'),['https://example.com/angebot'])
 })
 
@@ -194,11 +197,51 @@ test('Mail als Notiz: vorhandene Person wiederverwenden, Projekt nur anhängen, 
   assert.equal((page?.body as {structureId:string}).structureId,notizId)
   assert.equal(calls.some(c=>c.path==='/object'&&c.method==='POST'),false)
   const append=calls.find(c=>c.path==='/blocks/append')
-  assert.equal(JSON.stringify(append?.body).includes('GEHEIM'),false)
+  assert.deepEqual(append?.body,{id:pageId,position:{type:'end'},blocks:[capacitiesProjectBlock('Angebot',noteObjectId)]})
   calls.length=0
-  const again=await saveMailAsNote('cap-api-test',{noteId:noteObjectId,markdown:'# Angebot\n\nGEHEIM',title:'Angebot',personName:'Anna',projectId:pageId,projectLine:'Notiz: Angebot'},fetchImpl)
+  const again=await saveMailAsNote('cap-api-test',{noteId:noteObjectId,markdown:'# Angebot\n\nGEHEIM',title:'Angebot',personName:'Anna',projectId:pageId},fetchImpl)
   assert.equal(again.created,false)
+  assert.equal(again.appended,false)
   assert.equal(calls.length,0)
+  const supplemented=await saveMailAsNote('cap-api-test',{noteId:noteObjectId,markdown:'# Angebot\n\nGEHEIM',title:'Angebot',supplement:'## Nachtrag\n\nNeuer Text'},fetchImpl)
+  assert.equal(supplemented.appended,true)
+  assert.equal(calls.some(c=>c.path==='/object/markdown'),false)
+  assert.equal(JSON.stringify(calls).includes('GEHEIM'),false)
+  assert.match(JSON.stringify(calls.find(c=>c.path==='/blocks/append')?.body),/Nachtrag/)
+})
+
+test('Eine Person mit der Mailadresse als Titel wird wiederverwendet',async()=>{
+  const calls:{path:string;method:string}[]=[]
+  const fetchImpl=async(url:string,init?:RequestInit)=>{
+    const path=url.replace('https://api.capacities.io','')
+    calls.push({path,method:init?.method||'GET'})
+    if(path==='/space/structures')return json({structures:spaceTypes})
+    if(path==='/object/markdown')return json({id:noteObjectId})
+    if(path==='/objects/search')return json({results:[{id:personObjectId,structureId:personStructureId,title:'anna@labor.de'}],nextCursor:null,hasMore:false})
+    return json({})
+  }
+  const created=await saveMailAsNote('cap-api-test',{markdown:'# Angebot',title:'Angebot',personName:'Anna',personAddress:'anna@labor.de'},fetchImpl)
+  assert.equal(created.personId,personObjectId)
+  assert.equal(calls.some(c=>c.path==='/object'&&c.method==='POST'),false)
+})
+
+test('Die Mailadresse wird erst gesucht, wenn der Name niemanden trifft',async()=>{
+  const queries:string[]=[]
+  const fetchImpl=async(url:string,init?:RequestInit)=>{
+    const path=url.replace('https://api.capacities.io','')
+    const body=init?.body?JSON.parse(String(init.body)) as {query?:string}:undefined
+    if(path==='/space/structures')return json({structures:spaceTypes})
+    if(path==='/object/markdown')return json({id:noteObjectId})
+    if(path==='/objects/search'){
+      queries.push(body?.query||'')
+      if(body?.query==='anna@labor.de')return json({results:[{id:personObjectId,structureId:personStructureId,title:'anna@labor.de'}],nextCursor:null,hasMore:false})
+      return json({results:[],nextCursor:null,hasMore:false})
+    }
+    return json({})
+  }
+  const created=await saveMailAsNote('cap-api-test',{markdown:'# Angebot',title:'Angebot',personName:'Anna',personAddress:'anna@labor.de'},fetchImpl)
+  assert.deepEqual(queries,['Anna','anna@labor.de'])
+  assert.equal(created.personId,personObjectId)
 })
 
 test('Links werden zu Weblinks, ein schon übernommener Link nicht noch einmal',async()=>{

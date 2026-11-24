@@ -83,8 +83,19 @@ try:
         assert '77777777-7777-4777-8777-777777777777' in note['body']
         appended = [call['body'] for call in calls if call['path']=='/blocks/append']
         assert appended and all('GEHEIM' not in body for body in appended)
+        assert any('LinkToken' in body and '33333333-3333-4333-8333-333333333333' in body for body in appended)
         detail.get_by_role('button', name='Notiz in Capacities vorhanden').click()
         expect(page.locator('#message')).to_contain_text('schon eine Notiz')
+        page.evaluate("""() => {
+          const key = 'mailboard-capacities-mails-v1'
+          const rows = JSON.parse(localStorage.getItem(key))
+          rows.aa.stamp = '0'
+          localStorage.setItem(key, JSON.stringify(rows))
+        }""")
+        detail.get_by_role('button', name='Notiz in Capacities vorhanden').click()
+        expect(page.locator('#message')).to_contain_text('Nachtrag an die Capacities-Notiz angehängt')
+        assert sum(call['path']=='/object/markdown' for call in calls) == 2
+        assert any('Nachtrag' in call['body'] for call in calls if call['path']=='/blocks/append')
         detail.get_by_role('button', name='Links in Capacities übernehmen').click()
         expect(page.locator('#message')).to_contain_text('Links in Capacities übernommen')
         assert any(call['path']=='/object/url' and 'https://example.com/angebot' in call['body'] for call in calls)
