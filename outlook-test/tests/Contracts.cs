@@ -185,6 +185,14 @@ internal static class Contracts
         dynamic card=cards.Single();
         Check(card.folderId=="01" && card.body=="intern" && card.status=="Warten","Karte");
         Check(ns.Inbox.Items.Descending && card.senderEmail=="labor@example.test","Sortierung und SMTP");
+        ns.Inbox.Items.values.Add(new FakeMail{EntryID="INBOX-STIL",Parent=ns.Inbox,Body="Nicht gesendet",SentOn=DateTime.Now});
+        for(int i=0;i<31;i++) ns.Sent.Items.values.Add(new FakeMail{EntryID="S"+i,Parent=ns.Sent,Body="Text "+i,To="anna@example.test",SentOn=DateTime.Now.AddMinutes(-i)});
+        var style=(List<object>)call(new[]{"--sent-style"});
+        Check(style.Count==30,"Höchstens 30 gesendete Mails");
+        Check(((string)((dynamic)style[0]).text).Contains("Text 0") && ((string)((dynamic)style[0]).to)=="anna@example.test","Neueste gesendete Mail zuerst");
+        Check(style.All(row=>!((string)((dynamic)row).text).Contains("Nicht gesendet") && !((string)((dynamic)row).text).Contains("Text 30")),"Posteingang und die älteste Mail fehlen");
+        ns.Sent.Items.values.Clear();
+        ns.Inbox.Items.values.RemoveAll(m=>m.EntryID=="INBOX-STIL");
         var unreadable=new FakeMail {EntryID="BA01",Parent=ns.Inbox,SubjectError=unchecked((int)0x80070005)};
         ns.Inbox.Items.values.Insert(0,unreadable);
         var reads=new[]{new[]{"--inbox"},new[]{"--folder","01"},new[]{"--backlog"},new[]{"--board","03"}};

@@ -266,6 +266,11 @@ async fn outlook_training(folder: String, limit: u32, days: u32) -> Result<Strin
 }
 
 #[tauri::command]
+async fn outlook_sent_style() -> Result<String, String> {
+    run_helper(vec!["--sent-style".into()]).await
+}
+
+#[tauri::command]
 async fn outlook_correspondence(days: u32, folders: Vec<String>) -> Result<String, String> {
     for id in &folders {
         validate_id(id)?;
@@ -324,6 +329,7 @@ fn main() {
             outlook_status,
             outlook_board,
             outlook_training,
+            outlook_sent_style,
             outlook_correspondence,
             backlog::outlook_backlog,
             outlook_field,
@@ -340,6 +346,7 @@ fn main() {
             ai::ai_suggest,
             ai::ai_subfolders,
             ai::ai_folder_name,
+            ai::ai_style,
             ai::ai_reply,
             ai::ai_profile,
             ai::ai_centroid,
