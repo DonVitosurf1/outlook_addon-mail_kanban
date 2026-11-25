@@ -24,9 +24,10 @@ pub fn enabled() -> bool {
     std::env::var_os("MAILBOARD_OUTLOOK_SERVER").is_some()
 }
 
-/// Läuft der Server und ist ansprechbar?
+/// Läuft der Server und ist ansprechbar? Nach einem Timeout oder Absturz `false`,
+/// damit `run_helper` wieder den C#-Helfer nutzt.
 pub fn ready() -> bool {
-    SERVER.get().is_some()
+    SERVER.get().map_or(false, |client| client.alive())
 }
 
 /// Startet den Server, wenn er angefordert ist. Schlägt der Start fehl, bleibt der
@@ -50,10 +51,20 @@ fn start() -> Result<(), String> {
         return Err(format!("Serverskript fehlt: {}", script.display()));
     }
     let demo = std::env::var_os("MAILBOARD_SERVER_DEMO").is_some();
-    let client = Client::start(&python, &script, demo)?;
+    let client = Client::start(&python, &script, demo, timeout())?;
     SERVER
         .set(client)
         .map_err(|_| "Server läuft bereits.".to_string())
+}
+
+/// Höchstwartezeit je Befehl (MAILBOARD_SERVER_TIMEOUT in Sekunden, Vorgabe 120).
+fn timeout() -> std::time::Duration {
+    let seconds = std::env::var("MAILBOARD_SERVER_TIMEOUT")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .unwrap_or(120);
+    std::time::Duration::from_secs(seconds)
 }
 
 fn script_path() -> Result<PathBuf, String> {

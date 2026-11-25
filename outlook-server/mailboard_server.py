@@ -57,6 +57,9 @@ class DemoBackend:
     def folders(self):
         return self._folders
 
+    def inbox_ids(self):
+        return [f["id"] for f in self._folders if f.get("isInbox")]
+
     def cards(self, folder_ids):
         base = {
             "storeId": "DEMO-STORE", "conversationId": "", "senderEmail": "anna@example.com",
@@ -130,6 +133,11 @@ class OutlookBackend:
         result = []
         self._walk(root, "", None, 0, result)
         return result
+
+    def inbox_ids(self):
+        # Billig: nur die Posteingangs-ID, ohne den ganzen Ordnerbaum zu durchlaufen.
+        self._connect()
+        return [self._inbox_id]
 
     def _walk(self, parent, absolute, relative, depth, result):
         for sub in parent.Folders:
@@ -252,7 +260,12 @@ def _naive(value):
 def _iso(value) -> str:
     if value is None:
         return ""
-    return value.replace(tzinfo=None).isoformat()
+    # Mit lokalem Zeitzonen-Offset, wie der C#-Helfer ("o"-Format). Ohne Offset läse
+    # JavaScript die Zeit sonst als UTC/lokal falsch und Empfangszeiten verrutschten.
+    try:
+        return value.astimezone().isoformat()
+    except (ValueError, OSError):
+        return value.replace(tzinfo=None).isoformat()
 
 
 def _categories(text: str):
@@ -301,6 +314,12 @@ def handle(backend, args):
     if command == "--ping":
         return json.dumps("pong")
 
+    if command == "--sleep":
+        # Nur zum Prüfen des Timeout-Pfads: wartet die angegebenen Millisekunden.
+        import time
+        time.sleep(_int(args[1] if len(args) > 1 else "0", 0, 600000, 0) / 1000)
+        return json.dumps("slept")
+
     if command == "--folders":
         return json.dumps(backend.folders(), ensure_ascii=False)
 
@@ -320,7 +339,7 @@ def _board_folders(backend, command, args):
             raise ValueError("--folder braucht eine Ordner-ID.")
         return [args[1]]
 
-    ids = {f["id"] for f in backend.folders() if f.get("isInbox")}
+    ids = set(backend.inbox_ids())
     if command == "--board" and len(args) > 1:
         try:
             for fid in json.loads(args[1]):

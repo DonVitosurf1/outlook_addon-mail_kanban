@@ -56,6 +56,7 @@ Von Hand lässt es sich über diese Variablen steuern (vor dem Start von `Mail-B
 | `MAILBOARD_PYTHON=C:\Pfad\zu\python.exe` | Welches Python (z. B. die `python.exe` der vorhandenen venv aus der alten App). Vorgabe: `python` aus dem PATH |
 | `MAILBOARD_SERVER_SCRIPT=…\mailboard_server.py` | Pfad zum Skript. Vorgabe: `outlook-server\mailboard_server.py` neben der EXE |
 | `MAILBOARD_SERVER_DEMO=1` | Beispieldaten statt echtem Outlook (nur zum Prüfen der Mechanik) |
+| `MAILBOARD_SERVER_TIMEOUT=120` | Höchstwartezeit je Befehl in Sekunden. Nach Überschreitung gilt der Server als tot und die App fällt auf den C#-Helfer zurück |
 
 Beispiel (PowerShell):
 
@@ -68,7 +69,8 @@ $env:MAILBOARD_PYTHON = "$env:LOCALAPPDATA\OutlookKanban\venv\Scripts\python.exe
 Voraussetzung für echtes Outlook: Python mit `pywin32` (`pip install pywin32`). Die venv der
 alten Python-App bringt das bereits mit – dann zeigt `MAILBOARD_PYTHON` einfach dorthin.
 Startet der Server nicht (Python fehlt, Skript fehlt), fällt die App auf den C#-Helfer zurück
-und schreibt den Grund ins Protokoll.
+und schreibt den Grund ins Protokoll. Dasselbe gilt, wenn der Server später abstürzt oder bei
+einem Befehl das Zeitlimit überschreitet: Dann gilt er als tot und die App nutzt wieder den Helfer.
 
 ## Rückwechsel
 
