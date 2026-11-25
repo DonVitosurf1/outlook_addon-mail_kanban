@@ -45,7 +45,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler,
             assert page.evaluate('calls') == ['outlook_folders']
             expect(page.locator('#outlookTest')).to_be_visible()
             page.locator('#outlookTest').click()
-            expect(page.locator('#message')).to_contain_text('Outlook-Testfenster geöffnet')
+            expect(page.locator('#message')).to_contain_text('Outlook-Testfenster gestartet')
             assert page.evaluate("calls.includes('outlook_test_window')")
             page.evaluate("mode='slow'")
             page.locator('#loadInbox').click()

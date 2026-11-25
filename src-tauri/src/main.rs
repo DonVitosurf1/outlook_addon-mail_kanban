@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use mailboard_args::{draft_args, folder_counts_args, full_helper, legacy_test, validate_id};
+use mailboard_args::{draft_args, folder_counts_args, validate_id};
+#[cfg(windows)]
+use mailboard_args::{full_helper, legacy_test};
 
 static STATUS_PREFIX: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
@@ -197,10 +199,18 @@ async fn outlook_test_window() -> Result<(), String> {
     {
         tauri::async_runtime::spawn_blocking(|| {
             let helper = legacy_test(&std::env::current_exe().map_err(|e| e.to_string())?)?;
-            std::process::Command::new(helper)
+            let mut child = std::process::Command::new(helper)
                 .spawn()
-                .map(|_| ())
-                .map_err(|error| format!("Outlook-Test.exe konnte nicht starten: {error}"))
+                .map_err(|error| format!("Outlook-Test.exe konnte nicht starten: {error}"))?;
+            // Ein sofortiger Absturz (fehlende Laufzeit, Sperre) soll nicht als Erfolg gemeldet werden.
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            match child.try_wait() {
+                Ok(Some(status)) if !status.success() => {
+                    Err(format!("Outlook-Test.exe wurde sofort beendet ({status})."))
+                }
+                Ok(_) => Ok(()),
+                Err(error) => Err(format!("Outlook-Test.exe lässt sich nicht prüfen: {error}")),
+            }
         })
         .await
         .map_err(|error| error.to_string())?

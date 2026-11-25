@@ -66,6 +66,7 @@ const isLive=()=>mailbox==='outlook'
 const hasMailbox=()=>mailbox!=='offline'
 let busy=false
 let connection:object|undefined
+let launchingTest=false
 let scope=''
 let selected:Mail|undefined
 let syncColors:ReturnType<typeof colorSettings>
@@ -98,7 +99,8 @@ async function exclusive(action:()=>Promise<void>) {
   }
 }
 function controls() {
-  inboxButton.disabled=el<HTMLButtonElement>('connectOutlook').disabled=el<HTMLButtonElement>('outlookTest').disabled=busy||!!connection
+  inboxButton.disabled=el<HTMLButtonElement>('connectOutlook').disabled=busy||!!connection
+  el<HTMLButtonElement>('outlookTest').disabled=launchingTest
   back.disabled=busy
   undoButton.disabled=busy||!(isLive()?(service?.canUndo||projectUndoLatest()):demoUndo.length)
   undoButton.title=undoTooltip(latestUndoLabel())
@@ -198,14 +200,20 @@ async function refresh(key=scope) {
   if(!Array.isArray(rows))throw new Error('Outlook lieferte keine Mailliste.')
   sourceUpdated(rows,'outlook',folders,key)
 }
+// Unabhängig von busy/connection: Das Testfenster hilft gerade dann, wenn eine Verbindung hängt.
 async function openOutlookTest() {
-  if(!service||busy)return
-  notify('Outlook-Testfenster wird geöffnet …')
+  if(!service||launchingTest)return
+  launchingTest=true
+  controls()
+  notify('Outlook-Testfenster wird gestartet …')
   try {
     await service.invoke('outlook_test_window')
-    notify('Outlook-Testfenster geöffnet. Es liest den Posteingang. Das Board bleibt unverändert.')
+    notify('Outlook-Testfenster gestartet. Es liest den Posteingang. Das Board bleibt unverändert.')
   } catch(error) {
     notify(errorText(error))
+  } finally {
+    launchingTest=false
+    controls()
   }
 }
 async function connect(startOutlook=false) {
