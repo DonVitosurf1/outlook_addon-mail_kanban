@@ -22,6 +22,7 @@ window.__TAURI__={core:{invoke:async(command)=>{
     sender:'Anna',body:'Text',status:'Offen',tags:[],attachments:[]}])
   if(command==='outlook_categories')return '[]'
   if(command==='outlook_correspondence')return '{"sent":[],"incoming":[]}'
+  if(command==='outlook_test_window')return
   throw Error('Unerwarteter Outlook-Aufruf: '+command)
 }}}
 """
@@ -42,6 +43,10 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler,
             expect(page.locator('.card')).to_have_count(0)
             expect(page.locator('#projectTools')).to_be_hidden()
             assert page.evaluate('calls') == ['outlook_folders']
+            expect(page.locator('#outlookTest')).to_be_visible()
+            page.locator('#outlookTest').click()
+            expect(page.locator('#message')).to_contain_text('Outlook-Testfenster geöffnet')
+            assert page.evaluate("calls.includes('outlook_test_window')")
             page.evaluate("mode='slow'")
             page.locator('#loadInbox').click()
             page.wait_for_function('typeof releaseFolders==="function"')
@@ -61,6 +66,7 @@ with ThreadingHTTPServer(('127.0.0.1', 0), partial(SimpleHTTPRequestHandler,
             expect(page.locator('#message')).to_contain_text('1 Ordner liegt tiefer als acht Ebenen und wird nicht angezeigt.')
             if os.environ.get('MAILBOARD_SHOT'): page.screenshot(path=os.environ['MAILBOARD_SHOT'])
             expect(page.locator('.foot')).to_have_text('Klassisches Outlook')
+            page.evaluate("mode='closed'")
             page.reload()
             expect(page.locator('#message')).to_contain_text('Outlook ist geschlossen')
             expect(page.locator('.card')).to_have_count(0)

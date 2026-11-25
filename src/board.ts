@@ -15,6 +15,7 @@ import { BoardViews, matchesQuery } from './views'
 import { initCorrespondence, demoSentRows } from './correspondence'
 import { initCockpit, recordWeekly } from './cockpit'
 import { maybeIntro } from './intro'
+import { outlookLoadError } from './outlook-link'
 import { initTriage } from './triage'
 import { followSourceText, suggestFollowUp, type FollowSuggestion } from './follow-up'
 import { localDay } from './views-logic'
@@ -97,7 +98,7 @@ async function exclusive(action:()=>Promise<void>) {
   }
 }
 function controls() {
-  inboxButton.disabled=el<HTMLButtonElement>('connectOutlook').disabled=busy||!!connection
+  inboxButton.disabled=el<HTMLButtonElement>('connectOutlook').disabled=el<HTMLButtonElement>('outlookTest').disabled=busy||!!connection
   back.disabled=busy
   undoButton.disabled=busy||!(isLive()?(service?.canUndo||projectUndoLatest()):demoUndo.length)
   undoButton.title=undoTooltip(latestUndoLabel())
@@ -197,6 +198,16 @@ async function refresh(key=scope) {
   if(!Array.isArray(rows))throw new Error('Outlook lieferte keine Mailliste.')
   sourceUpdated(rows,'outlook',folders,key)
 }
+async function openOutlookTest() {
+  if(!service||busy)return
+  notify('Outlook-Testfenster wird geöffnet …')
+  try {
+    await service.invoke('outlook_test_window')
+    notify('Outlook-Testfenster geöffnet. Es liest den Posteingang. Das Board bleibt unverändert.')
+  } catch(error) {
+    notify(errorText(error))
+  }
+}
 async function connect(startOutlook=false) {
   if(!service||busy||connection)return
   const request={}
@@ -221,7 +232,7 @@ async function connect(startOutlook=false) {
     }catch(error){
       if(connection!==request)return
       sourceUpdated([],'offline',[],'')
-      notify('Outlook konnte nicht geladen werden. '+errorText(error))
+      notify(outlookLoadError(errorText(error)))
     }finally{
       if(connection===request)connection=undefined
       controls()
@@ -1056,6 +1067,9 @@ async function start() {
     inboxButton.hidden=false;inboxButton.onclick=()=>void connect()
     el('openOriginal').onclick=()=>{if(isLive()&&selected)void openOriginal(selected)}
     el('connectOutlook').onclick=()=>void connect(true)
+    const outlookTest=el<HTMLButtonElement>('outlookTest')
+    outlookTest.hidden=false
+    outlookTest.onclick=()=>void openOutlookTest()
     for(const button of document.querySelectorAll<HTMLButtonElement>('button[data-draft]'))
       button.onclick=()=>{if(selected)void draft(selected,button.dataset.draft!,el<HTMLSelectElement>('draftSnippet').value)}
     window.addEventListener('mailboard:foldersChanged',()=>void reloadFolders())

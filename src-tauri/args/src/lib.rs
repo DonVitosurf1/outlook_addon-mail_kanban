@@ -5,6 +5,29 @@ const HELPER_PATH_BUDGET: usize = 4_096;
 /// Höchstlänge der Ordnerliste auf der Befehlszeile (Rest für Programmpfad und andere Argumente).
 const MAX_FOLDER_LIST: usize = 24_000;
 
+pub const MISSING_HELPER: &str = "Mail-Board-Outlook.exe fehlt neben Mail-Board.exe. Lege Outlook-Test.exe aus dem Ordner vom 20. November daneben und wähle „Outlook-Verbindung testen“.";
+pub const MISSING_LEGACY: &str = "Outlook-Test.exe liegt nicht neben Mail-Board.exe. Kopiere die Datei vom 20. November in denselben Ordner.";
+
+/// Die neue Helferdatei direkt neben der laufenden App.
+pub fn full_helper(exe: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let path = exe.with_file_name("Mail-Board-Outlook.exe");
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(MISSING_HELPER.into())
+    }
+}
+
+/// Die Programmdatei vom 20. November, die den Posteingang in einem eigenen Fenster zeigt.
+pub fn legacy_test(exe: &std::path::Path) -> Result<std::path::PathBuf, String> {
+    let path = exe.with_file_name("Outlook-Test.exe");
+    if path.is_file() {
+        Ok(path)
+    } else {
+        Err(MISSING_LEGACY.into())
+    }
+}
+
 pub fn validate_id(id: &str) -> Result<(), String> {
     if id.is_empty() || id.len() > 8192 || !id.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("Ungültige Outlook-ID.".into());
@@ -71,7 +94,37 @@ pub fn draft_args(id: &str, folder: &str, mode: &str, text: &str) -> Result<Vec<
 
 #[cfg(test)]
 mod tests {
-    use super::{draft_args, folder_counts_args};
+    use super::{draft_args, folder_counts_args, full_helper, legacy_test};
+    use std::fs;
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("mailboard-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn full_helper_requires_the_file_beside_the_app() {
+        let dir = scratch("full");
+        let exe = dir.join("Mail-Board.exe");
+        let message = full_helper(&exe).unwrap_err();
+        assert!(message.contains("Outlook-Test.exe"), "{message}");
+        assert!(message.contains("20. November"), "{message}");
+        fs::write(dir.join("Mail-Board-Outlook.exe"), b"x").unwrap();
+        assert_eq!(full_helper(&exe).unwrap(), dir.join("Mail-Board-Outlook.exe"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn legacy_window_uses_the_november_test_program() {
+        let dir = scratch("legacy");
+        let exe = dir.join("Mail-Board.exe");
+        assert!(legacy_test(&exe).unwrap_err().contains("Outlook-Test.exe"));
+        fs::write(dir.join("Outlook-Test.exe"), b"x").unwrap();
+        assert_eq!(legacy_test(&exe).unwrap(), dir.join("Outlook-Test.exe"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn folder_counts() {
