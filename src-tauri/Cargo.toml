@@ -9,6 +9,7 @@ tauri-build = "2"
 [dependencies]
 mailboard-ollama = { path = "ollama" }
 mailboard-args = { path = "args" }
+mailboard-server-client = { path = "server-client" }
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 tauri = "2"
@@ -19,4 +20,4 @@ default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
 
 [workspace]
-members = ["ollama", "args"]
+members = ["ollama", "args", "server-client"]

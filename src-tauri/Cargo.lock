@@ -1860,6 +1860,7 @@ version = "0.2.2"
 dependencies = [
  "mailboard-args",
  "mailboard-ollama",
+ "mailboard-server-client",
  "serde",
  "serde_json",
  "tauri",
@@ -1884,6 +1885,13 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "tokio",
+]
+
+[[package]]
+name = "mailboard-server-client"
+version = "0.2.2"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

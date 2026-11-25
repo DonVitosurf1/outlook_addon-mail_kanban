@@ -28,6 +28,10 @@ jobs:
           node-version: 22
           cache: npm
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
@@ -38,8 +42,11 @@ jobs:
       - name: Fachlogik (npm test)
         run: npm test
 
-      - name: Lokales Modellprotokoll (Rust)
-        run: cargo test --manifest-path src-tauri/Cargo.toml -p mailboard-ollama -p mailboard-args
+      - name: Lokales Modellprotokoll und Hintergrundserver (Rust)
+        run: cargo test --manifest-path src-tauri/Cargo.toml -p mailboard-ollama -p mailboard-args -p mailboard-server-client
+
+      - name: Outlook-Hintergrundserver über die Pipe (Python, Demo)
+        run: python tests/outlook-server-smoke.py
 
       - name: Outlook-Helfer mit simuliertem Outlook (C#)
         run: dotnet run --project outlook-test/tests/OutlookContracts.csproj

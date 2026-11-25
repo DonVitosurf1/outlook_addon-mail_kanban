@@ -24,6 +24,9 @@ files['Start.txt']=new TextEncoder().encode([
   'Den vollständigen Test mit Verschieben und Strg+Z beschreibt Windows-Pruefliste.md.',
 ].join('\r\n'))
 files['Windows-Pruefliste.md']=new Uint8Array(await readFile('docs/WINDOWS-ABNAHME.md'))
+// Versuchsweiser Outlook-Hintergrundserver. Liegt neben der EXE unter outlook-server/
+// und wird nur mit gesetztem MAILBOARD_OUTLOOK_SERVER genutzt (siehe outlook-server/README.md).
+files['outlook-server/mailboard_server.py']=new Uint8Array(await readFile('outlook-server/mailboard_server.py'))
 const archive=zipSync(files,{level:6})
 const unpacked=unzipSync(archive)
 for(const [key,bytes] of Object.entries(files))

@@ -1,0 +1,8 @@
+[package]
+name = "mailboard-server-client"
+version = "0.2.2"
+edition = "2021"
+description = "Startet den Outlook-Hintergrundserver und spricht über eine stdin/stdout-Pipe mit ihm"
+
+[dependencies]
+serde_json = "1"

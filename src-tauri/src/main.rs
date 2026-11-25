@@ -17,6 +17,15 @@ fn outlook_prefix(prefix: String) -> Result<(), String> {
 }
 
 async fn run_helper(args: Vec<String>) -> Result<String, String> {
+    // Versuchsweg: dauerhaft laufender Python-Server statt einer EXE je Befehl.
+    if outlook_source::ready() {
+        return tauri::async_runtime::spawn_blocking(move || {
+            let _write_guard = desktop::WriteGuard::for_command(args.first())?;
+            outlook_source::call(args)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -302,6 +311,7 @@ mod ai;
 mod backlog;
 mod desktop;
 mod lifetime;
+mod outlook_source;
 mod projects;
 fn main() {
     use tauri_plugin_window_state::{Builder as WindowState, StateFlags};
@@ -311,6 +321,10 @@ fn main() {
                 .with_state_flags(StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED)
                 .build(),
         )
+        .setup(|_app| {
+            outlook_source::try_start();
+            Ok(())
+        })
         .on_window_event(desktop::window_event)
         .on_page_load(|_, payload| {
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
@@ -363,6 +377,11 @@ fn main() {
             ai::ai_clusters,
             ai::ai_cluster_name
         ])
-        .run(tauri::generate_context!())
-        .expect("Das Mail-Board konnte nicht gestartet werden");
+        .build(tauri::generate_context!())
+        .expect("Das Mail-Board konnte nicht gestartet werden")
+        .run(|_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                outlook_source::shutdown();
+            }
+        });
 }
