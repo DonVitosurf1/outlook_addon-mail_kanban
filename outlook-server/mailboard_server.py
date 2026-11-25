@@ -344,6 +344,13 @@ def pick_backend(force_demo: bool):
 
 
 def main(argv):
+    # Die Pipe muss unabhängig von der Windows-Codepage UTF-8 sein, sonst liest die
+    # Rust-Seite kaputte Bytes. Zusätzlich sendet _reply reines ASCII (Umlaute als \uXXXX).
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", newline="\n")
+        except (AttributeError, ValueError):
+            pass
     backend = pick_backend("--demo" in argv)
     # stdout strikt den Antworten vorbehalten; eine Bereitschaftszeile geht auf stderr.
     log(f"bereit, Quelle={backend.name}")
@@ -368,7 +375,9 @@ def main(argv):
 
 def _reply(req_id, ok, out, err):
     payload = {"id": req_id, "ok": ok, "out": out, "err": err}
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    # ensure_ascii=True: Umlaute werden zu \uXXXX, die Zeile ist damit reines ASCII
+    # und unabhängig von der Konsolen-Codepage gültiges UTF-8.
+    sys.stdout.write(json.dumps(payload) + "\n")
     sys.stdout.flush()
 
 
