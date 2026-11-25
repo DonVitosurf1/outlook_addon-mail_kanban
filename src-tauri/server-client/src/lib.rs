@@ -87,7 +87,10 @@ impl Client {
             alive: AtomicBool::new(true),
             timeout,
         };
-        match client.call(vec!["--ping".into()]) {
+        // Bereitschaft darf länger dauern als ein normaler Befehl: der erste Aufruf
+        // schließt den Python-Kaltstart ein (Interpreter hochfahren, Importe).
+        let ready_timeout = timeout.max(Duration::from_secs(20));
+        match client.call_inner(vec!["--ping".into()], ready_timeout) {
             Ok(out) if out == "\"pong\"" => Ok(client),
             Ok(other) => Err(format!("Unerwartete Antwort auf --ping: {other}")),
             Err(err) => Err(format!("Python-Server antwortet nicht: {err}")),
@@ -103,6 +106,11 @@ impl Client {
     /// Schickt einen Befehl und gibt den JSON-Text zurück (wie der bisherige Helfer),
     /// oder den Fehlertext des Servers. Wartet höchstens `timeout`.
     pub fn call(&self, args: Vec<String>) -> Result<String, String> {
+        let timeout = self.timeout;
+        self.call_inner(args, timeout)
+    }
+
+    fn call_inner(&self, args: Vec<String>, timeout: Duration) -> Result<String, String> {
         if !self.alive() {
             return Err("Der Outlook-Server ist nicht mehr aktiv.".into());
         }
@@ -119,7 +127,7 @@ impl Client {
 
         // Antworten kommen der Reihe nach; die ID wird trotzdem geprüft.
         loop {
-            match link.rx.recv_timeout(self.timeout) {
+            match link.rx.recv_timeout(timeout) {
                 Ok(line) => {
                     let trimmed = line.trim();
                     if trimmed.is_empty() {
