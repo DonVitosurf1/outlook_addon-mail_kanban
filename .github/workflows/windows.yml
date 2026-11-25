@@ -1,11 +1,11 @@
 # Baut Mail-Board auf einem Windows-Rechner von GitHub: Tests, Outlook-Helfer, Desktop-App und ZIP.
-# Jeder Lauf hängt das ZIP als Artefakt an. Auf main wird es zusätzlich als Release „aktuell“ veröffentlicht,
-# damit der Download-Link im README immer auf den neuesten Stand zeigt.
+# Jeder Push und jeder Pull Request startet den Bau. Das ZIP hängt am Lauf.
+# Ein Push auf main ersetzt zusätzlich das Release „aktuell“, damit der Download-Link im README
+# immer auf den neuesten Stand von main zeigt.
 name: Windows-Paket
 
 on:
   push:
-    branches: [main, 'claude/**']
   pull_request:
   workflow_dispatch:
 
