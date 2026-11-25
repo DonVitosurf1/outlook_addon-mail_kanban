@@ -42,7 +42,13 @@ klaren Fehler. Für den vollen Umfang müsste die restliche COM-Logik aus
 ## Einschalten (auf dem Windows-Rechner)
 
 Der Server ist **standardmäßig aus**; die erprobte `Mail-Board-Outlook.exe` bleibt die Vorgabe.
-Zum Ausprobieren vor dem Start von `Mail-Board.exe` setzen:
+
+**Am einfachsten:** im entpackten Ordner `Mail-Board-mit-Server.cmd` doppelklicken. Das Skript
+schaltet den Server ein, sucht ein passendes Python (zuerst die venv der alten Python-App),
+weist bei fehlendem `pywin32` darauf hin und startet die App. Mit `Mail-Board-mit-Server.cmd demo`
+läuft es mit Beispieldaten. Zum Zurückschalten einfach wieder `Mail-Board.exe` direkt starten.
+
+Von Hand lässt es sich über diese Variablen steuern (vor dem Start von `Mail-Board.exe` setzen):
 
 | Variable | Wirkung |
 |---|---|
