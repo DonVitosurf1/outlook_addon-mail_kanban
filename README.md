@@ -19,7 +19,7 @@ Mail-Board ist eine eigenständige Windows-App für das tägliche Sichten, Nachv
 
 ## Unter Windows ausprobieren
 
-1. [Windows-x64-ZIP herunterladen](https://github.com/DonVitosurf1/outlook_addon-mail_kanban/releases/latest/download/Mail-Board-Windows-x64.zip) und den **gesamten Inhalt** in einen beschreibbaren Ordner entpacken. GitHub baut das ZIP nach jeder Änderung an `main` automatisch neu (Release „aktuell“). App und Outlook-Helfer passen darin immer zusammen.
+1. [Windows-x64-ZIP herunterladen](https://github.com/DonVitosurf1/outlook_addon-mail_kanban/releases/latest/download/Mail-Board-Windows-x64.zip) und den **gesamten Inhalt** in einen beschreibbaren Ordner entpacken. GitHub baut das Paket bei jedem Push und jedem Pull Request automatisch. Ein Push auf `main` ersetzt das Release „aktuell“, der Download-Link zeigt also immer auf diesen Stand. App und Outlook-Helfer passen darin immer zusammen.
 2. **Mail-Board.exe** starten. Die App verbindet sich beim Start automatisch mit dem eingerichteten Profil in **klassischem Outlook für Windows**. Der mitgelieferte Outlook-Helfer muss neben der EXE liegen.
 3. Falls die Verbindung fehlschlägt, zeigt das leere Board den Grund an. Klassisches Outlook mit dem gewünschten Profil öffnen, eventuelle Outlook-Dialoge schließen und die Verbindung im Board erneut versuchen.
 4. Unter **Werkzeuge → Projektordner verwalten** einen vorhandenen Testordner als Board- und Lernziel wählen. Der Dialog heißt **Ordner und Steckbriefe**. Unter **Werkzeuge → Outlook und lokale KI** „Echte Mails verschieben erlauben“ einschalten. **Werkzeuge → Einrichtung** führt dieselben Entscheidungen als Schritte durch Ordnerwahl, Lernen und Posteingang; für eine einzelne Probe reicht der kürzere Weg über den Projektordner.
